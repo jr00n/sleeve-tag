@@ -1,0 +1,4 @@
+# Vastgelegd zodat de kwaliteitspoort op elke machine en in CI identiek draait.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

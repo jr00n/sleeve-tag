@@ -1,0 +1,6 @@
+/target
+
+# Bevat het host-pad van de muziekshare; hoort niet in Git (zie .env.example).
+.env
+
+.DS_Store
