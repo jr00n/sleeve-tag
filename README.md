@@ -102,6 +102,54 @@ Opnieuw genereren (alleen nodig bij een nieuwe variant):
 tests/fixtures/genereer-fixtures.sh   # vereist ffmpeg
 ```
 
+## Productie-image bouwen
+
+De NAS draait `linux/amd64`, de ontwikkelmachine is Apple Silicon. Het image
+wordt daarom expliciet voor dat platform gebouwd:
+
+```sh
+docker buildx build --platform linux/amd64 -t sleeve-tag:dev .
+```
+
+De build-stage draait daarbij geëmuleerd; reken op enkele minuten voor een
+schone build. Een wijziging in alleen de broncode hergebruikt de laag met de
+gecompileerde dependencies en is daarna een stuk sneller.
+
+Het resultaat is een statisch gelinkte binary (`x86_64-unknown-linux-musl`) in
+een distroless-image: geen shell, geen package manager, geen Rust-toolchain.
+Het image is ongeveer 6,5 MB.
+
+### Als de build wordt afgeschoten
+
+Onder emulatie is elk `rustc`-proces fors zwaarder dan native. Op een builder met
+weinig geheugen wordt een crate dan door de OOM-killer gestopt, zichtbaar als
+`signal: 9, SIGKILL` halverwege het compileren. De Dockerfile beperkt daarom het
+aantal parallelle jobs tot twee. Heeft de builder ruim geheugen, dan mag dat
+omhoog:
+
+```sh
+docker buildx build --platform linux/amd64 --build-arg BUILD_JOBS=8 -t sleeve-tag:dev .
+```
+
+### Naar de NAS brengen
+
+Zolang er nog geen image in een registry staat, gaat het handmatig:
+
+```sh
+docker save sleeve-tag:dev | ssh <nas> docker load
+```
+
+Vanaf de release-workflow haalt de NAS het image op met `docker compose pull`.
+
+### Podman in plaats van Docker
+
+Podman leest dezelfde Dockerfile en kent dezelfde vlaggen; vervang `docker` door
+`podman` (zonder `buildx`):
+
+```sh
+podman build --platform linux/amd64 -t sleeve-tag:dev .
+```
+
 ## Projectstructuur
 
 | Module | Verantwoordelijkheid |

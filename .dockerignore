@@ -1,0 +1,13 @@
+# De buildcontext wordt volledig naar de daemon gestuurd; target/ is enkele GB's
+# groot en de build-stage compileert toch zelf opnieuw.
+target/
+
+# Projectbeheer en versiegeschiedenis horen niet in een image.
+backlog/
+.git/
+.github/
+
+# Bevat het host-pad van de muziekshare.
+.env
+
+.DS_Store
