@@ -2,9 +2,6 @@
 //!
 //! De weergavenaam van de applicatie is "Sleeve"; `sleeve-tag` is de technische
 //! naam (crate, binary, Docker-image, containerhostnaam).
-//!
-//! In deze fase is de binary bewust minimaal: hij leest zijn configuratie, zet
-//! logging op en sluit af. De HTTP-server komt in de webserver-taak van fase 0.
 
 mod config;
 mod fs;
@@ -12,10 +9,19 @@ mod tags;
 mod web;
 
 use std::io::IsTerminal;
+use std::net::{Ipv4Addr, SocketAddr};
+use std::path::Path;
 
 use clap::Parser;
 
-fn main() {
+/// Map met de statische assets, relatief aan de werkdirectory.
+///
+/// Bij `cargo run` is dat de projectroot; in de container de `WORKDIR` waarin
+/// dezelfde map wordt meegekopieerd.
+const STATIC_DIR: &str = "static";
+
+#[tokio::main]
+async fn main() {
     // Eerst de configuratie: die bepaalt het logniveau. Gaat het parsen mis, dan
     // print clap zelf een melding op stderr en stopt het proces met een
     // foutcode — precies wat je wilt als een container verkeerd is ingesteld.
@@ -30,4 +36,59 @@ fn main() {
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "Sleeve gestart");
     config.log_effective();
+
+    // 0.0.0.0 omdat de app in een container draait en van buiten de
+    // netwerknamespace bereikbaar moet zijn. Afscherming gebeurt op
+    // netwerkniveau (LAN en Tailscale), zoals het PRD vastlegt.
+    let adres = SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port));
+    let app = web::router(config, Path::new(STATIC_DIR));
+
+    let listener = match tokio::net::TcpListener::bind(adres).await {
+        Ok(listener) => listener,
+        Err(fout) => {
+            tracing::error!(%adres, %fout, "kan niet op het adres luisteren");
+            std::process::exit(1);
+        }
+    };
+
+    tracing::info!(%adres, "webserver luistert");
+
+    if let Err(fout) = axum::serve(listener, app)
+        .with_graceful_shutdown(afsluitsignaal())
+        .await
+    {
+        tracing::error!(%fout, "webserver is met een fout gestopt");
+        std::process::exit(1);
+    }
+
+    tracing::info!("Sleeve afgesloten");
+}
+
+/// Wacht op Ctrl-C of SIGTERM.
+///
+/// `docker stop` stuurt SIGTERM. Netjes afsluiten betekent dat een lopend
+/// verzoek zijn werk afmaakt in plaats van halverwege afgekapt te worden — bij
+/// een app die tags naar bestanden schrijft is dat geen luxe.
+async fn afsluitsignaal() {
+    let ctrl_c = async {
+        tokio::signal::ctrl_c()
+            .await
+            .expect("Ctrl-C-signaal moet te installeren zijn");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
+            .expect("SIGTERM-signaal moet te installeren zijn")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        () = ctrl_c => tracing::info!("Ctrl-C ontvangen, afsluiten"),
+        () = terminate => tracing::info!("SIGTERM ontvangen, afsluiten"),
+    }
 }

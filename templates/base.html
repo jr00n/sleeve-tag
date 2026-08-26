@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<html lang="nl">
+  <head>
+    <meta charset="utf-8" />
+    {# Zonder deze viewport-regel rendert een telefoon de pagina op desktopbreedte. #}
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}Sleeve{% endblock %}</title>
+    {# Uitsluitend lokale assets: de NAS heeft geen internetverbinding nodig. #}
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/app.css" />
+    <script src="/static/htmx.min.js" defer></script>
+  </head>
+  <body>
+    <header class="kop">
+      <a class="kop__naam" href="/">Sleeve</a>
+      {% block kopbalk %}{% endblock %}
+    </header>
+
+    <main class="inhoud">{% block inhoud %}{% endblock %}</main>
+  </body>
+</html>

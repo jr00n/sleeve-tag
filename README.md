@@ -34,6 +34,9 @@ MUSIC_ROOT=~/muziek-test cargo run
 cargo watch -x run
 ```
 
+De UI staat daarna op <http://localhost:8080>. Start vanuit de projectroot: de
+statische bestanden worden relatief aan de werkdirectory geserveerd.
+
 `MUSIC_ROOT` wijst tijdens ontwikkelen naar een testmap op de Mac. In de
 container is `MUSIC_ROOT` altijd `/music`; het pad van de share op de NAS is
 uitsluitend de linkerkant van de volume-mount.
@@ -80,3 +83,23 @@ de echte muziekbibliotheek nooit aan.
 | `fs` | Padvalidatie en containment binnen `MUSIC_ROOT` |
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
 | `web` | Axum-router, handlers en askama-templates |
+
+Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
+
+## Frontend zonder build-stap
+
+De UI wordt serverside gerenderd met askama plus HTMX. Er is bewust geen
+node-toolchain en geen frontend-build: `cargo build` levert alles.
+
+Alle assets worden lokaal meegeleverd, zodat de app werkt op een NAS zonder
+internetverbinding. Een test controleert dat de pagina naar geen enkele externe
+host verwijst.
+
+| Bestand | Herkomst |
+|---|---|
+| `static/htmx.min.js` | htmx 2.0.10, opgehaald van unpkg |
+| `static/app.css` | eigen stijl, telefoon-eerst |
+| `static/favicon.svg` | eigen |
+
+Bij het bijwerken van htmx: vervang het bestand, noteer de nieuwe versie hier, en
+draai de tests.

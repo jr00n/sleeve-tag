@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Sleeve">
+  <!-- Een platenhoes met de plaat er half uit: de naam Sleeve, letterlijk. -->
+  <rect x="2" y="4" width="24" height="24" rx="2" fill="#2c313a" />
+  <circle cx="22" cy="16" r="9" fill="#14161a" stroke="#7aa2f7" stroke-width="1.5" />
+  <circle cx="22" cy="16" r="2.5" fill="#7aa2f7" />
+  <rect x="2" y="4" width="16" height="24" rx="2" fill="#7aa2f7" opacity="0.85" />
+</svg>
