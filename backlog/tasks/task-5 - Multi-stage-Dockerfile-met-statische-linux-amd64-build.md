@@ -1,11 +1,11 @@
 ---
 id: TASK-5
 title: Multi-stage Dockerfile met statische linux/amd64-build
-status: In Progress
+status: Done
 assignee:
   - claude
 created_date: '2026-08-26 22:22'
-updated_date: '2026-08-26 23:39'
+updated_date: '2026-08-26 23:44'
 labels: []
 milestone: m-0
 dependencies: []
@@ -28,7 +28,7 @@ De harde eis uit het PRD is een image onder 30 MB. Distributie naar de NAS gebeu
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `docker buildx build --platform linux/amd64` levert een image dat op de NAS start en /healthz beantwoordt
+- [x] #1 `docker buildx build --platform linux/amd64` levert een image dat op de NAS start en /healthz beantwoordt
 - [x] #2 De resulterende image is kleiner dan 30 MB
 - [x] #3 De binary is statisch gelinkt en draait in een runtime-image zonder Rust-toolchain
 - [x] #4 Het bouwcommando en de handmatige distributiestap (`docker save | ssh nas docker load`) staan in de README
@@ -103,4 +103,43 @@ Acceptatiecriterium 5 geverifieerd door een echte codewijziging: bij de herbouw 
 Onderweg leek de cache kapot: na een toegevoegde comment-regel meldde podman toch 'Using cache' op `COPY src ./src`. Dat is nagetrokken met een zichtbare wijziging (een aangepaste logregel): het nieuwe image logde wel degelijk de nieuwe tekst, terwijl het oude image de oude tekst hield. De eerste waarneming was een sync-vertraging van de buildcontext naar de podman-VM, geen invalidatiefout. Belangrijk om vast te leggen, want een build die stiekem oude code oplevert is precies het soort fout dat pas op de NAS opvalt.
 
 Definition of Done punt 4 (tests) is niet van toepassing: deze taak levert een Dockerfile en .dockerignore op, geen Rust-code. De verificatie bestaat uit het bouwen en draaien van het image; dat is hierboven vastgelegd. De bestaande 37 tests draaien ongewijzigd groen.
+
+Op de NAS geverifieerd door de eigenaar: het image draait op wolffpacksrv.local met `docker run -d -p 8080:8080 -v /volume1/Multimedia/music:/music`. Vanaf het LAN geeft http://wolffpacksrv.local:8080/healthz HTTP 200 met body 'ok' en rendert de startpagina. Daarmee is acceptatiecriterium 1 volledig aangetoond, inclusief het deel dat ik zelf niet kon uitvoeren.
+
+Het pad van de muziekshare op de UGREEN is hiermee bekend: /volume1/Multimedia/music. Dat was het laatste openstaande punt uit PRD paragraaf 12; het is doorgegeven aan de docker-compose-taak.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+## Wat er is gebouwd
+
+Een multi-stage Dockerfile die een statisch gelinkte `linux/amd64`-binary in een distroless-image zet, plus een `.dockerignore` en de bouw- en distributie-instructies in de README.
+
+## Resultaat
+
+| Eis | Gemeten |
+|---|---|
+| Image onder 30 MB | **6,41 MB** |
+| Statisch gelinkt | `ELF 64-bit, x86-64, static-pie linked, stripped`, 3,0 MB |
+| Geen Rust-toolchain in runtime | distroless/static; `exec id` faalt met "executable not found" |
+| Draait niet als root | `1000:10` |
+| Start en beantwoordt /healthz | HTTP 200 op de NAS én lokaal |
+| Laag-caching | dependency-laag hergebruikt: schone build 3:46, herbouw ~1 min |
+
+## Op de NAS
+
+Door de eigenaar gedraaid op wolffpacksrv.local met de share op `/volume1/Multimedia/music`. Vanaf het LAN geverifieerd: `/healthz` geeft 200 en de startpagina rendert. Daarmee is het laatste openstaande punt uit PRD §12 ook beantwoord — dat sharepad gaat naar de docker-compose-taak.
+
+## Twee problemen onderweg
+
+**OOM tijdens de eerste build.** De crate `moxcms` werd door de kernel gestopt ("signal: 9, SIGKILL"). Onder amd64-emulatie is elk rustc-proces fors zwaarder dan native, en de build-VM heeft 2 GB. Opgelost met `ARG BUILD_JOBS=2`, ophoogbaar op een ruimere builder.
+
+**De cache leek kapot.** Na een toegevoegde comment-regel meldde podman toch "Using cache" op `COPY src ./src`. Nagetrokken met een zichtbare wijziging in een logregel: het nieuwe image logde wel degelijk de nieuwe tekst. Het was een sync-vertraging van de buildcontext naar de VM, geen invalidatiefout. De moeite van het uitzoeken waard, want een build die stilletjes oude code oplevert valt pas op de NAS op.
+
+## Aandachtspunten voor volgende taken
+
+- De `USER 1000:10` staat hier vast in de Dockerfile. Instelbaar maken via `PUID`/`PGID` is de PUID/PGID-taak.
+- De healthcheck staat bewust niet in de Dockerfile: distroless heeft geen curl of wget, dus die hoort in `docker-compose.yml`.
+- De statische assets worden relatief aan de `WORKDIR` (`/app`) geserveerd.
+<!-- SECTION:FINAL_SUMMARY:END -->

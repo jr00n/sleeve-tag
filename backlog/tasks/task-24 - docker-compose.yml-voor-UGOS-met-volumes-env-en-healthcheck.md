@@ -4,7 +4,7 @@ title: 'docker-compose.yml voor UGOS met volumes, env en healthcheck'
 status: To Do
 assignee: []
 created_date: '2026-08-26 22:26'
-updated_date: '2026-08-26 22:29'
+updated_date: '2026-08-26 23:44'
 labels: []
 milestone: m-5
 dependencies:
@@ -23,7 +23,9 @@ De gebruiker moet de app op de NAS kunnen starten met `docker compose up -d` zon
 
 Inhoud: de muziekshare gemount op `/music` (read-write), optioneel `/config` voor instellingen en logs, alle omgevingsvariabelen uit §8.3 met de NAS-standaarden (PUID=1000, PGID=10), een poortmapping en een healthcheck op `/healthz`.
 
-Vastgelegde keuze over het sharepad (was open punt in PRD §12): de app kent het host-pad nooit. In de container is `MUSIC_ROOT` altijd `/music`; het echte pad op de UGREEN is uitsluitend de linkerkant van de volume-mount en komt uit een `.env` naast de compose-file (`MUSIC_HOST_PATH`). Zo blijft het NAS-specifieke pad buiten Git en kan dezelfde compose-file lokaal met een testmap draaien. Een ingecheckte `.env.example` documenteert de variabele.
+Vastgelegde keuze over het sharepad: de app kent het host-pad nooit. In de container is `MUSIC_ROOT` altijd `/music`; het echte pad op de UGREEN is uitsluitend de linkerkant van de volume-mount en komt uit een `.env` naast de compose-file (`MUSIC_HOST_PATH`). Zo blijft het NAS-specifieke pad buiten Git en kan dezelfde compose-file lokaal met een testmap draaien. Een ingecheckte `.env.example` documenteert de variabele.
+
+Het pad is inmiddels bekend en tijdens de Dockerfile-taak in de praktijk gebruikt: **`/volume1/Multimedia/music`** op `wolffpacksrv.local`. De app draaide daar met `docker run -d -p 8080:8080 -v /volume1/Multimedia/music:/music` en beantwoordde `/healthz`. Dit was het laatste openstaande punt uit PRD §12.
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
