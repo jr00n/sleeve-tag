@@ -8,6 +8,10 @@ mod fs;
 mod tags;
 mod web;
 
+/// Toegang tot de fixtures onder `tests/fixtures/`, alleen tijdens tests.
+#[cfg(test)]
+mod testfixtures;
+
 use std::io::IsTerminal;
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;

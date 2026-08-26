@@ -75,6 +75,33 @@ cargo test
 Tests draaien altijd tegen tijdelijke mappen met ingecheckte fixtures en raken
 de echte muziekbibliotheek nooit aan.
 
+## Testfixtures
+
+Onder `tests/fixtures/` staan kleine audiobestanden (één seconde stilte, samen
+zo'n 84 KB) die de tagvarianten dekken waar de code mee om moet gaan:
+
+| Fixture | Bijzonderheid |
+|---|---|
+| `untagged.mp3` / `untagged.flac` | geen enkele tag |
+| `tagged.mp3` / `tagged.flac` | volledige tagset uit het tagmodel |
+| `tagged-with-art.mp3` / `tagged-with-art.flac` | idem, plus embedded front cover |
+| `id3v1-only.mp3` | uitsluitend een ID3v1-tag, geen ID3v2 |
+| `id3v1-inconsistent.mp3` | ID3v1 en ID3v2 met verschillende waarden |
+| `cover.jpg` / `cover.png` | losse afbeeldingen voor het testen van uploads |
+
+De laatste twee MP3-varianten bestaan omdat het PRD eist dat een ID3v1-tag nooit
+inconsistent achterblijft; zonder zo'n bestand is die regel niet te testen.
+
+Gebruik ze via `testfixtures::kopieer_naar_tempdir(...)`, dat een kopie in een
+wegwerpmap zet. Rechtstreeks tegen een fixture in de repo werken is fout: een
+schrijftest zou het origineel dan wijzigen.
+
+Opnieuw genereren (alleen nodig bij een nieuwe variant):
+
+```sh
+tests/fixtures/genereer-fixtures.sh   # vereist ffmpeg
+```
+
 ## Projectstructuur
 
 | Module | Verantwoordelijkheid |

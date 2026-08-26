@@ -36,8 +36,13 @@ zijn voordat werk als afgerond geldt.
 ## Tests
 
 Tests draaien **nooit** tegen de echte muziekbibliotheek. Ze kopiëren fixtures
-uit `tests/fixtures/` naar een tempdir en werken daar. Een test die `MUSIC_ROOT`
-op een echt bibliotheekpad zet, is per definitie fout.
+uit `tests/fixtures/` naar een tempdir en werken daar, via
+`testfixtures::kopieer_naar_tempdir(...)`. Een test die `MUSIC_ROOT` op een echt
+bibliotheekpad zet, of die rechtstreeks tegen een fixture in de repo werkt, is
+per definitie fout.
+
+Integratietests delen hun procesbesturing via `tests/common/mod.rs`: de binary is
+een langlopende server, dus wachten op `Command::output()` laat een test hangen.
 
 
 <!-- BACKLOG.MD MCP GUIDELINES START -->
