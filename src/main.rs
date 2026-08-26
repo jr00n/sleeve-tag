@@ -3,53 +3,31 @@
 //! De weergavenaam van de applicatie is "Sleeve"; `sleeve-tag` is de technische
 //! naam (crate, binary, Docker-image, containerhostnaam).
 //!
-//! In deze fase is de binary bewust minimaal: hij zet logging op en sluit af.
-//! De HTTP-server komt in de webserver-taak van fase 0.
+//! In deze fase is de binary bewust minimaal: hij leest zijn configuratie, zet
+//! logging op en sluit af. De HTTP-server komt in de webserver-taak van fase 0.
 
 mod config;
 mod fs;
 mod tags;
 mod web;
 
-/// Bepaalt de filterdirective voor `tracing` op basis van `LOG_LEVEL`.
-///
-/// Volledige configuratie-afhandeling volgt in de configuratietaak; hier is
-/// alleen het logniveau nodig om vanaf de eerste regel bruikbare logging te
-/// hebben.
-fn log_directive(configured: Option<&str>) -> &str {
-    match configured {
-        Some(level) if !level.trim().is_empty() => level,
-        _ => "info",
-    }
-}
+use std::io::IsTerminal;
+
+use clap::Parser;
 
 fn main() {
-    let configured = std::env::var("LOG_LEVEL").ok();
-    let directive = log_directive(configured.as_deref());
+    // Eerst de configuratie: die bepaalt het logniveau. Gaat het parsen mis, dan
+    // print clap zelf een melding op stderr en stopt het proces met een
+    // foutcode — precies wat je wilt als een container verkeerd is ingesteld.
+    let config = config::Config::parse();
 
+    // Kleuren alleen wanneer een mens meekijkt: in `docker logs` of een
+    // logbestand leveren ANSI-codes onleesbare rommel op.
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new(directive))
+        .with_env_filter(tracing_subscriber::EnvFilter::new(&config.log_level))
+        .with_ansi(std::io::stdout().is_terminal())
         .init();
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "Sleeve gestart");
-}
-
-#[cfg(test)]
-mod tests {
-    use super::log_directive;
-
-    #[test]
-    fn valt_terug_op_info_zonder_configuratie() {
-        assert_eq!(log_directive(None), "info");
-    }
-
-    #[test]
-    fn valt_terug_op_info_bij_lege_waarde() {
-        assert_eq!(log_directive(Some("   ")), "info");
-    }
-
-    #[test]
-    fn gebruikt_geconfigureerd_niveau() {
-        assert_eq!(log_directive(Some("debug")), "debug");
-    }
+    config.log_effective();
 }
