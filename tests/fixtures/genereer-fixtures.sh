@@ -56,9 +56,22 @@ if data[:3] == b"ID3":
 PY
 }
 
+# Voegt een echt COMM-frame toe aan een MP3 met een ID3v2.4-tag.
+#
+# ffmpeg schrijft een comment altijd als `TXXX` met beschrijving "comment", nooit
+# als het `COMM`-frame dat het PRD noemt en dat gangbare taggers (Picard, iTunes)
+# gebruiken. Zonder deze stap zou de fixture iets testen wat in een echte
+# bibliotheek nauwelijks voorkomt — en zou lofty de comment helemaal niet zien,
+# want een TXXX-frame zonder bekende beschrijving levert geen tag-item op.
+voeg_comm_frame_toe() {
+  python3 "$(dirname "$0")/voeg-comm-frame-toe.py" "$1" "$2"
+}
+
 echo "cover-afbeeldingen"
 "${FF[@]}" -f lavfi -i "color=c=0x3a6ea5:s=300x300" -frames:v 1 -update 1 -bitexact cover.png
 "${FF[@]}" -i cover.png -q:v 4 -bitexact cover.jpg
+
+COMMENTAAR="Gegenereerd voor de tests van Sleeve"
 
 # Volledige tagset: de velden uit het tagmodel van het PRD.
 TAGS=(
@@ -71,7 +84,7 @@ TAGS=(
   -metadata date="2024"
   -metadata genre="Ambient"
   -metadata composer="De Componist"
-  -metadata comment="Gegenereerd voor de tests van Sleeve"
+  -metadata comment="$COMMENTAAR"
 )
 
 echo "MP3 zonder tags"
@@ -82,12 +95,14 @@ strip_id3v2 untagged.mp3
 echo "MP3 met volledige tags (ID3v2.4)"
 "${FF[@]}" "${STILTE[@]}" -c:a libmp3lame -q:a 9 -bitexact \
   -id3v2_version 4 -write_id3v1 0 "${TAGS[@]}" tagged.mp3
+voeg_comm_frame_toe tagged.mp3 "$COMMENTAAR"
 
 echo "MP3 met embedded album art"
 "${FF[@]}" "${STILTE[@]}" -i cover.jpg -c:a libmp3lame -q:a 9 -bitexact \
   -map 0:a -map 1:v -c:v copy -disposition:v attached_pic \
   -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (front)" \
   -id3v2_version 4 -write_id3v1 0 "${TAGS[@]}" tagged-with-art.mp3
+voeg_comm_frame_toe tagged-with-art.mp3 "$COMMENTAAR"
 
 echo "MP3 met uitsluitend een ID3v1-tag"
 "${FF[@]}" "${STILTE[@]}" -c:a libmp3lame -q:a 9 -bitexact \

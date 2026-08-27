@@ -92,6 +92,11 @@ zo'n 84 KB) die de tagvarianten dekken waar de code mee om moet gaan:
 De laatste twee MP3-varianten bestaan omdat het PRD eist dat een ID3v1-tag nooit
 inconsistent achterblijft; zonder zo'n bestand is die regel niet te testen.
 
+Twee dingen doet ffmpeg anders dan gangbare taggers, en daar corrigeert het
+script voor: het schrijft een comment als `TXXX` in plaats van `COMM` (het script
+plakt daarom zelf een `COMM`-frame aan de MP3's), en het gebruikt in FLAC het
+veld `DESCRIPTION` waar Picard `COMMENT` schrijft (de tagmodule leest beide).
+
 Gebruik ze via `testfixtures::kopieer_naar_tempdir(...)`, dat een kopie in een
 wegwerpmap zet. Rechtstreeks tegen een fixture in de repo werken is fout: een
 schrijftest zou het origineel dan wijzigen.
