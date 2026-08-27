@@ -3,6 +3,7 @@
 //! De weergavenaam van de applicatie is "Sleeve"; `sleeve-tag` is de technische
 //! naam (crate, binary, Docker-image, containerhostnaam).
 
+mod art;
 mod browse;
 mod config;
 mod fs;

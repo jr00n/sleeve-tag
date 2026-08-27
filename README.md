@@ -162,6 +162,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `config` | Configuratie uit omgevingsvariabelen |
 | `fs` | Padvalidatie en containment binnen `MUSIC_ROOT`; de enige plek die een gebruikerspad naar een filesystem-pad vertaalt |
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
+| `art` | Album art decoderen, verkleinen en encoderen (de enige plek die pixels aanraakt) |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `web` | Axum-router, handlers en askama-templates |
 
@@ -190,6 +191,27 @@ dezelfde URL met `?q=`, met hetzelfde resultaat als hele pagina.
 Er is bewust geen bibliotheek-index: de tags worden per map gelezen op het moment
 dat de pagina wordt opgevraagd. Dat lezen is blokkerende I/O en gebeurt daarom in
 `spawn_blocking`, buiten de async-runtime.
+
+### Album art in de lijst
+
+De embedded hoes van een bestand komt van `/art/<pad>`:
+
+| URL | Antwoord |
+|---|---|
+| `/art/<pad>` | de hoes ongewijzigd, met het MIME-type zoals het in het bestand staat |
+| `/art/<pad>?size=thumb` | een JPEG van hoogstens 160 px per as |
+| een bestand zonder hoes | `404` met een leesbare melding |
+
+De maplijst vraagt de thumbnail-variant op. Dertig volledige hoezen van elk een
+halve megabyte naar een telefoon sturen voor een vakje van veertig pixels zou de
+pagina onbruikbaar maken; het verkleinen gebeurt bij het verzoek, want er is in
+het MVP bewust geen cache-laag. De afbeeldingen worden lazy geladen en hebben
+vaste afmetingen, zodat de lijst compleet op het scherm staat voordat de eerste
+hoes binnen is en er daarna niets verschuift. Bestanden zonder hoes krijgen een
+placeholder en doen geen verzoek dat toch niets zou opleveren.
+
+De antwoorden dragen `Cache-Control: no-cache`: na een latere schrijfactie mag
+de browser geen oude hoes blijven tonen.
 
 ## Frontend zonder build-stap
 

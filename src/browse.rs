@@ -25,6 +25,13 @@ const ROOT_NAME: &str = "Bibliotheek";
 /// Wat er staat waar een tag ontbreekt.
 const MISSING: &str = "—";
 
+/// Waarde van de `size`-parameter waarmee om de verkleinde hoes wordt gevraagd.
+///
+/// Staat hier omdat de URL's hier worden opgebouwd; het endpoint in
+/// [`crate::web`] leest dezelfde constante, zodat de twee niet uit elkaar
+/// kunnen lopen.
+pub const THUMBNAIL_SIZE_PARAM: &str = "thumb";
+
 /// Tekens die in een padsegment van een URL gecodeerd moeten worden.
 ///
 /// `/` blijft er bewust buiten: het scheidt de segmenten en hoort niet gecodeerd
@@ -79,9 +86,14 @@ pub struct TrackSummary {
     /// `MP3` of `FLAC`.
     pub format: String,
 
-    /// Of er een embedded hoes in het bestand zit; de thumbnail zelf volgt in
-    /// een aparte taak.
+    /// Of er een embedded hoes in het bestand zit.
+    ///
+    /// Bepaalt of de lijst een afbeelding of een placeholder toont; zo hoeft de
+    /// browser geen verzoek te doen dat toch een 404 oplevert.
     pub has_art: bool,
+
+    /// URL van de verkleinde hoes. Alleen zinvol wanneer `has_art` waar is.
+    pub art_url: String,
 }
 
 impl TrackSummary {
@@ -202,8 +214,11 @@ fn summarize(entry: &DirEntry, directory: &str) -> Option<TrackSummary> {
         }
     };
 
+    let path = join(directory, &entry.name);
+
     Some(TrackSummary {
-        path: join(directory, &entry.name),
+        art_url: thumbnail_url(&path),
+        path,
         name: entry.name.clone(),
         track: track.tags.track,
         title: track.tags.title,
@@ -288,8 +303,18 @@ fn url_for(path: &str) -> String {
     if path.is_empty() {
         "/".to_string()
     } else {
-        format!("/map/{}", utf8_percent_encode(path, PATH_ESCAPES))
+        format!("/map/{}", encode(path))
     }
+}
+
+/// De URL van de verkleinde hoes van één bestand.
+fn thumbnail_url(path: &str) -> String {
+    format!("/art/{}?size={THUMBNAIL_SIZE_PARAM}", encode(path))
+}
+
+/// Codeert een relatief pad voor gebruik in een URL.
+fn encode(path: &str) -> impl std::fmt::Display {
+    utf8_percent_encode(path, PATH_ESCAPES)
 }
 
 /// Plakt een naam achter een relatief pad.
@@ -526,12 +551,26 @@ mod tests {
     }
 
     #[test]
-    fn reports_embedded_art() {
+    fn reports_embedded_art_with_a_thumbnail_url() {
         let (_tempdir, library) = library_with_album();
         place(&library, "hoes.mp3", testfixtures::MP3_WITH_ART);
 
         let listing = album_listing(&library, "");
-        assert!(listing.tracks[0].has_art, "de fixture heeft een hoes");
+        let track = &listing.tracks[0];
+
+        assert!(track.has_art, "de fixture heeft een hoes");
+        assert_eq!(
+            track.art_url, "/art/Artiest/Album/hoes.mp3?size=thumb",
+            "de lijst hoort de verkleinde variant op te vragen"
+        );
+    }
+
+    #[test]
+    fn a_thumbnail_url_escapes_the_path() {
+        assert_eq!(
+            thumbnail_url("Sigur Rós/( )/01 intro.flac"),
+            "/art/Sigur%20R%C3%B3s/(%20)/01%20intro.flac?size=thumb"
+        );
     }
 
     #[test]

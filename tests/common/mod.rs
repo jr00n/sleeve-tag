@@ -19,6 +19,15 @@ use std::time::{Duration, Instant};
 /// Hoe lang een test maximaal op de server of op een logregel wacht.
 const PATIENCE: Duration = Duration::from_secs(10);
 
+/// Hoe vaak het starten opnieuw geprobeerd wordt met een andere poort.
+///
+/// Tussen het vrijgeven van een poort door [`free_port`] en het binden ervan
+/// door de server zit een gaatje waarin een andere test dezelfde poort kan
+/// pakken. Met meerdere integratiebinaries naast elkaar gebeurt dat zelden,
+/// maar wél. De server stopt dan meteen met een bind-fout; dit is de enige
+/// plek die dat kan opvangen.
+const START_ATTEMPTS: usize = 5;
+
 /// Een draaiende Sleeve-instantie die bij het opruimen zichzelf beëindigt.
 pub struct Server {
     process: Child,
@@ -50,34 +59,38 @@ impl Server {
     /// `env_clear` zorgt dat de test niet afhangt van wat er toevallig in de
     /// shell van de ontwikkelaar of de CI-runner staat.
     pub fn start_in(root: tempfile::TempDir, extra: &[(&str, &str)]) -> Server {
-        let port = free_port();
+        for attempt in 1..=START_ATTEMPTS {
+            let port = free_port();
+            let address = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
 
-        let mut command = Command::new(env!("CARGO_BIN_EXE_sleeve-tag"));
-        command
-            .env_clear()
-            .env("MUSIC_ROOT", root.path())
-            .env("PORT", port.to_string())
-            // De statische assets worden relatief aan de werkdirectory geserveerd.
-            .current_dir(env!("CARGO_MANIFEST_DIR"))
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            let mut process = spawn(root.path(), port, extra);
+            let log = capture_output(process.stdout.take().expect("stdout is gepiped"));
 
-        for (name, value) in extra {
-            command.env(name, value);
+            if wait_until_listening(&mut process, address, &log) {
+                return Server {
+                    process,
+                    address,
+                    log,
+                    _root: root,
+                };
+            }
+
+            // De server stopte voordat hij luisterde. Was de poort al bezet,
+            // dan lukt het met een andere wel; ging er iets anders mis, dan
+            // faalt de volgende poging op dezelfde manier en komt de log
+            // hieronder alsnog boven water.
+            let _ = process.kill();
+            let _ = process.wait();
+
+            if attempt == START_ATTEMPTS {
+                panic!(
+                    "server startte {START_ATTEMPTS} keer niet op. Laatste log was:\n{}",
+                    log.lock().expect("log-buffer moet leesbaar zijn")
+                );
+            }
         }
 
-        let mut process = command.spawn().expect("binary moet te starten zijn");
-        let log = capture_output(process.stdout.take().expect("stdout is gepiped"));
-
-        let server = Server {
-            process,
-            address: SocketAddr::from((Ipv4Addr::LOCALHOST, port)),
-            log,
-            _root: root,
-        };
-
-        server.wait_until_reachable();
-        server
+        unreachable!("de lus keert terug of paniekt bij de laatste poging")
     }
 
     /// Alles wat de server tot nu toe naar stdout heeft geschreven.
@@ -108,11 +121,23 @@ impl Server {
         self.get_with_headers(path, &[])
     }
 
+    /// Doet een GET-verzoek en geeft de volledige respons als bytes terug.
+    ///
+    /// Nodig zodra het antwoord geen tekst is: een JPEG overleeft het niet om
+    /// als UTF-8 gelezen te worden.
+    pub fn get_bytes(&self, path: &str) -> Vec<u8> {
+        self.request(path, &[])
+    }
+
     /// Zoals [`Server::get`], met extra verzoekheaders.
     ///
     /// Nodig voor `HX-Request`: die header bepaalt of de server de hele pagina
     /// of alleen het te vervangen fragment teruggeeft.
     pub fn get_with_headers(&self, path: &str, headers: &[(&str, &str)]) -> String {
+        String::from_utf8_lossy(&self.request(path, headers)).into_owned()
+    }
+
+    fn request(&self, path: &str, headers: &[(&str, &str)]) -> Vec<u8> {
         let mut stream = TcpStream::connect(self.address).expect("verbinding moet lukken");
         stream
             .set_read_timeout(Some(PATIENCE))
@@ -135,23 +160,60 @@ impl Server {
         stream
             .read_to_end(&mut response)
             .expect("antwoord moet te lezen zijn");
-        String::from_utf8_lossy(&response).into_owned()
+        response
+    }
+}
+
+/// Start de binary met de opgegeven bibliotheek en poort.
+fn spawn(root: &std::path::Path, port: u16, extra: &[(&str, &str)]) -> Child {
+    let mut command = Command::new(env!("CARGO_BIN_EXE_sleeve-tag"));
+    command
+        .env_clear()
+        .env("MUSIC_ROOT", root)
+        .env("PORT", port.to_string())
+        // De statische assets worden relatief aan de werkdirectory geserveerd.
+        .current_dir(env!("CARGO_MANIFEST_DIR"))
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+
+    for (name, value) in extra {
+        command.env(name, value);
     }
 
-    fn wait_until_reachable(&self) {
-        let deadline = Instant::now() + PATIENCE;
-        while Instant::now() < deadline {
-            if TcpStream::connect_timeout(&self.address, Duration::from_millis(200)).is_ok() {
-                return;
-            }
-            std::thread::sleep(Duration::from_millis(20));
+    command.spawn().expect("binary moet te starten zijn")
+}
+
+/// Wacht tot de server luistert; `false` betekent dat hij eerst is gestopt.
+///
+/// Het proces wordt vóór elke verbindingspoging gecontroleerd. Zonder die
+/// volgorde zou een geslaagde verbinding van de server van een *andere* test
+/// kunnen komen die dezelfde poort te pakken had — en dan zou deze test tegen
+/// een vreemde bibliotheek praten in plaats van tegen zijn eigen tempdir.
+fn wait_until_listening(
+    process: &mut Child,
+    address: SocketAddr,
+    log: &Arc<Mutex<String>>,
+) -> bool {
+    let deadline = Instant::now() + PATIENCE;
+
+    while Instant::now() < deadline {
+        match process.try_wait() {
+            Ok(Some(_)) => return false,
+            Ok(None) => {}
+            Err(error) => panic!("kon de status van het serverproces niet lezen: {error}"),
         }
-        panic!(
-            "server luisterde niet binnen {PATIENCE:?} op {}. Log was:\n{}",
-            self.address,
-            self.log()
-        );
+
+        if TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok() {
+            return true;
+        }
+
+        std::thread::sleep(Duration::from_millis(20));
     }
+
+    panic!(
+        "server luisterde niet binnen {PATIENCE:?} op {address}. Log was:\n{}",
+        log.lock().expect("log-buffer moet leesbaar zijn")
+    );
 }
 
 /// Start de binary en wacht tot hij vanzelf afsluit.

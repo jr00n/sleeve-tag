@@ -20,10 +20,18 @@
 <ul class="tracks">
   {% for track in listing.tracks %}
   <li class="track">
-    {# Plaats voor de thumbnail van de embedded hoes; die volgt in een aparte
-       taak. Tot dan markeert het vlak alleen of er art aanwezig is. #}
-    <span class="track__hoes{% if !track.has_art %} track__hoes--leeg{% endif %}"
-          aria-hidden="true"></span>
+    {# `loading="lazy"` plus vaste afmetingen: de lijst is gerenderd voordat er
+       ook maar één hoes binnen is, en er verschuift niets na wanneer ze
+       aankomen. Bestanden zonder hoes doen geen verzoek dat toch een 404 zou
+       opleveren; die krijgen de placeholder. #}
+    {% if track.has_art %}
+    <img class="track__hoes" src="{{ track.art_url }}" alt=""
+         width="40" height="40" loading="lazy" decoding="async" />
+    {% else %}
+    <span class="track__hoes track__hoes--leeg"
+          title="Geen album art in dit bestand"
+          role="img" aria-label="Geen album art"></span>
+    {% endif %}
 
     <span class="track__nummer">{{ track.track_label() }}</span>
 

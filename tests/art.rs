@@ -1,0 +1,173 @@
+//! Het album-art-endpoint over HTTP, tegen de echte binary.
+//!
+//! De unit-tests in `src/art.rs` controleren het verkleinen en die in `src/web`
+//! de routering; deze test controleert wat er werkelijk over de lijn gaat: de
+//! statusregel, de `Content-Type` en de bytes zelf.
+//!
+//! De bibliotheek is een tempdir met kopieën van de fixtures. De echte
+//! muziekbibliotheek wordt nooit aangeraakt.
+
+mod common;
+
+use common::{Server, place_fixture};
+
+/// De ingecheckte coverafbeeldingen zijn 300×300.
+const FIXTURE_SIZE: usize = 300;
+
+fn library_with_and_without_art() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "met-hoes.mp3", "tagged-with-art.mp3");
+    place_fixture(&album, "met-hoes.flac", "tagged-with-art.flac");
+    place_fixture(&album, "zonder-hoes.mp3", "tagged.mp3");
+
+    root
+}
+
+/// Splitst een respons in de statusregel, de headers en de body als bytes.
+///
+/// `Server::get` levert de hele respons als tekst aan; voor een afbeelding is
+/// dat onbruikbaar, dus hier wordt de body als bytes teruggegeven. De headers
+/// zijn ASCII en mogen wel als tekst.
+fn parse(response: &[u8]) -> (String, String, Vec<u8>) {
+    let split = response
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .unwrap_or_else(|| panic!("respons had geen lege regel tussen headers en body"));
+
+    let head = String::from_utf8_lossy(&response[..split]).into_owned();
+    let (status, headers) = head
+        .split_once("\r\n")
+        .map(|(status, rest)| (status.to_string(), rest.to_ascii_lowercase()))
+        .unwrap_or((head.clone(), String::new()));
+
+    (status, headers, response[split + 4..].to_vec())
+}
+
+/// De afmetingen van een afbeelding, uit de header gelezen.
+///
+/// De integratietests draaien buiten de binary-crate en kunnen `art::` dus niet
+/// aanroepen. JPEG en PNG hebben allebei hun afmetingen op een vaste plek, en
+/// meer is hier niet nodig.
+fn dimensions(data: &[u8]) -> (usize, usize) {
+    if data.starts_with(&[0x89, b'P', b'N', b'G']) {
+        let width = u32::from_be_bytes(data[16..20].try_into().expect("PNG-header")) as usize;
+        let height = u32::from_be_bytes(data[20..24].try_into().expect("PNG-header")) as usize;
+        return (width, height);
+    }
+
+    assert!(data.starts_with(&[0xFF, 0xD8]), "geen JPEG en geen PNG");
+
+    // Door de JPEG-segmenten lopen tot de Start-Of-Frame; daarin staan de
+    // afmetingen. Elk segment noemt zijn eigen lengte, dus overslaan kan.
+    let mut index = 2;
+    while index + 9 < data.len() {
+        assert_eq!(data[index], 0xFF, "segmentmarkering verwacht");
+
+        let marker = data[index + 1];
+        let length = u16::from_be_bytes([data[index + 2], data[index + 3]]) as usize;
+
+        // SOF0 tot en met SOF3; de overige FFC?-markeringen zijn geen frame.
+        if (0xC0..=0xC3).contains(&marker) {
+            let height = u16::from_be_bytes([data[index + 5], data[index + 6]]) as usize;
+            let width = u16::from_be_bytes([data[index + 7], data[index + 8]]) as usize;
+            return (width, height);
+        }
+
+        index += 2 + length;
+    }
+
+    panic!("geen afmetingen gevonden in de JPEG");
+}
+
+#[test]
+fn the_embedded_cover_is_served_unchanged() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    for file in ["met-hoes.mp3", "met-hoes.flac"] {
+        let (status, headers, body) = parse(&server.get_bytes(&format!("/art/Album/{file}")));
+
+        assert!(status.starts_with("HTTP/1.1 200 OK"), "{file}: {status}");
+        assert!(
+            headers.contains("content-type: image/jpeg"),
+            "{file}: verkeerd content-type in\n{headers}"
+        );
+        assert_eq!(
+            dimensions(&body),
+            (FIXTURE_SIZE, FIXTURE_SIZE),
+            "{file}: de hoes hoort ongewijzigd terug te komen"
+        );
+    }
+}
+
+#[test]
+fn the_thumbnail_variant_is_scaled_down() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let (status, headers, body) = parse(&server.get_bytes("/art/Album/met-hoes.mp3?size=thumb"));
+
+    assert!(status.starts_with("HTTP/1.1 200 OK"), "{status}");
+    assert!(
+        headers.contains("content-type: image/jpeg"),
+        "verkeerd content-type in\n{headers}"
+    );
+
+    let (width, height) = dimensions(&body);
+    assert!(
+        width < FIXTURE_SIZE && height < FIXTURE_SIZE,
+        "de thumbnail is {width}x{height} en dus niet verkleind"
+    );
+}
+
+#[test]
+fn a_file_without_art_gives_a_404() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let (status, _, body) = parse(&server.get_bytes("/art/Album/zonder-hoes.mp3"));
+
+    assert!(status.starts_with("HTTP/1.1 404"), "{status}");
+    assert!(
+        String::from_utf8_lossy(&body).contains("geen album art"),
+        "de melding hoort uit te leggen wat er aan de hand is: {}",
+        String::from_utf8_lossy(&body)
+    );
+}
+
+#[test]
+fn art_outside_the_library_is_refused() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    for attempt in [
+        "/art/../../etc/passwd",
+        "/art/Album/../../../etc/hosts",
+        "/art/..",
+    ] {
+        let (status, _, _) = parse(&server.get_bytes(attempt));
+        assert!(
+            !status.starts_with("HTTP/1.1 200"),
+            "'{attempt}' leverde een afbeelding op: {status}"
+        );
+    }
+}
+
+#[test]
+fn the_listing_asks_for_thumbnails_and_skips_files_without_art() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let html = server.get("/map/Album");
+
+    assert!(
+        html.contains("src=\"/art/Album/met-hoes.mp3?size=thumb\""),
+        "de hoes wordt niet als thumbnail opgevraagd:\n{html}"
+    );
+    assert!(
+        html.contains("loading=\"lazy\""),
+        "zonder lazy loading blokkeren de hoezen het renderen:\n{html}"
+    );
+    assert!(
+        !html.contains("src=\"/art/Album/zonder-hoes.mp3"),
+        "een bestand zonder hoes hoort geen verzoek uit te lokken:\n{html}"
+    );
+}

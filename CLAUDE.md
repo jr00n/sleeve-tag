@@ -16,6 +16,10 @@ de conventies vast waar code zich aan houdt.
   bouwen nooit zelf een pad op. Dat geldt ook voor het opsommen van een map:
   `fs::Library::list_directory` controleert elke gevonden entry opnieuw, zodat
   een lijst nooit iets toont wat de app niet mag openen.
+- **Alle pixelbewerking loopt via `art::`.** Decoderen, verkleinen en
+  encoderen van album art gebeurt daar; `tags::` levert alleen de ruwe bytes uit
+  het bestand en raakt de afbeelding verder niet aan. `art::` opent zelf geen
+  bestanden: in en uit gaan bytes.
 - **Wat de UI toont, wordt in `browse::` opgebouwd.** Die module brengt `fs::`
   en `tags::` samen tot een weergavemodel; handlers renderen dat model en
   bevatten zelf geen sorteer-, filter- of opmaaklogica. Paden die naar de

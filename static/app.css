@@ -216,6 +216,9 @@ a {
   height: 2.5rem;
   border-radius: 4px;
   background: var(--rand);
+  /* De hoes is vrijwel altijd vierkant, maar niet gegarandeerd; bijsnijden is
+     hier beter dan uitrekken. */
+  object-fit: cover;
 }
 
 .track__hoes--leeg {
