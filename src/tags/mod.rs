@@ -11,4 +11,86 @@
 //! - Niet-gemodelleerde tags blijven ongewijzigd bewaard.
 //! - Een leeg veld betekent "veld verwijderen", niet "lege waarde opslaan".
 //!
-//! Deze module wordt ingevuld door de lees- en schrijftaken van fase 1 en 2.
+//! Het lezen en schrijven van het tagmodel volgt in de taken van fase 1 en 2.
+
+use std::path::Path;
+
+use lofty::config::ParseOptions;
+use lofty::file::FileType;
+use lofty::probe::Probe;
+
+/// Bepaalt of het bestand werkelijk een MP3 of FLAC is.
+///
+/// Kijkt naar de inhoud, niet naar de bestandsnaam: een `.mp3` die in
+/// werkelijkheid een JPEG of een tekstbestand is, hoort de app niet als
+/// bewerkbaar te presenteren. Een onleesbaar of onbekend bestand levert `false`
+/// op in plaats van een fout — de aanroeper wil hier alleen een ja of nee.
+///
+/// Raden op basis van de eerste bytes is hiervoor niet genoeg: `guess_file_type`
+/// valt terug op de extensie, en de JPEG-signatuur `FF D8` lijkt genoeg op een
+/// MPEG frame-sync om als MP3 door te gaan — een JPEG wordt zo als Mpeg geraden.
+/// Pas bij het uitlezen van de audio-eigenschappen valt door de mand dat er geen
+/// geldige frames in zitten. Die stap is hier dus geen luxe maar de eigenlijke
+/// controle.
+pub fn herkent_formaat(pad: &Path) -> bool {
+    let Ok(probe) = Probe::open(pad) else {
+        return false;
+    };
+    let Ok(probe) = probe.guess_file_type() else {
+        return false;
+    };
+
+    if !matches!(probe.file_type(), Some(FileType::Mpeg | FileType::Flac)) {
+        return false;
+    }
+
+    probe
+        .options(ParseOptions::new().read_properties(true))
+        .read()
+        .is_ok()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::testfixtures;
+
+    #[test]
+    fn herkent_mp3_en_flac_fixtures() {
+        for naam in [
+            testfixtures::MP3_MET_TAGS,
+            testfixtures::MP3_ZONDER_TAGS,
+            testfixtures::MP3_MET_ART,
+            testfixtures::FLAC_MET_TAGS,
+            testfixtures::FLAC_ZONDER_TAGS,
+            testfixtures::FLAC_MET_ART,
+        ] {
+            let pad = testfixtures::fixture_pad(naam);
+            assert!(herkent_formaat(&pad), "{naam} zou herkend moeten worden");
+        }
+    }
+
+    #[test]
+    fn weigert_een_afbeelding() {
+        let pad = testfixtures::fixture_pad(testfixtures::COVER_JPEG);
+        assert!(!herkent_formaat(&pad));
+    }
+
+    #[test]
+    fn weigert_een_bestand_met_misleidende_extensie() {
+        // Een tekstbestand dat zich voordoet als MP3. De extensie klopt, de
+        // inhoud niet; alleen naar de naam kijken is dus niet genoeg.
+        let tempdir = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+        let nep = tempdir.path().join("nep.mp3");
+        std::fs::write(&nep, b"dit is geen audio").expect("bestand moet te schrijven zijn");
+
+        assert!(!herkent_formaat(&nep));
+    }
+
+    #[test]
+    fn weigert_een_niet_bestaand_pad() {
+        let tempdir = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+        assert!(!herkent_formaat(&tempdir.path().join("bestaat-niet.mp3")));
+    }
+}

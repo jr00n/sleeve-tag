@@ -17,14 +17,18 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
+use crate::fs::{Bibliotheek, PadFout};
 
 /// Gedeelde toestand van de webserver.
 ///
-/// Wordt in een `Arc` doorgegeven zodat handlers de configuratie kunnen lezen
-/// zonder hem te kopiëren.
+/// Wordt in een `Arc` doorgegeven zodat handlers hem kunnen lezen zonder te
+/// kopiëren. Alleen wat de handlers werkelijk nodig hebben staat erin; velden
+/// als `max_art_size` komen erbij zodra de taken die ze gebruiken er zijn.
 #[derive(Debug, Clone)]
 pub struct AppState {
-    pub config: Arc<Config>,
+    /// De enige route van gebruikerspad naar filesystem-pad; handlers lossen
+    /// nooit zelf een pad op.
+    pub bibliotheek: Arc<Bibliotheek>,
 }
 
 /// Bouwt de volledige router.
@@ -33,7 +37,7 @@ pub struct AppState {
 /// aanroepen.
 pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
     let state = AppState {
-        config: Arc::new(config),
+        bibliotheek: Arc::new(Bibliotheek::nieuw(config.music_root)),
     };
 
     Router::new()
@@ -53,7 +57,7 @@ struct IndexTemplate {
 
 async fn index(State(state): State<AppState>) -> Result<Html<String>, WebError> {
     let pagina = IndexTemplate {
-        music_root: state.config.music_root.display().to_string(),
+        music_root: state.bibliotheek.root().display().to_string(),
     };
 
     Ok(Html(pagina.render()?))
@@ -72,19 +76,39 @@ async fn healthz() -> impl IntoResponse {
 pub enum WebError {
     #[error("template kon niet gerenderd worden: {0}")]
     Render(#[from] askama::Error),
+
+    #[error(transparent)]
+    Pad(#[from] crate::fs::PadFout),
 }
 
 impl IntoResponse for WebError {
     fn into_response(self) -> axum::response::Response {
-        // Het pad en de technische oorzaak horen in het log, niet in de browser.
-        tracing::error!(fout = %self, "verzoek kon niet worden afgehandeld");
-
         match self {
-            WebError::Render(_) => (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Er ging iets mis bij het opbouwen van de pagina.",
-            )
-                .into_response(),
+            WebError::Render(fout) => {
+                // De technische oorzaak hoort in het log, niet in de browser.
+                tracing::error!(%fout, "pagina kon niet worden opgebouwd");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Er ging iets mis bij het opbouwen van de pagina.",
+                )
+                    .into_response()
+            }
+
+            WebError::Pad(fout) => {
+                let status = match fout {
+                    // Een pad buiten de bibliotheek is een geweigerd verzoek, geen
+                    // vergissing in de URL: 403 in plaats van 404, zodat het in de
+                    // logs te onderscheiden is van een dode link.
+                    PadFout::BuitenBibliotheek => StatusCode::FORBIDDEN,
+                    PadFout::NietGevonden => StatusCode::NOT_FOUND,
+                    PadFout::NietOndersteund => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                };
+
+                tracing::warn!(%fout, %status, "verzoek geweigerd");
+
+                // De melding van PadFout bevat bewust geen pad.
+                (status, fout.to_string()).into_response()
+            }
         }
     }
 }

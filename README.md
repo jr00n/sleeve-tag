@@ -155,7 +155,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | Module | Verantwoordelijkheid |
 |--------|----------------------|
 | `config` | Configuratie uit omgevingsvariabelen |
-| `fs` | Padvalidatie en containment binnen `MUSIC_ROOT` |
+| `fs` | Padvalidatie en containment binnen `MUSIC_ROOT`; de enige plek die een gebruikerspad naar een filesystem-pad vertaalt |
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
 | `web` | Axum-router, handlers en askama-templates |
 
