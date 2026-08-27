@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+
+{% block title %}{{ listing.name }} — Sleeve{% endblock %}
+
+{% block inhoud %}
+<nav class="kruimels" aria-label="Broodkruimelpad">
+  {% for crumb in listing.crumbs %}
+    {%- if loop.last -%}
+      <span class="kruimels__huidig" aria-current="page">{{ crumb.name }}</span>
+    {%- else -%}
+      <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
+      <span class="kruimels__scheiding" aria-hidden="true">/</span>
+    {%- endif -%}
+  {% endfor %}
+</nav>
+
+<h1 class="maptitel">{{ listing.name }}</h1>
+
+{# Zonder JavaScript is dit een gewone GET naar dezelfde URL en komt dezelfde
+   lijst terug, alleen als hele pagina. Met HTMX wordt tijdens het typen
+   uitsluitend de lijst ververst. #}
+<form class="zoek" method="get" action="{{ listing.url }}"
+      hx-get="{{ listing.url }}"
+      hx-target="#maplijst"
+      hx-swap="innerHTML"
+      hx-trigger="input changed delay:250ms, submit"
+      hx-push-url="true">
+  <label class="zoek__label" for="q">Zoeken in deze map</label>
+  <span class="zoek__regel">
+    <input class="zoek__veld" id="q" name="q" type="search"
+           value="{{ listing.query }}"
+           placeholder="Bestandsnaam of titel"
+           autocomplete="off" />
+    <button class="zoek__knop" type="submit">Zoek</button>
+  </span>
+</form>
+
+<div id="maplijst">{% include "listing.html" %}</div>
+{% endblock %}

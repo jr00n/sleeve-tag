@@ -12,9 +12,9 @@
 //! Binnen deze module wordt `std::fs::` altijd volledig gekwalificeerd
 //! geschreven, om verwarring met deze crate-eigen module te voorkomen.
 
-// De mapbrowser is de eerste die paden oplost; tot die taak worden `resolve`
-// en `is_editable` alleen door de tests aangeroepen. De functionaliteit hoort
-// hier al te staan, want elke latere handler leunt erop.
+// De mapbrowser gebruikt `resolve` en `list_directory`; `resolve_editable_file`
+// en `is_editable` wachten op het bewerkformulier. De functionaliteit hoort hier
+// al te staan, want elke latere handler leunt erop.
 #![allow(dead_code)]
 
 use std::path::{Component, Path, PathBuf};
@@ -37,6 +37,33 @@ pub enum PathError {
 
     #[error("dit bestandstype wordt niet ondersteund")]
     Unsupported,
+}
+
+/// Eén regel uit een mapoverzicht: een submap of een kandidaat-audiobestand.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DirEntry {
+    /// Absoluut, gecanonicaliseerd pad binnen de bibliotheek.
+    pub path: PathBuf,
+
+    /// De naam zoals die in de map staat; wat de gebruiker te zien krijgt.
+    pub name: String,
+}
+
+/// De inhoud van één map, teruggebracht tot wat Sleeve mag tonen.
+///
+/// Bestanden zijn hier alleen op extensie voorgeselecteerd. Of het werkelijk een
+/// MP3 of FLAC is, blijkt pas bij het lezen van de tags; die controle hier ook
+/// doen zou elk bestand twee keer openen.
+#[derive(Debug, Clone, Default)]
+pub struct DirectoryContents {
+    /// Het gecanonicaliseerde pad van de map zelf.
+    pub path: PathBuf,
+
+    /// Submappen, op naam gesorteerd.
+    pub directories: Vec<DirEntry>,
+
+    /// Bestanden met een bewerkbare extensie, op naam gesorteerd.
+    pub files: Vec<DirEntry>,
 }
 
 /// De muziekbibliotheek: alles onder de geconfigureerde `MUSIC_ROOT`.
@@ -102,6 +129,64 @@ impl Library {
         absolute.strip_prefix(&self.root).ok()
     }
 
+    /// Somt de inhoud van een map op: submappen en bewerkbare bestanden.
+    ///
+    /// Elke gevonden entry wordt zelf gecanonicaliseerd en tegen de root
+    /// gehouden. Zonder die stap zou een symlink die de bibliotheek uit wijst
+    /// wél in de lijst staan en pas bij het aanklikken geweigerd worden — een
+    /// lijst hoort niets te tonen wat de app niet mag openen.
+    ///
+    /// Entries waarvan de naam niet met `.` begint tellen mee; verborgen
+    /// bestanden zijn op een NAS vrijwel altijd rommel van het besturingssysteem
+    /// (`.DS_Store`, `@eaDir`-achtige resten) en geen muziek.
+    pub fn list_directory(&self, relative: &str) -> Result<DirectoryContents, PathError> {
+        let path = self.resolve(relative)?;
+
+        if !path.is_dir() {
+            return Err(PathError::Unsupported);
+        }
+
+        let entries = std::fs::read_dir(&path).map_err(|_| PathError::NotFound)?;
+
+        let mut directories = Vec::new();
+        let mut files = Vec::new();
+
+        for entry in entries.flatten() {
+            // Een naam die geen UTF-8 is, kan niet in een URL of in HTML
+            // terechtkomen. Overslaan is eerlijker dan een onklikbare regel.
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+
+            if name.starts_with('.') {
+                continue;
+            }
+
+            let Ok(child) = std::fs::canonicalize(entry.path()) else {
+                continue;
+            };
+
+            if !child.starts_with(&self.root) {
+                continue;
+            }
+
+            if child.is_dir() {
+                directories.push(DirEntry { path: child, name });
+            } else if child.is_file() && has_editable_extension(Path::new(&name)) {
+                files.push(DirEntry { path: child, name });
+            }
+        }
+
+        sort_by_name(&mut directories);
+        sort_by_name(&mut files);
+
+        Ok(DirectoryContents {
+            path,
+            directories,
+            files,
+        })
+    }
+
     /// Weigert padcomponenten die buiten de bibliotheek kunnen wijzen.
     ///
     /// Dit gebeurt vóór canonicalisatie, dus zonder het filesystem aan te raken.
@@ -126,6 +211,19 @@ impl Library {
 
         Ok(clean)
     }
+}
+
+/// Sorteert op naam zoals een mens dat verwacht: hoofdletterongevoelig.
+///
+/// Bij gelijke kleinletternaam beslist de oorspronkelijke naam, zodat de
+/// volgorde niet van de volgorde van het filesystem afhangt.
+fn sort_by_name(entries: &mut [DirEntry]) {
+    entries.sort_by(|a, b| {
+        a.name
+            .to_lowercase()
+            .cmp(&b.name.to_lowercase())
+            .then_with(|| a.name.cmp(&b.name))
+    });
 }
 
 /// Bepaalt of een bestand bewerkbaar is: juiste extensie én herkend formaat.
@@ -332,6 +430,99 @@ mod tests {
         assert!(!has_editable_extension(Path::new("track.m4a")));
         assert!(!has_editable_extension(Path::new("cover.jpg")));
         assert!(!has_editable_extension(Path::new("zonder-extensie")));
+    }
+
+    #[test]
+    fn lists_directories_and_audio_files() {
+        let (_tempdir, library) = library_with_album();
+
+        let root = library
+            .list_directory("")
+            .expect("de root moet op te sommen zijn");
+        assert_eq!(
+            root.directories.iter().map(|e| &e.name).collect::<Vec<_>>(),
+            vec!["Artiest"]
+        );
+        assert!(root.files.is_empty(), "de root bevat geen audiobestanden");
+
+        let album = library
+            .list_directory("Artiest/Album")
+            .expect("de albummap moet op te sommen zijn");
+        assert_eq!(
+            album.files.iter().map(|e| &e.name).collect::<Vec<_>>(),
+            vec!["tagged.flac", "tagged.mp3"]
+        );
+        assert!(album.directories.is_empty());
+    }
+
+    #[test]
+    fn listing_skips_hidden_and_unsupported_entries() {
+        let (_tempdir, library) = library_with_album();
+        let album = library.root().join("Artiest").join("Album");
+
+        std::fs::write(album.join(".DS_Store"), b"rommel").expect("bestand moet te schrijven zijn");
+        std::fs::write(album.join("hoes.jpg"), b"geen audio")
+            .expect("bestand moet te schrijven zijn");
+        std::fs::write(album.join("notities.txt"), b"tekst")
+            .expect("bestand moet te schrijven zijn");
+        std::fs::create_dir(album.join(".verborgen")).expect("map moet aan te maken zijn");
+
+        let contents = library
+            .list_directory("Artiest/Album")
+            .expect("de albummap moet op te sommen zijn");
+
+        assert_eq!(
+            contents.files.iter().map(|e| &e.name).collect::<Vec<_>>(),
+            vec!["tagged.flac", "tagged.mp3"]
+        );
+        assert!(
+            contents.directories.is_empty(),
+            "verborgen map werd getoond"
+        );
+    }
+
+    #[test]
+    fn listing_hides_a_symlink_pointing_outside() {
+        let (_tempdir, library) = library_with_album();
+
+        let outside = tempfile::tempdir().expect("tweede tempdir moet aan te maken zijn");
+        std::fs::write(outside.path().join("geheim.mp3"), b"niet voor de app")
+            .expect("bestand moet te schrijven zijn");
+
+        std::os::unix::fs::symlink(outside.path(), library.root().join("ontsnapping"))
+            .expect("symlink moet aan te maken zijn");
+
+        let root = library
+            .list_directory("")
+            .expect("de root moet op te sommen zijn");
+
+        assert_eq!(
+            root.directories.iter().map(|e| &e.name).collect::<Vec<_>>(),
+            vec!["Artiest"],
+            "een symlink naar buiten hoort niet in de lijst te staan"
+        );
+    }
+
+    #[test]
+    fn listing_refuses_a_path_outside_the_library_or_a_file() {
+        let (_tempdir, library) = library_with_album();
+
+        assert_eq!(
+            library.list_directory("../..").unwrap_err(),
+            PathError::OutsideLibrary
+        );
+        assert_eq!(
+            library.list_directory("bestaat-niet").unwrap_err(),
+            PathError::NotFound
+        );
+
+        // Een bestand is geen map; de mapbrowser hoort dat te weigeren.
+        assert_eq!(
+            library
+                .list_directory("Artiest/Album/tagged.mp3")
+                .unwrap_err(),
+            PathError::Unsupported
+        );
     }
 
     #[test]

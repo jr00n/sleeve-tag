@@ -87,3 +87,192 @@ code {
 a {
   color: var(--accent);
 }
+
+/* ── Broodkruimelpad ───────────────────────────────────────────────────── */
+
+.kruimels {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--tekst-zacht);
+  margin-bottom: 0.25rem;
+}
+
+.kruimels__scheiding {
+  color: var(--rand);
+}
+
+.kruimels__huidig {
+  color: var(--tekst);
+  font-weight: 600;
+}
+
+.maptitel {
+  /* Lange album- of artiestnamen mogen afbreken in plaats van de pagina te
+     verbreden; op een telefoon is dat het verschil tussen lezen en scrollen. */
+  overflow-wrap: anywhere;
+}
+
+/* ── Zoeken binnen de map ──────────────────────────────────────────────── */
+
+.zoek {
+  margin: 0 0 1rem;
+}
+
+.zoek__label {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+  margin-bottom: 0.25rem;
+}
+
+.zoek__regel {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.zoek__veld {
+  flex: 1;
+  min-width: 0;
+  padding: 0.55rem 0.7rem;
+  font-size: 1rem;
+  color: var(--tekst);
+  background: var(--vlak);
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+}
+
+.zoek__veld:focus-visible,
+.zoek__knop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.zoek__knop {
+  padding: 0.55rem 0.9rem;
+  font-size: 1rem;
+  color: var(--tekst);
+  background: var(--vlak);
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+/* ── Submappen ─────────────────────────────────────────────────────────── */
+
+.mappen,
+.tracks {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--vlak);
+}
+
+.mappen li + li,
+.tracks li + li {
+  border-top: 1px solid var(--rand);
+}
+
+.map {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  /* Ruim genoeg om met een duim te raken. */
+  padding: 0.8rem 0.9rem;
+  color: var(--tekst);
+  text-decoration: none;
+}
+
+.map__icoon {
+  color: var(--accent);
+}
+
+.map__naam {
+  overflow-wrap: anywhere;
+}
+
+/* ── Tracklijst ────────────────────────────────────────────────────────── */
+
+/*
+ * Rijen in plaats van een tabel: op een telefoon past een tabel met zes kolommen
+ * niet, en horizontaal scrollen door de hoofdnavigatie is geen optie. De
+ * batch-tabel (FR-9) mag dat straks wel, die is een ander scherm.
+ */
+.track {
+  display: grid;
+  grid-template-columns: auto 2ch 1fr auto;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.7rem 0.9rem;
+}
+
+.track__hoes {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 4px;
+  background: var(--rand);
+}
+
+.track__hoes--leeg {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 4px,
+    var(--rand) 4px,
+    var(--rand) 8px
+  );
+  border: 1px solid var(--rand);
+}
+
+.track__nummer {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--tekst-zacht);
+}
+
+.track__tekst {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.track__titel {
+  overflow-wrap: anywhere;
+}
+
+.track__meta,
+.track__bestand {
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+  overflow-wrap: anywhere;
+}
+
+.track__scheiding {
+  padding: 0 0.25rem;
+}
+
+.track__rechts {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+  white-space: nowrap;
+}
+
+.track__formaat {
+  letter-spacing: 0.04em;
+}
+
+.track__duur {
+  font-variant-numeric: tabular-nums;
+}
+
+.leeg {
+  color: var(--tekst-zacht);
+}

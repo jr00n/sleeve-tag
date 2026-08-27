@@ -9,13 +9,14 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Router;
-use axum::extract::State;
-use axum::http::StatusCode;
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
+use crate::browse::{self, Listing};
 use crate::config::Config;
 use crate::fs::{Library, PathError};
 
@@ -41,26 +42,84 @@ pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
     };
 
     Router::new()
-        .route("/", get(index))
+        .route("/", get(browse_root))
+        // De bibliotheek is een boom van onbekende diepte, vandaar een
+        // wildcard. Het pad gaat ongewijzigd naar `fs::Library`, die als enige
+        // beoordeelt of het binnen `MUSIC_ROOT` valt.
+        .route("/map/{*path}", get(browse_directory))
         .route("/healthz", get(healthz))
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
 }
 
-/// Startpagina.
+/// De volledige mappagina.
 #[derive(Template)]
-#[template(path = "index.html")]
-struct IndexTemplate {
-    music_root: String,
+#[template(path = "directory.html")]
+struct DirectoryTemplate {
+    listing: Listing,
 }
 
-async fn index(State(state): State<AppState>) -> Result<Html<String>, WebError> {
-    let pagina = IndexTemplate {
-        music_root: state.library.root().display().to_string(),
+/// Alleen de lijst met submappen en tracks.
+///
+/// HTMX vervangt hiermee de lijst zonder de pagina opnieuw op te bouwen; zonder
+/// JavaScript wordt dezelfde URL als gewone pagina opgevraagd.
+#[derive(Template)]
+#[template(path = "listing.html")]
+struct ListingTemplate {
+    listing: Listing,
+}
+
+/// De zoekterm uit de querystring (FR-3).
+#[derive(Debug, Default, serde::Deserialize)]
+struct BrowseQuery {
+    #[serde(default)]
+    q: String,
+}
+
+/// De bibliotheekwortel: het startpunt van elke bewerksessie.
+async fn browse_root(
+    State(state): State<AppState>,
+    Query(query): Query<BrowseQuery>,
+    headers: HeaderMap,
+) -> Result<Html<String>, WebError> {
+    render_listing(state, String::new(), query.q, &headers).await
+}
+
+/// Een map onder de wortel.
+async fn browse_directory(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    Query(query): Query<BrowseQuery>,
+    headers: HeaderMap,
+) -> Result<Html<String>, WebError> {
+    render_listing(state, path, query.q, &headers).await
+}
+
+async fn render_listing(
+    state: AppState,
+    path: String,
+    query: String,
+    headers: &HeaderMap,
+) -> Result<Html<String>, WebError> {
+    let library = Arc::clone(&state.library);
+
+    // Het lezen van de tags van een hele map is blokkerende bestands-I/O. Op de
+    // async-runtime zou dat de worker vasthouden waarop ook andere verzoeken
+    // moeten draaien.
+    let listing =
+        tokio::task::spawn_blocking(move || browse::listing(&library, &path, &query)).await??;
+
+    // HTMX vraagt alleen het stuk op dat het vervangt. Elk ander verzoek — een
+    // gedeelde link, een herlaadactie, een browser zonder JavaScript — krijgt de
+    // hele pagina.
+    let html = if headers.contains_key("hx-request") {
+        ListingTemplate { listing }.render()?
+    } else {
+        DirectoryTemplate { listing }.render()?
     };
 
-    Ok(Html(pagina.render()?))
+    Ok(Html(html))
 }
 
 /// Healthcheck voor Docker.
@@ -79,11 +138,23 @@ pub enum WebError {
 
     #[error(transparent)]
     Pad(#[from] crate::fs::PathError),
+
+    #[error("de achtergrondtaak is afgebroken: {0}")]
+    Background(#[from] tokio::task::JoinError),
 }
 
 impl IntoResponse for WebError {
     fn into_response(self) -> axum::response::Response {
         match self {
+            WebError::Background(error) => {
+                tracing::error!(%error, "map kon niet gelezen worden");
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "Er ging iets mis bij het lezen van de map.",
+                )
+                    .into_response()
+            }
+
             WebError::Render(error) => {
                 // De technische oorzaak hoort in het log, niet in de browser.
                 tracing::error!(%error, "pagina kon niet worden opgebouwd");

@@ -13,7 +13,13 @@ de conventies vast waar code zich aan houdt.
   door `tests/architecture.rs`.
 - **Alle padvertaling loopt via `fs::`.** Een door de gebruiker aangeleverd pad
   wordt daar gecanonicaliseerd en gecontroleerd tegen `MUSIC_ROOT`; handlers
-  bouwen nooit zelf een pad op.
+  bouwen nooit zelf een pad op. Dat geldt ook voor het opsommen van een map:
+  `fs::Library::list_directory` controleert elke gevonden entry opnieuw, zodat
+  een lijst nooit iets toont wat de app niet mag openen.
+- **Wat de UI toont, wordt in `browse::` opgebouwd.** Die module brengt `fs::`
+  en `tags::` samen tot een weergavemodel; handlers renderen dat model en
+  bevatten zelf geen sorteer-, filter- of opmaaklogica. Paden die naar de
+  browser gaan zijn altijd relatief aan `MUSIC_ROOT`.
 - **Schrijven is atomisch.** Naar een tijdelijk bestand in dezelfde map,
   hervalideren door opnieuw in te lezen, en pas dan hernoemen over het origineel.
   Bij een fout blijft het origineel onaangetast.
@@ -37,7 +43,7 @@ zijn voordat werk als afgerond geldt.
 
 Tests draaien **nooit** tegen de echte muziekbibliotheek. Ze kopiëren fixtures
 uit `tests/fixtures/` naar een tempdir en werken daar, via
-`testfixtures::kopieer_naar_tempdir(...)`. Een test die `MUSIC_ROOT` op een echt
+`testfixtures::copy_to_tempdir(...)`. Een test die `MUSIC_ROOT` op een echt
 bibliotheekpad zet, of die rechtstreeks tegen een fixture in de repo werkt, is
 per definitie fout.
 

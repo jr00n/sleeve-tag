@@ -1,0 +1,57 @@
+{# Submappen en tracks van de huidige map.
+
+   Wordt zowel binnen `directory.html` gerenderd als los teruggegeven aan HTMX;
+   daarom staat er geen omhullende container in — die hoort bij de pagina. #}
+
+{% if !listing.folders.is_empty() %}
+<ul class="mappen">
+  {% for folder in listing.folders %}
+  <li>
+    <a class="map" href="{{ folder.url }}">
+      <span class="map__icoon" aria-hidden="true">▸</span>
+      <span class="map__naam">{{ folder.name }}</span>
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if !listing.tracks.is_empty() %}
+<ul class="tracks">
+  {% for track in listing.tracks %}
+  <li class="track">
+    {# Plaats voor de thumbnail van de embedded hoes; die volgt in een aparte
+       taak. Tot dan markeert het vlak alleen of er art aanwezig is. #}
+    <span class="track__hoes{% if !track.has_art %} track__hoes--leeg{% endif %}"
+          aria-hidden="true"></span>
+
+    <span class="track__nummer">{{ track.track_label() }}</span>
+
+    <span class="track__tekst">
+      <span class="track__titel">{{ track.title_label() }}</span>
+      <span class="track__meta">
+        <span class="track__artiest">{{ track.artist_label() }}</span>
+        <span class="track__scheiding" aria-hidden="true">·</span>
+        <span class="track__album">{{ track.album_label() }}</span>
+      </span>
+      <span class="track__bestand">{{ track.name }}</span>
+    </span>
+
+    <span class="track__rechts">
+      <span class="track__formaat">{{ track.format }}</span>
+      <span class="track__duur">{{ track.duration }}</span>
+    </span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
+{% if listing.folders.is_empty() && listing.tracks.is_empty() %}
+<p class="leeg">
+  {%- if listing.query.is_empty() -%}
+    Deze map bevat geen submappen en geen bewerkbare bestanden.
+  {%- else -%}
+    Niets in deze map komt overeen met “{{ listing.query }}”.
+  {%- endif -%}
+</p>
+{% endif %}

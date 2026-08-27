@@ -97,7 +97,7 @@ script voor: het schrijft een comment als `TXXX` in plaats van `COMM` (het scrip
 plakt daarom zelf een `COMM`-frame aan de MP3's), en het gebruikt in FLAC het
 veld `DESCRIPTION` waar Picard `COMMENT` schrijft (de tagmodule leest beide).
 
-Gebruik ze via `testfixtures::kopieer_naar_tempdir(...)`, dat een kopie in een
+Gebruik ze via `testfixtures::copy_to_tempdir(...)`, dat een kopie in een
 wegwerpmap zet. Rechtstreeks tegen een fixture in de repo werken is fout: een
 schrijftest zou het origineel dan wijzigen.
 
@@ -162,9 +162,34 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `config` | Configuratie uit omgevingsvariabelen |
 | `fs` | Padvalidatie en containment binnen `MUSIC_ROOT`; de enige plek die een gebruikerspad naar een filesystem-pad vertaalt |
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
+| `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
+
+## Mapbrowser
+
+De startpagina is de wortel van `MUSIC_ROOT`; elke map eronder heeft een eigen
+URL onder `/map/`, bijvoorbeeld `/map/Artiest/Album`. Het pad in de URL is altijd
+relatief aan `MUSIC_ROOT` — het absolute pad van de NAS komt niet in de
+interface of in een link terecht. Boven de wortel navigeren kan niet: `fs::`
+weigert zo'n pad met een 403.
+
+Per map worden de submappen getoond en de bestanden waarvan de tags te lezen
+zijn, met tracknummer, titel, artiest, album, duur en formaat. Bestanden worden
+gesorteerd op het tracknummer uit de tags, met de bestandsnaam als terugval
+wanneer een tracknummer ontbreekt; bestanden zonder nummer staan achteraan. Dat
+beantwoordt het open punt over sortering uit PRD §12.
+
+Het zoekveld filtert binnen de huidige map op bestandsnaam of titel, en op de
+naam van submappen. Met JavaScript ververst HTMX tijdens het typen alleen de
+lijst (de server geeft dan het fragment `templates/listing.html` terug, herkend
+aan de `HX-Request`-header); zonder JavaScript is het een gewone GET naar
+dezelfde URL met `?q=`, met hetzelfde resultaat als hele pagina.
+
+Er is bewust geen bibliotheek-index: de tags worden per map gelezen op het moment
+dat de pagina wordt opgevraagd. Dat lezen is blokkerende I/O en gebeurt daarom in
+`spawn_blocking`, buiten de async-runtime.
 
 ## Frontend zonder build-stap
 

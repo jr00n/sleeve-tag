@@ -35,13 +35,21 @@ impl Drop for Server {
 }
 
 impl Server {
-    /// Start de binary met een lege omgeving plus `MUSIC_ROOT`, een vrije poort
-    /// en de opgegeven extra variabelen.
+    /// Start de binary met een lege wegwerp-bibliotheek als `MUSIC_ROOT`.
+    pub fn start(extra: &[(&str, &str)]) -> Server {
+        let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+        Server::start_in(root, extra)
+    }
+
+    /// Start de binary met `root` als `MUSIC_ROOT`, een vrije poort en de
+    /// opgegeven extra omgevingsvariabelen.
+    ///
+    /// `root` blijft eigendom van de server en wordt bij het opruimen verwijderd.
+    /// Het is altijd een tempdir: een test raakt nooit de echte bibliotheek.
     ///
     /// `env_clear` zorgt dat de test niet afhangt van wat er toevallig in de
     /// shell van de ontwikkelaar of de CI-runner staat.
-    pub fn start(extra: &[(&str, &str)]) -> Server {
-        let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    pub fn start_in(root: tempfile::TempDir, extra: &[(&str, &str)]) -> Server {
         let port = free_port();
 
         let mut command = Command::new(env!("CARGO_BIN_EXE_sleeve-tag"));
@@ -97,13 +105,26 @@ impl Server {
 
     /// Doet een GET-verzoek en geeft de volledige respons als tekst terug.
     pub fn get(&self, path: &str) -> String {
+        self.get_with_headers(path, &[])
+    }
+
+    /// Zoals [`Server::get`], met extra verzoekheaders.
+    ///
+    /// Nodig voor `HX-Request`: die header bepaalt of de server de hele pagina
+    /// of alleen het te vervangen fragment teruggeeft.
+    pub fn get_with_headers(&self, path: &str, headers: &[(&str, &str)]) -> String {
         let mut stream = TcpStream::connect(self.address).expect("verbinding moet lukken");
         stream
             .set_read_timeout(Some(PATIENCE))
             .expect("timeout moet in te stellen zijn");
 
+        let extra: String = headers
+            .iter()
+            .map(|(name, value)| format!("{name}: {value}\r\n"))
+            .collect();
+
         let request = format!(
-            "GET {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+            "GET {path} HTTP/1.1\r\nHost: {}\r\n{extra}Connection: close\r\n\r\n",
             self.address
         );
         stream
@@ -177,4 +198,33 @@ fn capture_output(stream: std::process::ChildStdout) -> Arc<Mutex<String>> {
     });
 
     buffer
+}
+
+/// Pad naar een fixture in de repo.
+///
+/// De integratietests kunnen `src/testfixtures.rs` niet gebruiken: dat hoort bij
+/// de binary-crate. De namen staan daar wel beschreven.
+pub fn fixture_path(name: &str) -> std::path::PathBuf {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
+        .join(name);
+
+    assert!(
+        path.is_file(),
+        "fixture '{name}' ontbreekt op {}. Genereer hem opnieuw met tests/fixtures/genereer-fixtures.sh",
+        path.display()
+    );
+
+    path
+}
+
+/// Kopieert een fixture naar `directory` onder de opgegeven naam.
+pub fn place_fixture(directory: &std::path::Path, name: &str, fixture: &str) {
+    std::fs::copy(fixture_path(fixture), directory.join(name)).unwrap_or_else(|error| {
+        panic!(
+            "fixture '{fixture}' kon niet als '{name}' in {} gezet worden: {error}",
+            directory.display()
+        )
+    });
 }
