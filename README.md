@@ -82,7 +82,7 @@ zo'n 84 KB) die de tagvarianten dekken waar de code mee om moet gaan:
 
 | Fixture | Bijzonderheid |
 |---|---|
-| `untagged.mp3` / `untagged.flac` | geen enkele tag |
+| `untagged.mp3` / `untagged.flac` | geen gemodelleerde tags; de FLAC draagt wel een `ENCODER`-veld dat ffmpeg altijd schrijft |
 | `tagged.mp3` / `tagged.flac` | volledige tagset uit het tagmodel |
 | `tagged-with-art.mp3` / `tagged-with-art.flac` | idem, plus embedded front cover |
 | `id3v1-only.mp3` | uitsluitend een ID3v1-tag, geen ID3v2 |
@@ -233,6 +233,23 @@ als inconsistent gelden.
 De labels zijn zichtbare tekst en geen tooltip: op een telefoon is er geen
 hover. De beoordeling loopt over de héle map, ook wanneer er gefilterd wordt —
 aan de map verandert niets doordat je zoekt.
+
+### Geavanceerde weergave: alle ruwe tags
+
+`/tags/<pad>` toont per bestand alles wat er werkelijk in staat, inclusief
+velden die het genormaliseerde model niet kent: ID3v2-frames voor MP3
+(`TIT2`, `TPE1`, …) en Vorbis-comments voor FLAC (`TITLE`, `ARTIST`, …), telkens
+met hun oorspronkelijke sleutelnaam. Embedded art wordt samengevat als type en
+grootte; de afbeeldingsdata zelf komt er niet in.
+
+Deze weergave is **alleen-lezen** en dat is geen tijdelijke beperking: ruwe
+frames bewerken is geen doel van het MVP. De pagina bevat daarom geen formulier,
+geen invoerveld en geen knop; een test bewaakt dat.
+
+Eén ding om te weten bij het lezen: een samengesteld ID3v2-frame als `TRCK`
+(`3/12`) staat als één frame in het bestand, maar wordt als nummer én totaal
+gelezen. Beide delen verschijnen dan als twee regels met dezelfde sleutel. De
+pagina zegt dat er zelf bij.
 
 ## Frontend zonder build-stap
 

@@ -70,6 +70,9 @@
     <span class="track__rechts">
       <span class="track__formaat">{{ track.format }}</span>
       <span class="track__duur">{{ track.duration }}</span>
+      {# Tot het bewerkformulier er is, is dit de ingang naar het detail van
+         één bestand. #}
+      <a class="track__ruw" href="{{ track.raw_url }}">ruwe tags</a>
     </span>
   </li>
   {% endfor %}

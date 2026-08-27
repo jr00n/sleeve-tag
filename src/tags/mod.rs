@@ -25,7 +25,7 @@ use lofty::config::ParseOptions;
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
 use lofty::picture::{Picture, PictureType};
 use lofty::probe::Probe;
-use lofty::tag::{Accessor, ItemKey, ItemValue, Tag};
+use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagType};
 
 /// Wat er mis kan gaan bij het lezen van een bestand.
 ///
@@ -120,6 +120,23 @@ pub struct RawTag {
     pub value: String,
 }
 
+/// Alles wat er ruw in één bestand staat.
+///
+/// De tagsoort hoort erbij: dezelfde titel heet `TIT2` in een ID3v2-frame en
+/// `TITLE` in een Vorbis-comment, en zonder te vermelden waar je naar kijkt is
+/// zo'n lijst raadselachtig in plaats van diagnostisch.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawTags {
+    pub format: Format,
+
+    /// De tagsoort zoals hij in het bestand staat, bijvoorbeeld `ID3v2`.
+    /// `None` wanneer het bestand helemaal geen tag heeft.
+    pub kind: Option<String>,
+
+    /// Alle sleutel-waardeparen, op sleutel gesorteerd.
+    pub items: Vec<RawTag>,
+}
+
 /// Leest het volledige model van één bestand.
 pub fn read(path: &Path) -> Result<Track, TagError> {
     let file = open(path)?;
@@ -156,10 +173,16 @@ pub fn read_front_cover(path: &Path) -> Result<Option<(String, Vec<u8>)>, TagErr
 ///
 /// Binaire waarden worden samengevat in plaats van uitgeschreven: een
 /// APIC-frame van veertig kilobyte hoort niet in een HTML-tabel.
-pub fn read_raw_tags(path: &Path) -> Result<Vec<RawTag>, TagError> {
+pub fn read_raw_tags(path: &Path) -> Result<RawTags, TagError> {
     let file = open(path)?;
+    let format = format_of(&file)?;
+
     let Some(tag) = primary_tag(&file) else {
-        return Ok(Vec::new());
+        return Ok(RawTags {
+            format,
+            kind: None,
+            items: Vec::new(),
+        });
     };
 
     let tag_type = tag.tag_type();
@@ -190,7 +213,27 @@ pub fn read_raw_tags(path: &Path) -> Result<Vec<RawTag>, TagError> {
 
     // Een vaste volgorde maakt de weergave voorspelbaar en de tests stabiel.
     raw.sort_by(|a, b| a.key.cmp(&b.key));
-    Ok(raw)
+
+    Ok(RawTags {
+        format,
+        kind: Some(name_of(tag_type)),
+        items: raw,
+    })
+}
+
+/// De naam van een tagsoort zoals de weergave hem toont.
+///
+/// Sleeve ondersteunt alleen MP3 en FLAC, dus in de praktijk zijn dit de eerste
+/// drie. De rest staat er voor het geval een bestand een tag draagt die er niet
+/// hoort te zitten — dan is de naam nog steeds informatiever dan niets.
+fn name_of(tag_type: TagType) -> String {
+    match tag_type {
+        TagType::Id3v2 => "ID3v2".to_string(),
+        TagType::Id3v1 => "ID3v1".to_string(),
+        TagType::VorbisComments => "Vorbis-comments".to_string(),
+        TagType::Ape => "APE".to_string(),
+        other => format!("{other:?}"),
+    }
 }
 
 /// Bepaalt of het bestand werkelijk een MP3 of FLAC is.
@@ -455,7 +498,7 @@ mod tests {
     fn raw_tags_use_the_original_key_names() {
         let mp3 = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_WITH_TAGS))
             .expect("lezen moet lukken");
-        let keys: Vec<&str> = mp3.iter().map(|tag| tag.key.as_str()).collect();
+        let keys: Vec<&str> = mp3.items.iter().map(|tag| tag.key.as_str()).collect();
 
         // ID3v2 gebruikt frame-ID's, geen genormaliseerde veldnamen.
         assert!(keys.contains(&"TIT2"), "sleutels waren: {keys:?}");
@@ -463,11 +506,64 @@ mod tests {
 
         let flac = read_raw_tags(&testfixtures::fixture_path(testfixtures::FLAC_WITH_TAGS))
             .expect("lezen moet lukken");
-        let keys: Vec<&str> = flac.iter().map(|tag| tag.key.as_str()).collect();
+        let keys: Vec<&str> = flac.items.iter().map(|tag| tag.key.as_str()).collect();
 
         // Vorbis-comments gebruiken hun eigen namen.
         assert!(keys.contains(&"TITLE"), "sleutels waren: {keys:?}");
         assert!(keys.contains(&"ARTIST"), "sleutels waren: {keys:?}");
+    }
+
+    #[test]
+    fn raw_tags_name_the_kind_of_tag() {
+        // Dezelfde titel heet in MP3 `TIT2` en in FLAC `TITLE`; de weergave
+        // hoort te zeggen waar je naar kijkt.
+        let mp3 = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_WITH_TAGS))
+            .expect("lezen moet lukken");
+        assert_eq!(mp3.format, Format::Mp3);
+        assert_eq!(mp3.kind.as_deref(), Some("ID3v2"));
+
+        let flac = read_raw_tags(&testfixtures::fixture_path(testfixtures::FLAC_WITH_TAGS))
+            .expect("lezen moet lukken");
+        assert_eq!(flac.format, Format::Flac);
+        assert_eq!(flac.kind.as_deref(), Some("Vorbis-comments"));
+
+        // Een MP3 zonder ID3v2 valt terug op de tag die er wél is.
+        let old = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_ID3V1_ONLY))
+            .expect("lezen moet lukken");
+        assert_eq!(old.kind.as_deref(), Some("ID3v1"));
+    }
+
+    #[test]
+    fn a_file_without_tags_has_nothing_to_show() {
+        // Een MP3 zonder tags heeft werkelijk geen tagblok.
+        let mp3 = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_WITHOUT_TAGS))
+            .expect("lezen moet lukken");
+        assert_eq!(mp3.kind, None);
+        assert!(mp3.items.is_empty(), "{:?}", mp3.items);
+
+        // De "ongetagde" FLAC draagt wél een Vorbis-comment-blok, met daarin
+        // `ENCODER=ffmpeg`: dat schrijft ffmpeg ook met `-map_metadata -1`.
+        // Het genormaliseerde model laat er niets van zien, want ENCODER hoort
+        // niet bij de gemodelleerde velden — en juist dat verschil is waar
+        // deze weergave voor bestaat.
+        let flac = read_raw_tags(&testfixtures::fixture_path(testfixtures::FLAC_WITHOUT_TAGS))
+            .expect("lezen moet lukken");
+        assert_eq!(flac.kind.as_deref(), Some("Vorbis-comments"));
+        assert_eq!(
+            flac.items,
+            vec![RawTag {
+                key: "ENCODER".to_string(),
+                value: "ffmpeg".to_string(),
+            }]
+        );
+
+        let model = read(&testfixtures::fixture_path(testfixtures::FLAC_WITHOUT_TAGS))
+            .expect("lezen moet lukken");
+        assert!(
+            model.tags.is_empty(),
+            "het gemodelleerde beeld hoort leeg te blijven: {:?}",
+            model.tags
+        );
     }
 
     #[test]
@@ -476,6 +572,7 @@ mod tests {
             .expect("lezen moet lukken");
 
         let art = raw
+            .items
             .iter()
             .find(|tag| tag.value.contains("bytes"))
             .expect("de cover hoort in de ruwe lijst te staan");

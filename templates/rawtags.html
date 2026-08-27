@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+
+{% block title %}{{ name }} — ruwe tags — Sleeve{% endblock %}
+
+{% block inhoud %}
+<nav class="kruimels" aria-label="Broodkruimelpad">
+  {% for crumb in crumbs %}
+  <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
+  <span class="kruimels__scheiding" aria-hidden="true">/</span>
+  {% endfor %}
+  <span class="kruimels__huidig" aria-current="page">{{ name }}</span>
+</nav>
+
+<h1 class="maptitel">{{ name }}</h1>
+
+<p class="uitleg">
+  {{ raw.format }}{% if let Some(kind) = raw.kind %} · {{ kind }}{% endif %}
+</p>
+
+{# Alleen-lezen, en dat is geen tijdelijke beperking: ruwe frames bewerken is
+   geen doel van het MVP. Op deze pagina staat daarom geen formulier, geen
+   invoerveld en geen knop. #}
+<p class="uitleg">
+  Dit is wat er werkelijk in het bestand staat, inclusief velden die Sleeve niet
+  modelleert. Deze weergave is alleen-lezen.
+</p>
+
+{# Eerlijk zijn over wat er getoond wordt: een ID3v2-frame als `TRCK` bevat
+   "3/12" in één frame, maar wordt als nummer en totaal gelezen. Beide delen
+   komen dan onder dezelfde sleutel te staan. Zonder deze regel lijkt het alsof
+   het bestand twee TRCK-frames heeft. #}
+<p class="uitleg uitleg--klein">
+  Een samengesteld veld als <code>TRCK</code> of <code>TPOS</code> bevat nummer
+  en totaal in één frame; die verschijnen hier als twee regels met dezelfde
+  sleutel.
+</p>
+
+{% if raw.items.is_empty() %}
+<p class="leeg">
+  {%- if raw.kind.is_none() -%}
+    Dit bestand bevat geen tagblok.
+  {%- else -%}
+    Het tagblok van dit bestand is leeg.
+  {%- endif -%}
+</p>
+{% else %}
+{# Waarden kunnen lang zijn; de tabel scrollt in zijn eigen container zodat de
+   pagina zelf nooit horizontaal scrollt. #}
+<div class="tabelrand">
+  <table class="ruwetags">
+    <caption class="ruwetags__onderschrift">
+      {{ raw.items.len() }} velden in dit bestand
+    </caption>
+    <thead>
+      <tr>
+        <th scope="col">Sleutel</th>
+        <th scope="col">Waarde</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in raw.items %}
+      <tr>
+        <th scope="row" class="ruwetags__sleutel">{{ item.key }}</th>
+        <td class="ruwetags__waarde">{{ item.value }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -328,3 +328,64 @@ a {
   line-height: 1.5;
   white-space: nowrap;
 }
+
+/* ── Geavanceerde weergave: alle ruwe tags ─────────────────────────────── */
+
+.track__ruw {
+  font-size: 0.8rem;
+}
+
+/*
+ * De enige plek waar horizontaal scrollen is toegestaan, en dan binnen de
+ * tabel zelf: een ruwe waarde kan een heel lang pad of een lange tekst zijn.
+ */
+.tabelrand {
+  overflow-x: auto;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.ruwetags {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.ruwetags__onderschrift {
+  padding: 0.6rem 0.9rem;
+  text-align: left;
+  color: var(--tekst-zacht);
+  font-size: 0.85rem;
+}
+
+.ruwetags th,
+.ruwetags td {
+  padding: 0.5rem 0.9rem;
+  text-align: left;
+  vertical-align: top;
+  border-top: 1px solid var(--rand);
+}
+
+.ruwetags thead th {
+  color: var(--tekst-zacht);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ruwetags__sleutel {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-weight: 500;
+  white-space: nowrap;
+  color: var(--accent);
+}
+
+.ruwetags__waarde {
+  overflow-wrap: anywhere;
+}
+
+.uitleg--klein {
+  font-size: 0.85rem;
+}

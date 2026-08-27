@@ -100,6 +100,9 @@ pub struct TrackSummary {
 
     /// URL van de verkleinde hoes. Alleen zinvol wanneer `has_art` waar is.
     pub art_url: String,
+
+    /// URL van de geavanceerde weergave met alle ruwe tags.
+    pub raw_url: String,
 }
 
 impl TrackSummary {
@@ -237,6 +240,7 @@ fn summarize(entry: &DirEntry, directory: &str) -> Option<TrackSummary> {
 
     Some(TrackSummary {
         art_url: thumbnail_url(&path),
+        raw_url: raw_tags_url(&path),
         path,
         name: entry.name.clone(),
         duration: format_duration(track.duration),
@@ -353,6 +357,32 @@ fn url_for(path: &str) -> String {
 /// De URL van de verkleinde hoes van één bestand.
 fn thumbnail_url(path: &str) -> String {
     format!("/art/{}?size={THUMBNAIL_SIZE_PARAM}", encode(path))
+}
+
+/// De URL van de geavanceerde weergave van één bestand.
+pub fn raw_tags_url(path: &str) -> String {
+    format!("/tags/{}", encode(path))
+}
+
+/// Broodkruimels tot en met de map waarin dit bestand staat.
+///
+/// De bestandsnaam zelf hoort er niet bij: die is de kop van de pagina, en een
+/// bestand is geen map om naartoe te navigeren.
+pub fn crumbs_to_parent(path: &str) -> Vec<Crumb> {
+    crumbs_for(parent_of(path))
+}
+
+/// De naam van een bestand, los van het pad ernaartoe.
+pub fn name_of_file(path: &str) -> &str {
+    path.rsplit('/').next().unwrap_or(path)
+}
+
+/// Het pad van de map waarin dit bestand staat; leeg voor de wortel.
+fn parent_of(path: &str) -> &str {
+    match path.rfind('/') {
+        Some(index) => &path[..index],
+        None => "",
+    }
 }
 
 /// Codeert een relatief pad voor gebruik in een URL.

@@ -16,9 +16,10 @@ use axum::routing::get;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
-use crate::browse::{self, Listing, THUMBNAIL_SIZE_PARAM};
+use crate::browse::{self, Crumb, Listing, THUMBNAIL_SIZE_PARAM};
 use crate::config::Config;
 use crate::fs::{Library, PathError};
+use crate::tags::RawTags;
 use crate::{art, tags};
 
 /// Gedeelde toestand van de webserver.
@@ -49,6 +50,7 @@ pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
         // beoordeelt of het binnen `MUSIC_ROOT` valt.
         .route("/map/{*path}", get(browse_directory))
         .route("/art/{*path}", get(art_of_file))
+        .route("/tags/{*path}", get(raw_tags_of_file))
         .route("/healthz", get(healthz))
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(TraceLayer::new_for_http())
@@ -122,6 +124,47 @@ async fn render_listing(
     };
 
     Ok(Html(html))
+}
+
+/// De geavanceerde weergave: alles wat er ruw in één bestand staat (FR-7).
+#[derive(Template)]
+#[template(path = "rawtags.html")]
+struct RawTagsTemplate {
+    /// Bestandsnaam, als kop van de pagina.
+    name: String,
+
+    /// Tot en met de map waarin het bestand staat.
+    crumbs: Vec<Crumb>,
+
+    raw: RawTags,
+}
+
+/// Toont alle ruwe tags van één bestand, alleen-lezen.
+///
+/// Deze pagina bestaat om te kunnen zien wát er werkelijk in een bestand staat,
+/// inclusief velden die het genormaliseerde model niet kent. Ze biedt bewust
+/// geen enkele manier om er iets aan te veranderen: ruwe frames bewerken is
+/// geen doel van het MVP.
+async fn raw_tags_of_file(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+) -> Result<Html<String>, WebError> {
+    let library = Arc::clone(&state.library);
+    let wanted = path.clone();
+
+    let raw = tokio::task::spawn_blocking(move || {
+        let absolute = library.resolve(&wanted)?;
+        tags::read_raw_tags(&absolute).map_err(WebError::from)
+    })
+    .await??;
+
+    let page = RawTagsTemplate {
+        name: browse::name_of_file(&path).to_string(),
+        crumbs: browse::crumbs_to_parent(&path),
+        raw,
+    };
+
+    Ok(Html(page.render()?))
 }
 
 /// Welke variant van de hoes gevraagd wordt.
@@ -309,6 +352,7 @@ mod tests {
 
         crate::testfixtures::copy_to(&album, crate::testfixtures::MP3_WITH_ART);
         crate::testfixtures::copy_to(&album, crate::testfixtures::MP3_WITH_TAGS);
+        crate::testfixtures::copy_to(&album, crate::testfixtures::FLAC_WITH_TAGS);
         std::fs::write(album.join("notities.txt"), b"tekst")
             .expect("bestand moet te schrijven zijn");
 
@@ -607,6 +651,95 @@ mod tests {
         assert!(
             !html.contains(r#"src="/art/Album/tagged.mp3"#),
             "een bestand zonder hoes hoort geen verzoek uit te lokken: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_tags_show_the_original_key_names() {
+        let root = root_with_art();
+
+        // MP3: ID3v2-frames.
+        let mp3 = body_as_string(get(&root, "/tags/Album/tagged.mp3").await).await;
+        assert!(mp3.contains("ID3v2"), "de tagsoort ontbreekt: {mp3}");
+        assert!(mp3.contains("TIT2"), "het titelframe ontbreekt: {mp3}");
+        assert!(mp3.contains("TPE1"), "het artiestframe ontbreekt: {mp3}");
+
+        // FLAC: Vorbis-comments, met hun eigen namen.
+        let flac = body_as_string(get(&root, "/tags/Album/tagged.flac").await).await;
+        assert!(
+            flac.contains("Vorbis-comments"),
+            "de tagsoort ontbreekt: {flac}"
+        );
+        assert!(flac.contains("TITLE"), "het titelveld ontbreekt: {flac}");
+        assert!(flac.contains("ARTIST"), "het artiestveld ontbreekt: {flac}");
+        assert!(
+            !flac.contains("TIT2"),
+            "een FLAC hoort geen ID3v2-frames te tonen: {flac}"
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_tags_summarise_the_embedded_art() {
+        let root = root_with_art();
+        let html = body_as_string(get(&root, "/tags/Album/tagged-with-art.mp3").await).await;
+
+        // Type en grootte, niet de data zelf.
+        assert!(
+            html.contains("image/jpeg") && html.contains("bytes"),
+            "de hoes wordt niet samengevat: {html}"
+        );
+        assert!(
+            html.len() < 20_000,
+            "de pagina is {} bytes; dat ruikt naar ruwe afbeeldingsdata",
+            html.len()
+        );
+    }
+
+    #[tokio::test]
+    async fn the_advanced_view_offers_no_way_to_change_anything() {
+        let root = root_with_art();
+        let html = body_as_string(get(&root, "/tags/Album/tagged.mp3").await).await;
+
+        // Ruwe frames bewerken is geen doel van het MVP; deze pagina hoort
+        // daarom geen enkel bedienbaar element te bevatten.
+        for forbidden in ["<form", "<input", "<textarea", "<button", "<select"] {
+            assert!(
+                !html.contains(forbidden),
+                "'{forbidden}' staat op een alleen-lezen pagina: {html}"
+            );
+        }
+        assert!(
+            html.contains("alleen-lezen"),
+            "de pagina zegt niet dat ze alleen-lezen is: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn raw_tags_refuse_what_is_not_audio() {
+        let root = root_with_art();
+
+        assert_eq!(
+            get(&root, "/tags/Album/notities.txt").await.status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            get(&root, "/tags/Album/bestaat-niet.mp3").await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            get(&root, "/tags/../../etc/passwd").await.status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn the_listing_links_to_the_advanced_view() {
+        let root = root_with_art();
+        let html = body_as_string(get(&root, "/map/Album").await).await;
+
+        assert!(
+            html.contains(r#"href="/tags/Album/tagged.mp3""#),
+            "er is geen weg naar de geavanceerde weergave: {html}"
         );
     }
 }
