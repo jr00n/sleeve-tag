@@ -22,11 +22,6 @@
 //! geschreven, om verwarring met de crate-eigen module [`crate::fs`] te
 //! voorkomen.
 
-// `tags::write` gebruikt deze module, maar die wordt zelf pas door het
-// bewerkformulier (task-14) aangeroepen. Zolang die keten nergens in een
-// handler eindigt, ziet de compiler het geheel als ongebruikt.
-#![allow(dead_code)]
-
 use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 

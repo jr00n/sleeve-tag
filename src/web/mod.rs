@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Router;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Form, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
@@ -18,9 +18,10 @@ use tower_http::trace::TraceLayer;
 
 use crate::browse::{self, Crumb, Listing, THUMBNAIL_SIZE_PARAM};
 use crate::config::Config;
+use crate::edit::{EditPage, Notice};
 use crate::fs::{Library, PathError};
 use crate::tags::RawTags;
-use crate::{art, tags};
+use crate::{art, atomic, edit, tags};
 
 /// Gedeelde toestand van de webserver.
 ///
@@ -32,6 +33,9 @@ pub struct AppState {
     /// De enige route van gebruikerspad naar filesystem-pad; handlers lossen
     /// nooit zelf een pad op.
     pub library: Arc<Library>,
+
+    /// Hoe er geschreven wordt; komt uit `BACKUP_ON_WRITE`.
+    pub write_options: atomic::Options,
 }
 
 /// Bouwt de volledige router.
@@ -41,6 +45,9 @@ pub struct AppState {
 pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
     let state = AppState {
         library: Arc::new(Library::new(config.music_root)),
+        write_options: atomic::Options {
+            backup: config.backup_on_write,
+        },
     };
 
     Router::new()
@@ -51,6 +58,7 @@ pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
         .route("/map/{*path}", get(browse_directory))
         .route("/art/{*path}", get(art_of_file))
         .route("/tags/{*path}", get(raw_tags_of_file))
+        .route("/bewerk/{*path}", get(edit_form).post(save_tags))
         .route("/healthz", get(healthz))
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(TraceLayer::new_for_http())
@@ -165,6 +173,121 @@ async fn raw_tags_of_file(
     };
 
     Ok(Html(page.render()?))
+}
+
+/// Het bewerkformulier van één bestand (FR-5 en FR-6).
+#[derive(Template)]
+#[template(path = "edit.html")]
+struct EditTemplate {
+    page: EditPage,
+}
+
+/// Toont het formulier met de waarden die nu in het bestand staan.
+async fn edit_form(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+) -> Result<Html<String>, WebError> {
+    let page = load_page(&state, path, None, None).await?;
+    Ok(Html(EditTemplate { page }.render()?))
+}
+
+/// Slaat de ingevulde waarden op en toont daarna wat er werkelijk in staat.
+///
+/// Na een geslaagde schrijfactie wordt het bestand **opnieuw ingelezen** en
+/// worden die waarden getoond. Dat is het hele punt van FR-6: de bevestiging
+/// komt uit het bestand en niet uit wat de gebruiker net intikte, want alleen
+/// dan zegt hij iets.
+///
+/// Er wordt bewust niet doorverwezen na het opslaan. Het herladen van een POST
+/// is hier ongevaarlijk: `tags::write` doet niets wanneer er niets verandert,
+/// dus een tweede keer versturen van dezelfde waarden raakt het bestand niet
+/// aan. Dat scheelt een flash-mechanisme om de bevestiging te bewaren.
+async fn save_tags(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    Form(fields): Form<edit::Form>,
+) -> Result<Html<String>, WebError> {
+    // Eerst de invoer, dan pas het bestand: een typefout in een tracknummer
+    // hoort geen schrijfactie te starten die halverwege afketst.
+    let wanted = match fields.to_tags() {
+        Ok(tags) => tags,
+        Err(problems) => {
+            let page =
+                load_page(&state, path, Some(fields), Some(Notice::Failed(problems))).await?;
+            return Ok(Html(EditTemplate { page }.render()?));
+        }
+    };
+
+    let library = Arc::clone(&state.library);
+    let options = state.write_options;
+    let target = path.clone();
+
+    let outcome = tokio::task::spawn_blocking(move || {
+        let absolute = library.resolve(&target)?;
+        Ok::<_, PathError>(tags::write(&absolute, &wanted, options))
+    })
+    .await??;
+
+    let notice = match outcome {
+        Ok(()) => Notice::Saved(
+            "Opgeslagen. Hieronder staat wat er nu werkelijk in het bestand staat.".to_string(),
+        ),
+
+        Err(error) => {
+            tracing::error!(path = %path, %error, "tags konden niet opgeslagen worden");
+
+            // De ingevulde waarden blijven staan, zodat de gebruiker het
+            // opnieuw kan proberen zonder alles over te typen.
+            let page = load_page(
+                &state,
+                path,
+                Some(fields),
+                Some(Notice::Failed(vec![format!(
+                    "Er is niets opgeslagen: {error}. Het bestand is onveranderd gebleven."
+                )])),
+            )
+            .await?;
+            return Ok(Html(EditTemplate { page }.render()?));
+        }
+    };
+
+    let page = load_page(&state, path, None, Some(notice)).await?;
+    Ok(Html(EditTemplate { page }.render()?))
+}
+
+/// Bouwt de bewerkpagina van één bestand.
+///
+/// `fields` overschrijft wat er in de invoervelden komt te staan; zonder die
+/// waarde komen ze uit het bestand. Dat onderscheid is het verschil tussen "hier
+/// is wat er in het bestand staat" en "hier is wat je zojuist intikte, probeer
+/// het nog eens".
+async fn load_page(
+    state: &AppState,
+    path: String,
+    fields: Option<edit::Form>,
+    notice: Option<Notice>,
+) -> Result<EditPage, WebError> {
+    let library = Arc::clone(&state.library);
+    let target = path.clone();
+
+    let track = tokio::task::spawn_blocking(move || {
+        let absolute = library.resolve(&target)?;
+        tags::read(&absolute).map_err(WebError::from)
+    })
+    .await??;
+
+    Ok(EditPage {
+        name: browse::name_of_file(&path).to_string(),
+        crumbs: browse::crumbs_to_parent(&path),
+        url: browse::edit_url(&path),
+        raw_url: browse::raw_tags_url(&path),
+        art_url: browse::art_url(&path),
+        has_art: track.art.is_some(),
+        format: track.format.to_string(),
+        duration: browse::format_duration(track.duration),
+        fields: fields.unwrap_or_else(|| edit::Form::from_tags(&track.tags)),
+        notice,
+    })
 }
 
 /// Welke variant van de hoes gevraagd wordt.
@@ -739,9 +862,217 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn the_listing_links_to_the_advanced_view() {
+    async fn the_listing_leads_to_the_edit_form() {
         let root = root_with_art();
         let html = body_as_string(get(&root, "/map/Album").await).await;
+
+        assert!(
+            html.contains(r#"href="/bewerk/Album/tagged.mp3""#),
+            "er is geen weg naar het bewerkformulier: {html}"
+        );
+        assert!(
+            !html.contains(r#"href="/tags/Album/tagged.mp3""#),
+            "de geavanceerde weergave hoort vanaf de bestandspagina bereikbaar \
+             te zijn, niet vanuit de lijst: {html}"
+        );
+    }
+
+    /// Doet één POST met formuliervelden.
+    async fn post_form(
+        root: &tempfile::TempDir,
+        uri: &str,
+        fields: &[(&str, &str)],
+    ) -> axum::response::Response {
+        let body = fields
+            .iter()
+            .map(|(name, value)| {
+                format!(
+                    "{}={}",
+                    name,
+                    percent_encoding::utf8_percent_encode(
+                        value,
+                        percent_encoding::NON_ALPHANUMERIC
+                    )
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("&");
+
+        test_router(root)
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri(uri)
+                    .header(header::CONTENT_TYPE, "application/x-www-form-urlencoded")
+                    .body(Body::from(body))
+                    .expect("verzoek"),
+            )
+            .await
+            .expect("respons")
+    }
+
+    /// Alle kernvelden, zodat een POST het hele formulier meestuurt zoals een
+    /// browser dat doet.
+    fn form_fields<'a>(title: &'a str, track: &'a str) -> Vec<(&'a str, &'a str)> {
+        vec![
+            ("title", title),
+            ("artist", "De Testartiest"),
+            ("album_artist", "De Albumartiest"),
+            ("album", "Fixtures voor Sleeve"),
+            ("track", track),
+            ("track_total", "12"),
+            ("disc", "1"),
+            ("disc_total", "2"),
+            ("year", "2024"),
+            ("genre", "Ambient"),
+            ("composer", "De Componist"),
+            ("comment", "Een commentaar"),
+        ]
+    }
+
+    #[tokio::test]
+    async fn the_edit_form_shows_the_current_values() {
+        let root = root_with_art();
+        let respons = get(&root, "/bewerk/Album/tagged.mp3").await;
+
+        assert_eq!(respons.status(), StatusCode::OK);
+        let html = body_as_string(respons).await;
+
+        // De waarden uit de fixture, in de invoervelden.
+        assert!(
+            html.contains(r#"value="Stilte in D""#),
+            "de titel staat niet in het formulier: {html}"
+        );
+        assert!(
+            html.contains(r#"value="De Testartiest""#),
+            "de artiest staat niet in het formulier: {html}"
+        );
+        assert!(
+            html.contains(r#"value="3""#),
+            "het tracknummer staat niet in het formulier: {html}"
+        );
+
+        // En de uitleg over wat een leeg veld doet.
+        assert!(
+            html.contains("leegmaken verwijdert"),
+            "de pagina legt niet uit wat een leeg veld betekent: {html}"
+        );
+    }
+
+    #[tokio::test]
+    async fn saving_writes_the_file_and_shows_what_came_back() {
+        let root = root_with_art();
+
+        let respons = post_form(
+            &root,
+            "/bewerk/Album/tagged.mp3",
+            &form_fields("Een nieuwe titel", "7"),
+        )
+        .await;
+
+        assert_eq!(respons.status(), StatusCode::OK);
+        let html = body_as_string(respons).await;
+
+        assert!(
+            html.contains("Opgeslagen"),
+            "er is geen bevestiging: {html}"
+        );
+        assert!(
+            html.contains(r#"value="Een nieuwe titel""#),
+            "de nieuwe titel staat niet in het formulier: {html}"
+        );
+
+        // En het bestand op schijf draagt hem werkelijk.
+        let path = root.path().join("Album").join("tagged.mp3");
+        let tags = crate::tags::read(&path).expect("teruglezen").tags;
+        assert_eq!(tags.title.as_deref(), Some("Een nieuwe titel"));
+        assert_eq!(tags.track, Some(7));
+    }
+
+    #[tokio::test]
+    async fn an_emptied_field_removes_the_tag() {
+        let root = root_with_art();
+
+        let mut fields = form_fields("Stilte in D", "3");
+        fields.retain(|(name, _)| *name != "composer");
+        fields.push(("composer", ""));
+
+        let respons = post_form(&root, "/bewerk/Album/tagged.mp3", &fields).await;
+        assert_eq!(respons.status(), StatusCode::OK);
+
+        let path = root.path().join("Album").join("tagged.mp3");
+        assert_eq!(
+            crate::tags::read(&path).expect("teruglezen").tags.composer,
+            None,
+            "de componist is niet verwijderd"
+        );
+    }
+
+    #[tokio::test]
+    async fn invalid_input_is_refused_before_anything_is_written() {
+        let root = root_with_art();
+        let path = root.path().join("Album").join("tagged.mp3");
+        let before = std::fs::read(&path).expect("lezen");
+
+        let respons = post_form(
+            &root,
+            "/bewerk/Album/tagged.mp3",
+            &form_fields("Een nieuwe titel", "drie"),
+        )
+        .await;
+
+        assert_eq!(respons.status(), StatusCode::OK);
+        let html = body_as_string(respons).await;
+
+        assert!(
+            html.contains("Tracknummer moet een getal"),
+            "de fout wordt niet uitgelegd: {html}"
+        );
+        // De ingevulde waarden blijven staan, zodat er niets overgetypt hoeft.
+        assert!(
+            html.contains(r#"value="Een nieuwe titel""#),
+            "de ingevulde titel is kwijt: {html}"
+        );
+        assert!(
+            html.contains(r#"value="drie""#),
+            "de foute invoer is kwijt: {html}"
+        );
+
+        assert_eq!(
+            std::fs::read(&path).expect("lezen"),
+            before,
+            "er is geschreven ondanks ongeldige invoer"
+        );
+    }
+
+    #[tokio::test]
+    async fn the_edit_form_refuses_what_it_should() {
+        let root = root_with_art();
+
+        assert_eq!(
+            get(&root, "/bewerk/Album/notities.txt").await.status(),
+            StatusCode::UNSUPPORTED_MEDIA_TYPE
+        );
+        assert_eq!(
+            get(&root, "/bewerk/Album/bestaat-niet.mp3").await.status(),
+            StatusCode::NOT_FOUND
+        );
+        assert_eq!(
+            get(&root, "/bewerk/../../etc/passwd").await.status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            post_form(&root, "/bewerk/../../etc/passwd", &form_fields("x", "1"))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[tokio::test]
+    async fn the_edit_form_leads_to_the_advanced_view() {
+        let root = root_with_art();
+        let html = body_as_string(get(&root, "/bewerk/Album/tagged.mp3").await).await;
 
         assert!(
             html.contains(r#"href="/tags/Album/tagged.mp3""#),

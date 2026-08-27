@@ -8,6 +8,7 @@ mod atomic;
 mod browse;
 mod checks;
 mod config;
+mod edit;
 mod fs;
 mod tags;
 mod web;

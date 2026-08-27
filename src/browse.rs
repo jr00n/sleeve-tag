@@ -101,8 +101,12 @@ pub struct TrackSummary {
     /// URL van de verkleinde hoes. Alleen zinvol wanneer `has_art` waar is.
     pub art_url: String,
 
-    /// URL van de geavanceerde weergave met alle ruwe tags.
-    pub raw_url: String,
+    /// URL van het bewerkformulier van dit bestand.
+    ///
+    /// De ingang naar de geavanceerde weergave zit dáár en niet in deze lijst:
+    /// FR-7 beschrijft die als onderdeel van de bestandspagina, en een tweede
+    /// link per regel maakt de lijst op een telefoon alleen maar drukker.
+    pub edit_url: String,
 }
 
 impl TrackSummary {
@@ -240,7 +244,7 @@ fn summarize(entry: &DirEntry, directory: &str) -> Option<TrackSummary> {
 
     Some(TrackSummary {
         art_url: thumbnail_url(&path),
-        raw_url: raw_tags_url(&path),
+        edit_url: edit_url(&path),
         path,
         name: entry.name.clone(),
         duration: format_duration(track.duration),
@@ -306,7 +310,7 @@ fn matches_query(track: &TrackSummary, needle: &str) -> bool {
 }
 
 /// Zet een speelduur om naar `m:ss`, of `u:mm:ss` vanaf een uur.
-fn format_duration(duration: Duration) -> String {
+pub fn format_duration(duration: Duration) -> String {
     let total = duration.as_secs();
     let (hours, minutes, seconds) = (total / 3600, (total % 3600) / 60, total % 60);
 
@@ -362,6 +366,16 @@ fn thumbnail_url(path: &str) -> String {
 /// De URL van de geavanceerde weergave van één bestand.
 pub fn raw_tags_url(path: &str) -> String {
     format!("/tags/{}", encode(path))
+}
+
+/// De URL van het bewerkformulier van één bestand.
+pub fn edit_url(path: &str) -> String {
+    format!("/bewerk/{}", encode(path))
+}
+
+/// De URL van de hoes op ware grootte.
+pub fn art_url(path: &str) -> String {
+    format!("/art/{}", encode(path))
 }
 
 /// Broodkruimels tot en met de map waarin dit bestand staat.

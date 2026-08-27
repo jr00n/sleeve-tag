@@ -137,12 +137,39 @@ impl Server {
         String::from_utf8_lossy(&self.request(path, headers)).into_owned()
     }
 
-    fn request(&self, path: &str, headers: &[(&str, &str)]) -> Vec<u8> {
-        let mut stream = TcpStream::connect(self.address).expect("verbinding moet lukken");
-        stream
-            .set_read_timeout(Some(PATIENCE))
-            .expect("timeout moet in te stellen zijn");
+    /// Verstuurt een formulier zoals een browser dat doet.
+    ///
+    /// De waarden worden percent-gecodeerd; zonder dat zou een spatie of een
+    /// accent in een titel de body al onleesbaar maken.
+    pub fn post_form(&self, path: &str, fields: &[(&str, &str)]) -> String {
+        let body = fields
+            .iter()
+            .map(|(name, value)| format!("{name}={}", form_encode(value)))
+            .collect::<Vec<_>>()
+            .join("&");
 
+        let headers = [
+            (
+                "Content-Type",
+                "application/x-www-form-urlencoded".to_string(),
+            ),
+            ("Content-Length", body.len().to_string()),
+        ];
+
+        let extra: String = headers
+            .iter()
+            .map(|(name, value)| format!("{name}: {value}\r\n"))
+            .collect();
+
+        let request = format!(
+            "POST {path} HTTP/1.1\r\nHost: {}\r\n{extra}Connection: close\r\n\r\n{body}",
+            self.address
+        );
+
+        String::from_utf8_lossy(&self.send(request.as_bytes())).into_owned()
+    }
+
+    fn request(&self, path: &str, headers: &[(&str, &str)]) -> Vec<u8> {
         let extra: String = headers
             .iter()
             .map(|(name, value)| format!("{name}: {value}\r\n"))
@@ -152,16 +179,67 @@ impl Server {
             "GET {path} HTTP/1.1\r\nHost: {}\r\n{extra}Connection: close\r\n\r\n",
             self.address
         );
+
+        self.send(request.as_bytes())
+    }
+
+    fn send(&self, request: &[u8]) -> Vec<u8> {
+        let mut stream = TcpStream::connect(self.address).unwrap_or_else(|error| {
+            panic!(
+                "verbinding met {} mislukte ({:?}). Log van de server was:\n{}",
+                self.address,
+                error.kind(),
+                self.log()
+            )
+        });
         stream
-            .write_all(request.as_bytes())
-            .expect("verzoek moet te versturen zijn");
+            .set_read_timeout(Some(PATIENCE))
+            .expect("timeout moet in te stellen zijn");
+
+        stream.write_all(request).unwrap_or_else(|error| {
+            panic!(
+                "verzoek versturen naar {} mislukte ({:?}). Log van de server was:\n{}",
+                self.address,
+                error.kind(),
+                self.log()
+            )
+        });
 
         let mut response = Vec::new();
-        stream
-            .read_to_end(&mut response)
-            .expect("antwoord moet te lezen zijn");
+        if let Err(error) = stream.read_to_end(&mut response) {
+            // Bij een vlaag hoort de melding te zeggen wat er misging en of de
+            // server nog leefde; anders is er bij de volgende keer weer niets
+            // te zien dan "het lukte niet".
+            panic!(
+                "antwoord van {} lezen mislukte ({:?}) na {} bytes.\n\
+                 Ontvangen: {}\n\
+                 Log van de server was:\n{}",
+                self.address,
+                error.kind(),
+                response.len(),
+                String::from_utf8_lossy(&response),
+                self.log()
+            );
+        }
         response
     }
+}
+
+/// Codeert één formulierwaarde voor `application/x-www-form-urlencoded`.
+fn form_encode(value: &str) -> String {
+    let mut encoded = String::new();
+
+    for byte in value.as_bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                encoded.push(*byte as char);
+            }
+            b' ' => encoded.push('+'),
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+
+    encoded
 }
 
 /// Start de binary met de opgegeven bibliotheek en poort.
@@ -246,11 +324,24 @@ pub fn start_and_expect_exit(variables: &[(&str, &str)]) -> std::process::Output
 
 /// Vraagt het besturingssysteem om een vrije poort.
 ///
-/// De listener wordt meteen losgelaten; tussen dat moment en het binden door de
-/// server zit een theoretische race, maar elke test krijgt zijn eigen poort.
+/// De proef bindt op **hetzelfde adres als de server**, `0.0.0.0`, en niet op
+/// de loopback. Dat is geen detail. Op BSD en macOS mag een socket op
+/// `127.0.0.1:P` naast een bestaande socket op `0.0.0.0:P` bestaan, en Rust zet
+/// `SO_REUSEADDR` standaard aan. Bond de proef op de loopback, dan kreeg je een
+/// poort terug die een dráaiende testserver al in gebruik had — waarna een
+/// verbinding naar `127.0.0.1:P` bij die net weer gesloten proef-socket
+/// uitkwam in plaats van bij de server, en meteen werd gereset.
+///
+/// Zo zag dat eruit: de server logde keurig `webserver luistert
+/// address=0.0.0.0:57389`, en de test kreeg toch `ConnectionReset` na nul
+/// bytes. Ongeveer één op de drie volledige testruns viel erop om.
+///
+/// Met een wildcard-proef kan dat niet meer: twee sockets op `0.0.0.0:P`
+/// weigert de kernel, dus een poort die een andere testserver draait komt hier
+/// nooit meer uit.
 fn free_port() -> u16 {
     let listener =
-        TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).expect("poort moet vrij te vinden zijn");
+        TcpListener::bind((Ipv4Addr::UNSPECIFIED, 0)).expect("poort moet vrij te vinden zijn");
     listener
         .local_addr()
         .expect("adres moet leesbaar zijn")

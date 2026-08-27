@@ -15,6 +15,7 @@
   --accent: #7aa2f7;
   --waarschuwing: #e0af68;
   --waarschuwing-rand: #6a552e;
+  --goed: #7ec699;
 }
 
 @media (prefers-color-scheme: light) {
@@ -27,6 +28,7 @@
     --accent: #2f5fd0;
     --waarschuwing: #8a5a00;
     --waarschuwing-rand: #e3c98d;
+    --goed: #2f7d52;
   }
 }
 
@@ -388,4 +390,153 @@ a {
 
 .uitleg--klein {
   font-size: 0.85rem;
+}
+
+/* ── Bestandspagina en bewerkformulier ─────────────────────────────────── */
+
+.bestandskop {
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.bestandskop__hoes {
+  width: 6rem;
+  height: 6rem;
+  flex: none;
+  border-radius: 6px;
+  background: var(--rand);
+  object-fit: cover;
+}
+
+.bestandskop__hoes--leeg {
+  background: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    var(--rand) 5px,
+    var(--rand) 10px
+  );
+  border: 1px solid var(--rand);
+}
+
+.bestandskop__tekst {
+  min-width: 0;
+}
+
+.bestandskop .maptitel {
+  margin-bottom: 0.25rem;
+}
+
+/*
+ * Eén kolom, want op een telefoon is elke tweede kolom er één te veel. Alleen
+ * velden die bij elkaar horen (nummer en totaal) delen een regel, en ook die
+ * vallen onder elkaar zodra het krap wordt.
+ */
+.formulier {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  margin-bottom: 2rem;
+}
+
+.veld {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.veld__label {
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+}
+
+.veld__invoer {
+  width: 100%;
+  padding: 0.6rem 0.7rem;
+  /* 16px voorkomt dat Safari op iOS bij het focussen inzoomt. */
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--tekst);
+  background: var(--vlak);
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+}
+
+.veld__invoer--tekst {
+  resize: vertical;
+}
+
+.veld__invoer:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.veldenpaar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.9rem;
+}
+
+.veldenpaar .veld {
+  flex: 1 1 8rem;
+}
+
+.knoppen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-top: 0.4rem;
+}
+
+.knop {
+  padding: 0.6rem 1.1rem;
+  font-size: 1rem;
+  color: var(--tekst);
+  background: var(--vlak);
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.knop--primair {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--achtergrond);
+  font-weight: 600;
+}
+
+.knop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* ── Meldingen boven het formulier ─────────────────────────────────────── */
+
+.melding {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--rand);
+  border-left-width: 3px;
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.melding--goed {
+  border-color: var(--goed);
+}
+
+.melding--fout {
+  border-color: var(--waarschuwing);
+}
+
+.melding__regel {
+  margin: 0;
+}
+
+.melding__regel + .melding__regel {
+  margin-top: 0.35rem;
 }

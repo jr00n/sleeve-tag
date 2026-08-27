@@ -49,7 +49,9 @@
     <span class="track__nummer">{{ track.track_label() }}</span>
 
     <span class="track__tekst">
-      <span class="track__titel">{{ track.title_label() }}</span>
+      {# De titel is de ingang naar het bewerkformulier; het hele blok is
+         aanklikbaar zodat er op een telefoon een ruim doel overblijft. #}
+      <a class="track__titel" href="{{ track.edit_url }}">{{ track.title_label() }}</a>
       <span class="track__meta">
         <span class="track__artiest">{{ track.artist_label() }}</span>
         <span class="track__scheiding" aria-hidden="true">·</span>
@@ -70,9 +72,6 @@
     <span class="track__rechts">
       <span class="track__formaat">{{ track.format }}</span>
       <span class="track__duur">{{ track.duration }}</span>
-      {# Tot het bewerkformulier er is, is dit de ingang naar het detail van
-         één bestand. #}
-      <a class="track__ruw" href="{{ track.raw_url }}">ruwe tags</a>
     </span>
   </li>
   {% endfor %}

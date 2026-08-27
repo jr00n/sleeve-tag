@@ -1,0 +1,258 @@
+//! Het bewerkformulier over HTTP, tegen de echte binary (FR-5 en FR-6).
+//!
+//! Dit is de enige test die de hele keten aflegt: formulier invullen, POST,
+//! atomisch schrijven, en teruglezen uit het bestand op schijf. De unit-tests
+//! dekken de onderdelen; deze test dekt dat ze samen werken.
+//!
+//! De bibliotheek is een tempdir met kopieën van de fixtures. De echte
+//! muziekbibliotheek wordt nooit aangeraakt.
+
+mod common;
+
+use std::path::{Path, PathBuf};
+
+use common::{Server, place_fixture};
+
+/// Bouwt een bibliotheek met één album en geeft de tempdir terug.
+fn library_with_a_track() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "track.mp3", "tagged.mp3");
+    place_fixture(&album, "track.flac", "tagged.flac");
+
+    root
+}
+
+/// De velden zoals de browser ze verstuurt: allemaal, ook de ongewijzigde.
+fn fields<'a>(title: &'a str, track: &'a str) -> Vec<(&'a str, &'a str)> {
+    vec![
+        ("title", title),
+        ("artist", "Bijgewerkte artiest"),
+        ("album_artist", "Bijgewerkte albumartiest"),
+        ("album", "Bijgewerkt album"),
+        ("track", track),
+        ("track_total", "12"),
+        ("disc", "1"),
+        ("disc_total", "2"),
+        ("year", "2024"),
+        ("genre", "Ambient"),
+        ("composer", "De Componist"),
+        ("comment", "Een commentaar"),
+    ]
+}
+
+fn assert_ok(response: &str) {
+    assert!(
+        response.starts_with("HTTP/1.1 200 OK"),
+        "antwoord begon met: {}",
+        response.lines().next().unwrap_or_default()
+    );
+}
+
+/// De titel zoals `ffprobe` hem in het bestand ziet.
+///
+/// Onafhankelijk van Sleeve zelf: dat de app terugleest wat ze schreef zegt
+/// niets als ze allebei dezelfde fout maken. Ontbreekt ffprobe, dan geeft dit
+/// `None` en slaat de aanroeper de controle over.
+fn title_according_to_ffprobe(path: &Path) -> Option<String> {
+    let output = std::process::Command::new("ffprobe")
+        .args([
+            "-v",
+            "quiet",
+            "-show_entries",
+            "format_tags=title",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(path)
+        .output()
+        .ok()?;
+
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[test]
+fn the_form_opens_with_the_values_from_the_file() {
+    let server = Server::start_in(library_with_a_track(), &[]);
+    let response = server.get("/bewerk/Album/track.mp3");
+    assert_ok(&response);
+
+    for expected in [
+        r#"value="Stilte in D""#,
+        r#"value="De Testartiest""#,
+        r#"value="De Albumartiest""#,
+        r#"value="Fixtures voor Sleeve""#,
+        r#"value="3""#,
+    ] {
+        assert!(
+            response.contains(expected),
+            "'{expected}' ontbreekt in het formulier:\n{response}"
+        );
+    }
+}
+
+#[test]
+fn saving_changes_the_file_and_shows_what_came_back() {
+    let root = library_with_a_track();
+    let mp3: PathBuf = root.path().join("Album").join("track.mp3");
+    let server = Server::start_in(root, &[]);
+
+    let response = server.post_form("/bewerk/Album/track.mp3", &fields("Nieuwe titel", "7"));
+    assert_ok(&response);
+
+    // De bevestiging, en de teruggelezen waarden in het formulier.
+    assert!(
+        response.contains("Opgeslagen"),
+        "er is geen bevestiging:\n{response}"
+    );
+    assert!(
+        response.contains(r#"value="Nieuwe titel""#),
+        "de nieuwe titel staat niet in het formulier:\n{response}"
+    );
+    assert!(
+        response.contains(r#"value="7""#),
+        "het nieuwe tracknummer staat niet in het formulier:\n{response}"
+    );
+
+    // En het bestand op schijf draagt hem werkelijk — gecontroleerd met een
+    // tool die niets met Sleeve te maken heeft.
+    match title_according_to_ffprobe(&mp3) {
+        Some(title) => assert_eq!(title, "Nieuwe titel"),
+        None => eprintln!("ffprobe ontbreekt; de onafhankelijke controle is overgeslagen"),
+    }
+}
+
+#[test]
+fn a_flac_can_be_edited_too() {
+    let root = library_with_a_track();
+    let flac = root.path().join("Album").join("track.flac");
+    let server = Server::start_in(root, &[]);
+
+    let response = server.post_form(
+        "/bewerk/Album/track.flac",
+        &fields("Titel met accenten: Sigur Rós", "9"),
+    );
+    assert_ok(&response);
+
+    assert!(
+        response.contains("Sigur R"),
+        "de nieuwe titel staat niet in het formulier:\n{response}"
+    );
+
+    if let Some(title) = title_according_to_ffprobe(&flac) {
+        assert_eq!(title, "Titel met accenten: Sigur Rós");
+    }
+}
+
+#[test]
+fn an_emptied_field_removes_the_tag() {
+    let root = library_with_a_track();
+    let server = Server::start_in(root, &[]);
+
+    let mut without_composer = fields("Stilte in D", "3");
+    without_composer.retain(|(name, _)| *name != "composer");
+    without_composer.push(("composer", ""));
+
+    let response = server.post_form("/bewerk/Album/track.mp3", &without_composer);
+    assert_ok(&response);
+
+    // De waarde komt niet meer uit het bestand terug. Het formulier toont wat
+    // er ná het schrijven in staat, dus als de componist er nog stond, zou hij
+    // hier weer opduiken.
+    assert!(
+        !response.contains("De Componist"),
+        "de componist staat er nog:\n{response}"
+    );
+    assert!(
+        response.contains("Opgeslagen"),
+        "er is geen bevestiging:\n{response}"
+    );
+}
+
+#[test]
+fn invalid_input_changes_nothing() {
+    let root = library_with_a_track();
+    let mp3 = root.path().join("Album").join("track.mp3");
+    let before = std::fs::read(&mp3).expect("lezen");
+    let server = Server::start_in(root, &[]);
+
+    let response = server.post_form(
+        "/bewerk/Album/track.mp3",
+        &fields("Deze titel wordt niet opgeslagen", "drie"),
+    );
+    assert_ok(&response);
+
+    assert!(
+        response.contains("Tracknummer moet een getal"),
+        "de fout wordt niet uitgelegd:\n{response}"
+    );
+    assert!(
+        response.contains("Deze titel wordt niet opgeslagen"),
+        "de ingevulde waarden zijn kwijt:\n{response}"
+    );
+    assert_eq!(
+        std::fs::read(&mp3).expect("lezen"),
+        before,
+        "er is geschreven ondanks ongeldige invoer"
+    );
+}
+
+#[test]
+fn saving_twice_leaves_the_file_alone_the_second_time() {
+    // Er wordt bewust niet doorverwezen na het opslaan, dus een herlaadactie
+    // stuurt hetzelfde formulier nog eens. Dat hoort ongevaarlijk te zijn.
+    let root = library_with_a_track();
+    let mp3 = root.path().join("Album").join("track.mp3");
+    let server = Server::start_in(root, &[]);
+
+    let form = fields("Twee keer hetzelfde", "5");
+    assert_ok(&server.post_form("/bewerk/Album/track.mp3", &form));
+    let after_first = std::fs::read(&mp3).expect("lezen");
+
+    assert_ok(&server.post_form("/bewerk/Album/track.mp3", &form));
+
+    assert_eq!(
+        std::fs::read(&mp3).expect("lezen"),
+        after_first,
+        "de tweede keer versturen heeft het bestand toch aangeraakt"
+    );
+}
+
+#[test]
+fn a_backup_appears_only_when_configured() {
+    let root = library_with_a_track();
+    let album = root.path().join("Album");
+    let server = Server::start_in(root, &[("BACKUP_ON_WRITE", "true")]);
+
+    assert_ok(&server.post_form("/bewerk/Album/track.mp3", &fields("Met backup", "4")));
+
+    assert!(
+        album.join("track.mp3.bak").is_file(),
+        "er staat geen backup naast het bestand: {:?}",
+        std::fs::read_dir(&album)
+            .expect("map")
+            .map(|entry| entry.expect("entry").file_name())
+            .collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn editing_outside_the_library_is_refused() {
+    let server = Server::start_in(library_with_a_track(), &[]);
+
+    for attempt in ["/bewerk/../../etc/passwd", "/bewerk/Album/bestaat-niet.mp3"] {
+        let response = server.get(attempt);
+        assert!(
+            !response.starts_with("HTTP/1.1 200"),
+            "'{attempt}' leverde een formulier op:\n{response}"
+        );
+    }
+
+    let posted = server.post_form("/bewerk/../../etc/passwd", &fields("x", "1"));
+    assert!(
+        !posted.starts_with("HTTP/1.1 200"),
+        "een POST buiten de bibliotheek werd geaccepteerd:\n{posted}"
+    );
+}

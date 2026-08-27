@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page.name }} — Sleeve{% endblock %}
+
+{% block inhoud %}
+<nav class="kruimels" aria-label="Broodkruimelpad">
+  {% for crumb in page.crumbs %}
+  <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
+  <span class="kruimels__scheiding" aria-hidden="true">/</span>
+  {% endfor %}
+  <span class="kruimels__huidig" aria-current="page">{{ page.name }}</span>
+</nav>
+
+<div class="bestandskop">
+  {% if page.has_art %}
+  <a href="{{ page.art_url }}">
+    <img class="bestandskop__hoes" src="{{ page.art_url }}" alt="Album art van dit bestand"
+         width="96" height="96" decoding="async" />
+  </a>
+  {% else %}
+  <span class="bestandskop__hoes bestandskop__hoes--leeg"
+        role="img" aria-label="Geen album art"></span>
+  {% endif %}
+
+  <div class="bestandskop__tekst">
+    <h1 class="maptitel">{{ page.name }}</h1>
+    <p class="uitleg">
+      {{ page.format }} · {{ page.duration }} ·
+      <a href="{{ page.raw_url }}">ruwe tags</a>
+    </p>
+  </div>
+</div>
+
+{% if let Some(notice) = page.notice %}
+{# Bevestiging of foutmelding. Bij een fout is er niets geschreven en staan de
+   ingevulde waarden er nog, zodat er niets overgetypt hoeft te worden. #}
+<div class="melding {% if notice.is_saved() %}melding--goed{% else %}melding--fout{% endif %}"
+     role="status">
+  {% for line in notice.lines() %}
+  <p class="melding__regel">{{ line }}</p>
+  {% endfor %}
+</div>
+{% endif %}
+
+{# Het enige gedrag dat een gebruiker kan verrassen, dus het staat er vóór het
+   formulier en niet in een voetnoot eronder. #}
+<p class="uitleg">
+  Een veld leegmaken verwijdert die tag uit het bestand. Wat hieronder staat is
+  wat er nú in het bestand staat.
+</p>
+
+<form class="formulier" method="post" action="{{ page.url }}">
+  <div class="veld">
+    <label class="veld__label" for="title">Titel</label>
+    <input class="veld__invoer" id="title" name="title" type="text"
+           value="{{ page.fields.title }}" autocomplete="off" />
+  </div>
+
+  <div class="veld">
+    <label class="veld__label" for="artist">Artiest</label>
+    <input class="veld__invoer" id="artist" name="artist" type="text"
+           value="{{ page.fields.artist }}" autocomplete="off" />
+  </div>
+
+  <div class="veld">
+    <label class="veld__label" for="album_artist">Albumartiest</label>
+    <input class="veld__invoer" id="album_artist" name="album_artist" type="text"
+           value="{{ page.fields.album_artist }}" autocomplete="off" />
+  </div>
+
+  <div class="veld">
+    <label class="veld__label" for="album">Album</label>
+    <input class="veld__invoer" id="album" name="album" type="text"
+           value="{{ page.fields.album }}" autocomplete="off" />
+  </div>
+
+  {# Nummer en totaal horen bij elkaar en staan naast elkaar zolang er ruimte
+     is; op een smal scherm vallen ze onder elkaar. #}
+  <div class="veldenpaar">
+    <div class="veld">
+      <label class="veld__label" for="track">Tracknummer</label>
+      <input class="veld__invoer" id="track" name="track" type="text"
+             inputmode="numeric" value="{{ page.fields.track }}" autocomplete="off" />
+    </div>
+    <div class="veld">
+      <label class="veld__label" for="track_total">Aantal tracks</label>
+      <input class="veld__invoer" id="track_total" name="track_total" type="text"
+             inputmode="numeric" value="{{ page.fields.track_total }}" autocomplete="off" />
+    </div>
+  </div>
+
+  <div class="veldenpaar">
+    <div class="veld">
+      <label class="veld__label" for="disc">Discnummer</label>
+      <input class="veld__invoer" id="disc" name="disc" type="text"
+             inputmode="numeric" value="{{ page.fields.disc }}" autocomplete="off" />
+    </div>
+    <div class="veld">
+      <label class="veld__label" for="disc_total">Aantal discs</label>
+      <input class="veld__invoer" id="disc_total" name="disc_total" type="text"
+             inputmode="numeric" value="{{ page.fields.disc_total }}" autocomplete="off" />
+    </div>
+  </div>
+
+  <div class="veld">
+    <label class="veld__label" for="year">Jaar</label>
+    <input class="veld__invoer" id="year" name="year" type="text"
+           value="{{ page.fields.year }}" autocomplete="off" />
+  </div>
+
+  <div class="veld">
+    <label class="veld__label" for="genre">Genre</label>
+    <input class="veld__invoer" id="genre" name="genre" type="text"
+           value="{{ page.fields.genre }}" autocomplete="off" />
+  </div>
+
+  <div class="veld">
+    <label class="veld__label" for="composer">Componist</label>
+    <input class="veld__invoer" id="composer" name="composer" type="text"
+           value="{{ page.fields.composer }}" autocomplete="off" />
+  </div>
+
+  <div class="veld">
+    <label class="veld__label" for="comment">Commentaar</label>
+    <textarea class="veld__invoer veld__invoer--tekst" id="comment" name="comment"
+              rows="3">{{ page.fields.comment }}</textarea>
+  </div>
+
+  <div class="knoppen">
+    <button class="knop knop--primair" type="submit">Opslaan</button>
+    {% if !page.crumbs.is_empty() %}
+    <a class="knop" href="{{ page.crumbs[page.crumbs.len() - 1].url }}">Terug naar de map</a>
+    {% endif %}
+  </div>
+</form>
+{% endblock %}

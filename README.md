@@ -166,6 +166,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `checks` | Signalering van ontbrekende en onderling afwijkende tags; leest en schrijft niets |
 | `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
+| `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
@@ -311,12 +312,33 @@ De labels zijn zichtbare tekst en geen tooltip: op een telefoon is er geen
 hover. De beoordeling loopt over de héle map, ook wanneer er gefilterd wordt —
 aan de map verandert niets doordat je zoekt.
 
+### Bewerken
+
+De titel in de maplijst opent `/bewerk/<pad>`: een formulier met de twaalf
+kernvelden, gevuld met wat er nú in het bestand staat.
+
+Opslaan schrijft de wijzigingen weg, leest het bestand **opnieuw in**, en toont
+die waarden. Dat is het hele punt: de bevestiging komt uit het bestand en niet
+uit wat je zojuist intikte, want alleen dan zegt hij iets. Een veld leegmaken
+verwijdert die tag — dat staat boven het formulier, want het is het enige gedrag
+dat kan verrassen.
+
+De numerieke velden worden gecontroleerd vóórdat er iets naar het bestand gaat.
+Bij een fout — in de invoer of tijdens het schrijven — blijft het bestand
+onaangetast, staat er een uitleg boven het formulier, en blijven de ingevulde
+waarden staan zodat er niets overgetypt hoeft te worden.
+
+Er wordt bewust niet doorverwezen na het opslaan. Een herlaadactie stuurt
+hetzelfde formulier nog eens, en dat is ongevaarlijk: `tags::write` raakt het
+bestand niet aan wanneer er niets verandert. Dat scheelt een flash-mechanisme om
+de bevestiging te bewaren.
+
 ### Geavanceerde weergave: alle ruwe tags
 
-`/tags/<pad>` toont per bestand alles wat er werkelijk in staat, inclusief
-velden die het genormaliseerde model niet kent: ID3v2-frames voor MP3
-(`TIT2`, `TPE1`, …) en Vorbis-comments voor FLAC (`TITLE`, `ARTIST`, …), telkens
-met hun oorspronkelijke sleutelnaam. Embedded art wordt samengevat als type en
+`/tags/<pad>`, bereikbaar vanaf de bewerkpagina, toont per bestand alles wat er
+werkelijk in staat, inclusief velden die het genormaliseerde model niet kent:
+ID3v2-frames voor MP3 (`TIT2`, `TPE1`, …) en Vorbis-comments voor FLAC
+(`TITLE`, `ARTIST`, …), telkens met hun oorspronkelijke sleutelnaam. Embedded art wordt samengevat als type en
 grootte; de afbeeldingsdata zelf komt er niet in.
 
 Deze weergave is **alleen-lezen** en dat is geen tijdelijke beperking: ruwe
