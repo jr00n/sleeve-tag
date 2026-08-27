@@ -164,10 +164,45 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
 | `art` | Album art decoderen, verkleinen en encoderen (de enige plek die pixels aanraakt) |
 | `checks` | Signalering van ontbrekende en onderling afwijkende tags; leest en schrijft niets |
+| `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
+
+## Schrijven zonder iets kwijt te raken
+
+De bibliotheek op de NAS is niet opnieuw op te bouwen, en de container kan
+midden in een schrijfactie worden afgebroken. Elke schrijfactie loopt daarom via
+`atomic::replace`, dat de volgorde vastlegt in plaats van hem aan de aanroeper
+over te laten:
+
+1. Het origineel wordt gekopieerd naar een tijdelijk bestand **in dezelfde map**
+   — alleen dan is het hernoemen straks atomair. Over een filesystem-grens heen
+   doet `rename` een kopieeractie, en juist dat moment van halve inhoud moet
+   uitgesloten blijven.
+2. De aanroeper past dat tijdelijke bestand aan. Het is een exacte kopie, zodat
+   tag-I/O een echt audiobestand heeft om mee te beginnen.
+3. De aanroeper leest het opnieuw in en keurt het goed. Zegt hij nee, dan gaat
+   er niets over het origineel heen.
+4. Eigenaar, groep en rechten van het origineel gaan mee. Lukt dat niet, dan
+   gaat de schrijfactie niet door: stilletjes de eigenaar van een bestand
+   veranderen is precies wat het PRD verbiedt. Op de NAS, met `PUID`/`PGID`
+   gelijk aan die van de share, doet dat geval zich niet voor.
+5. Bij `BACKUP_ON_WRITE=true` komt er een `<naam>.bak` naast te staan, met de
+   inhoud van vóór deze schrijfactie. Standaard staat dat uit, om de share niet
+   te vervuilen.
+6. Pas dan wordt het tijdelijke bestand over het origineel hernoemd.
+
+Gaat er onderweg iets mis — ook bij een paniek — dan blijft het origineel
+byte-voor-byte zoals het was en verdwijnt het tijdelijke bestand. Dat laatste
+hangt aan een `Drop`-guard, zodat geen enkel foutpad er zelf aan hoeft te
+denken. Het tijdelijke bestand heet `.<naam>.<pid>.sleeve-tmp`: verborgen, zodat
+de mapbrowser het overslaat als er onverhoopt toch een blijft liggen.
+
+Elke geslaagde schrijfactie wordt gelogd met het pad en de gewijzigde velden.
+Een mislukte hervalidatie krijgt een eigen foutregel: het origineel is dan heel,
+maar er is wel zojuist een onbruikbaar bestand geproduceerd.
 
 ## Mapbrowser
 

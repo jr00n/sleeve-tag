@@ -4,6 +4,7 @@
 //! naam (crate, binary, Docker-image, containerhostnaam).
 
 mod art;
+mod atomic;
 mod browse;
 mod checks;
 mod config;

@@ -183,18 +183,30 @@ fn spawn(root: &std::path::Path, port: u16, extra: &[(&str, &str)]) -> Child {
     command.spawn().expect("binary moet te starten zijn")
 }
 
-/// Wacht tot de server luistert; `false` betekent dat hij eerst is gestopt.
+/// Wacht tot *ons eigen* serverproces meldt dat het luistert.
 ///
-/// Het proces wordt vóór elke verbindingspoging gecontroleerd. Zonder die
-/// volgorde zou een geslaagde verbinding van de server van een *andere* test
-/// kunnen komen die dezelfde poort te pakken had — en dan zou deze test tegen
-/// een vreemde bibliotheek praten in plaats van tegen zijn eigen tempdir.
+/// `false` betekent dat het proces eerst is gestopt; de aanroeper probeert het
+/// dan met een andere poort.
+///
+/// Waarom de log en niet gewoon een verbinding: een geslaagde verbinding zegt
+/// alleen dat er *iets* op die poort luistert. Draaien er meerdere
+/// integratiebinaries naast elkaar, dan kan dat de server van een andere test
+/// zijn die dezelfde poort te pakken had — en dan praat deze test tegen een
+/// vreemde bibliotheek, of valt hij om zodra die andere server afsluit. Precies
+/// dat gebeurde, in ongeveer één op de drie volledige testruns.
+///
+/// Op één poort kan maar één proces luisteren. Zegt onze eigen stdout dat hij
+/// gebonden is, dan is de socket dus van ons. Lukte het binden niet, dan stopt
+/// het proces en vangt `try_wait` dat op.
 fn wait_until_listening(
     process: &mut Child,
     address: SocketAddr,
     log: &Arc<Mutex<String>>,
 ) -> bool {
     let deadline = Instant::now() + PATIENCE;
+
+    // De server bindt op alle interfaces; de test praat via de loopback.
+    let bound = format!("0.0.0.0:{}", address.port());
 
     while Instant::now() < deadline {
         match process.try_wait() {
@@ -203,8 +215,11 @@ fn wait_until_listening(
             Err(error) => panic!("kon de status van het serverproces niet lezen: {error}"),
         }
 
-        if TcpStream::connect_timeout(&address, Duration::from_millis(200)).is_ok() {
-            return true;
+        {
+            let log = log.lock().expect("log-buffer moet leesbaar zijn");
+            if log.contains("webserver luistert") && log.contains(&bound) {
+                return true;
+            }
         }
 
         std::thread::sleep(Duration::from_millis(20));

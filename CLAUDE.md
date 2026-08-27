@@ -24,9 +24,13 @@ de conventies vast waar code zich aan houdt.
   en `tags::` samen tot een weergavemodel; handlers renderen dat model en
   bevatten zelf geen sorteer-, filter- of opmaaklogica. Paden die naar de
   browser gaan zijn altijd relatief aan `MUSIC_ROOT`.
-- **Schrijven is atomisch.** Naar een tijdelijk bestand in dezelfde map,
-  hervalideren door opnieuw in te lezen, en pas dan hernoemen over het origineel.
-  Bij een fout blijft het origineel onaangetast.
+- **Schrijven is atomisch, en loopt via `atomic::replace`.** Naar een tijdelijk
+  bestand in dezelfde map, hervalideren door opnieuw in te lezen, en pas dan
+  hernoemen over het origineel. Bij een fout blijft het origineel onaangetast.
+  Die volgorde staat vast in `atomic::replace`, niet bij de aanroeper: een
+  schrijfactie die er zelf omheen gaat, heeft geen van die garanties. Eigenaar,
+  groep en rechten van het origineel gaan mee; lukt dat niet, dan gaat de
+  schrijfactie niet door.
 - **De signalering (`checks::`) constateert alleen.** Ze krijgt het
   genormaliseerde tagmodel binnen, opent geen bestanden en stelt geen correcties
   voor. Wat er met een gesignaleerd probleem gebeurt, beslist de gebruiker.
