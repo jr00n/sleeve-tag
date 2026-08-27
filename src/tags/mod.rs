@@ -11,21 +11,24 @@
 //! - Niet-gemodelleerde tags blijven ongewijzigd bewaard.
 //! - Een leeg veld betekent "veld verwijderen", niet "lege waarde opslaan".
 //!
-//! Het schrijven volgt in fase 2; deze module leest.
+//! Het schrijven loopt via [`write`], en die gaat op zijn beurt door
+//! [`crate::atomic::replace`]: een half geschreven bestand is daarmee onmogelijk.
 
-// De mapbrowser en de bestandsweergave zijn de eerste gebruikers van dit model;
-// tot die taken roepen alleen de tests het aan. De regel hoort daar weg te gaan.
+// De bestandsweergave gebruikt nog niet alles uit dit model; het bewerkformulier
+// (task-14) is de eerste die ook schrijft.
 #![allow(dead_code)]
 
 use std::fmt;
 use std::path::Path;
 use std::time::Duration;
 
-use lofty::config::ParseOptions;
+use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
 use lofty::picture::{Picture, PictureType};
 use lofty::probe::Probe;
-use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagType};
+use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagExt, TagType};
+
+use crate::atomic;
 
 /// Wat er mis kan gaan bij het lezen van een bestand.
 ///
@@ -39,7 +42,25 @@ pub enum TagError {
 
     #[error("dit bestandstype wordt niet ondersteund")]
     UnsupportedFormat,
+
+    #[error("de tags konden niet weggeschreven worden")]
+    Unwritable,
+
+    /// Wat er teruggelezen werd, is niet wat er bedoeld was.
+    ///
+    /// Dit is de vangnetfout van de hervalidatie. Hij hoort niet voor te komen;
+    /// gebeurt het toch, dan blijft het originele bestand ongemoeid.
+    #[error("de weggeschreven tags kwamen niet terug zoals bedoeld")]
+    Mismatch,
 }
+
+/// Wat er mis kan gaan bij het schrijven van tags.
+///
+/// Het onderscheid uit [`crate::atomic`] blijft zichtbaar: een fout tijdens het
+/// klaarmaken betekent dat er niets is gebeurd, een fout tijdens de
+/// hervalidatie betekent dat er zojuist een onbruikbaar bestand is gemaakt —
+/// dat nooit over het origineel heen is gegaan.
+pub type WriteError = atomic::WriteError<TagError>;
 
 /// De containerformaten die Sleeve ondersteunt.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,6 +109,38 @@ impl Tags {
     pub fn is_empty(&self) -> bool {
         *self == Tags::default()
     }
+
+    /// Dezelfde tags, maar zoals ze in een bestand terecht mogen komen.
+    ///
+    /// Elke waarde wordt getrimd, en wat dan leeg blijft wordt `None`. Zo staat
+    /// het in PRD §7: een leeg gemaakt veld betekent "verwijderen" en niet
+    /// "een lege waarde opslaan". Door dat hier af te handelen hoeft geen enkel
+    /// formulier of handler er nog aan te denken.
+    ///
+    /// [`read`] doet hetzelfde aan de leeszijde, waardoor een gelezen model
+    /// altijd al genormaliseerd is en teruglezen na schrijven exact hetzelfde
+    /// oplevert.
+    pub fn normalized(&self) -> Tags {
+        Tags {
+            title: normalize(&self.title),
+            artist: normalize(&self.artist),
+            album_artist: normalize(&self.album_artist),
+            album: normalize(&self.album),
+            track: self.track,
+            track_total: self.track_total,
+            disc: self.disc,
+            disc_total: self.disc_total,
+            year: normalize(&self.year),
+            genre: normalize(&self.genre),
+            composer: normalize(&self.composer),
+            comment: normalize(&self.comment),
+        }
+    }
+}
+
+/// Trimt een waarde en maakt er `None` van wanneer er niets overblijft.
+fn normalize(value: &Option<String>) -> Option<String> {
+    text(value.as_deref())
 }
 
 /// Wat er over de embedded front cover bekend is, zonder de afbeelding zelf.
@@ -234,6 +287,228 @@ fn name_of(tag_type: TagType) -> String {
         TagType::Ape => "APE".to_string(),
         other => format!("{other:?}"),
     }
+}
+
+/// Schrijft het genormaliseerde tagmodel naar een bestand.
+///
+/// Alleen de velden uit het model worden aangeraakt. Alles wat Sleeve niet
+/// modelleert blijft staan, want er wordt uitgegaan van de tag die al in het
+/// bestand zit en niet van een lege.
+///
+/// Een veld dat `None` is (of dat na trimmen leeg blijkt) wordt uit het bestand
+/// **verwijderd**, niet als lege waarde opgeslagen — zo staat het in PRD §7.
+///
+/// Verandert er niets, dan wordt het bestand niet aangeraakt. Een bestand
+/// herschrijven dat gelijk blijft is een ongevraagde wijziging: de
+/// wijzigingsdatum verspringt en Navidrome gaat er opnieuw naar kijken, zonder
+/// dat er iets te zien valt.
+///
+/// Het schrijven zelf loopt via [`crate::atomic::replace`]: naar een tijdelijk
+/// bestand, hervalideren door opnieuw in te lezen, en pas dan over het origineel
+/// heen.
+pub fn write(path: &Path, wanted: &Tags, options: atomic::Options) -> Result<(), WriteError> {
+    let wanted = wanted.normalized();
+
+    let current = read(path).map_err(atomic::WriteError::Prepare)?;
+    let changes = changed_fields(&current.tags, &wanted);
+
+    if changes.is_empty() {
+        tracing::debug!(
+            path = %path.display(),
+            "geen wijzigingen; het bestand wordt niet aangeraakt"
+        );
+        return Ok(());
+    }
+
+    atomic::replace(
+        path,
+        options,
+        &changes.join(", "),
+        |temp| apply(temp, &wanted),
+        |temp| {
+            let after = read(temp)?;
+            if after.tags == wanted {
+                Ok(())
+            } else {
+                Err(TagError::Mismatch)
+            }
+        },
+    )
+}
+
+/// Zet het model in de tag van het tijdelijke bestand en schrijft die weg.
+///
+/// Er wordt begonnen bij de tag die er al staat, zodat niet-gemodelleerde
+/// velden blijven bestaan. Heeft het bestand nog geen tag van het juiste soort
+/// — een MP3 met alleen ID3v1 bijvoorbeeld — dan wordt de bestaande omgezet.
+/// Daarbij gaat niets verloren: ID3v1 draagt uitsluitend velden die het model
+/// kent, en die zijn al ingelezen.
+fn apply(path: &Path, wanted: &Tags) -> Result<(), TagError> {
+    let file = open(path)?;
+    let target = tag_type_for(format_of(&file)?);
+
+    let mut tag = match file.tag(target) {
+        Some(existing) => existing.clone(),
+        None => match primary_tag(&file) {
+            Some(other) => {
+                let mut converted = other.clone();
+                converted.re_map(target);
+                converted
+            }
+            None => Tag::new(target),
+        },
+    };
+
+    set_tags(&mut tag, wanted);
+
+    // lofty schrijft ID3v2.4 met UTF-8; `use_id3v23` staat standaard uit en
+    // wordt hier bewust niet gezet.
+    tag.save_to_path(path, WriteOptions::new())
+        .map_err(|error| {
+            tracing::error!(%error, "tags konden niet weggeschreven worden");
+            TagError::Unwritable
+        })?;
+
+    remove_stale_tags(path, target)
+}
+
+/// Verwijdert tagsoorten die naast de geschreven tag niet horen te bestaan.
+///
+/// Voor MP3 is dat ID3v1: die kan maar dertig tekens per veld en zou na een
+/// wijziging iets anders zeggen dan ID3v2. Het PRD verbiedt zo'n
+/// tegenstrijdigheid; verwijderen maakt hem onmogelijk en is veiliger dan
+/// synchroniseren, want dan is er niets meer om uit de pas te lopen.
+///
+/// Twee omwegen om lofty 0.25.1 heen zijn hier nodig:
+///
+/// - `WriteOptions::remove_others` zou dit moeten doen, maar die vlag wordt
+///   nergens uitgelezen: hij bestaat wel en doet niets.
+/// - `TagType::remove_from_path` opent het bestand alleen-lezen en probeert er
+///   vervolgens in te schrijven, wat altijd mislukt. Daarom wordt het bestand
+///   hier zelf lees-schrijf geopend en `remove_from` gebruikt.
+fn remove_stale_tags(path: &Path, kept: TagType) -> Result<(), TagError> {
+    if kept != TagType::Id3v2 {
+        return Ok(());
+    }
+
+    let mut file = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(path)
+        .map_err(|error| {
+            tracing::error!(%error, "bestand kon niet geopend worden om ID3v1 te verwijderen");
+            TagError::Unwritable
+        })?;
+
+    TagType::Id3v1
+        .remove_from(&mut file, WriteOptions::new())
+        .map_err(|error| {
+            tracing::error!(%error, "de ID3v1-tag kon niet verwijderd worden");
+            TagError::Unwritable
+        })
+}
+
+/// De tagsoort waarin Sleeve voor dit formaat schrijft.
+fn tag_type_for(format: Format) -> TagType {
+    match format {
+        Format::Mp3 => TagType::Id3v2,
+        Format::Flac => TagType::VorbisComments,
+    }
+}
+
+/// Zet of verwijdert elk gemodelleerd veld; de rest van de tag blijft staan.
+fn set_tags(tag: &mut Tag, wanted: &Tags) {
+    match &wanted.title {
+        Some(value) => tag.set_title(value.clone()),
+        None => tag.remove_title(),
+    }
+    match &wanted.artist {
+        Some(value) => tag.set_artist(value.clone()),
+        None => tag.remove_artist(),
+    }
+    match &wanted.album {
+        Some(value) => tag.set_album(value.clone()),
+        None => tag.remove_album(),
+    }
+    match &wanted.genre {
+        Some(value) => tag.set_genre(value.clone()),
+        None => tag.remove_genre(),
+    }
+
+    set_text(tag, ItemKey::AlbumArtist, wanted.album_artist.as_deref());
+    set_text(tag, ItemKey::Composer, wanted.composer.as_deref());
+
+    // Het jaar gaat naar `RecordingDate` (TDRC in ID3v2.4, DATE in Vorbis).
+    // Het losse `Year`-veld wordt opgeruimd: twee plekken met een verschillend
+    // jaartal is precies de verwarring die deze app moet wegnemen.
+    set_text(tag, ItemKey::RecordingDate, wanted.year.as_deref());
+    tag.remove_key(ItemKey::Year);
+
+    // Commentaar staat in Vorbis soms als DESCRIPTION (zo schrijft ffmpeg het)
+    // en soms als COMMENT (zo schrijft Picard het). Sleeve schrijft COMMENT en
+    // ruimt DESCRIPTION op, zodat er niet twee tegenstrijdige waarden blijven.
+    match &wanted.comment {
+        Some(value) => tag.set_comment(value.clone()),
+        None => tag.remove_comment(),
+    }
+    tag.remove_key(ItemKey::Description);
+
+    // Nummer en totaal: lofty kent het formaatverschil en schrijft ze voor
+    // ID3v2 samen als `TRCK` (`n/total`), voor Vorbis als losse velden.
+    match wanted.track {
+        Some(value) => tag.set_track(value),
+        None => tag.remove_track(),
+    }
+    match wanted.track_total {
+        Some(value) => tag.set_track_total(value),
+        None => tag.remove_track_total(),
+    }
+    match wanted.disc {
+        Some(value) => tag.set_disk(value),
+        None => tag.remove_disk(),
+    }
+    match wanted.disc_total {
+        Some(value) => tag.set_disk_total(value),
+        None => tag.remove_disk_total(),
+    }
+}
+
+/// Zet een tekstveld, of verwijdert het wanneer er geen waarde is.
+fn set_text(tag: &mut Tag, key: ItemKey, value: Option<&str>) {
+    match value {
+        Some(value) => {
+            tag.insert_text(key, value.to_string());
+        }
+        None => {
+            tag.remove_key(key);
+        }
+    }
+}
+
+/// De namen van de velden die veranderen, voor in het logboek.
+fn changed_fields(current: &Tags, wanted: &Tags) -> Vec<&'static str> {
+    let mut changed = Vec::new();
+
+    let mut note = |name: &'static str, differs: bool| {
+        if differs {
+            changed.push(name);
+        }
+    };
+
+    note("titel", current.title != wanted.title);
+    note("artiest", current.artist != wanted.artist);
+    note("albumartiest", current.album_artist != wanted.album_artist);
+    note("album", current.album != wanted.album);
+    note("tracknummer", current.track != wanted.track);
+    note("tracktotaal", current.track_total != wanted.track_total);
+    note("discnummer", current.disc != wanted.disc);
+    note("disctotaal", current.disc_total != wanted.disc_total);
+    note("jaar", current.year != wanted.year);
+    note("genre", current.genre != wanted.genre);
+    note("componist", current.composer != wanted.composer);
+    note("commentaar", current.comment != wanted.comment);
+
+    changed
 }
 
 /// Bepaalt of het bestand werkelijk een MP3 of FLAC is.
@@ -511,6 +786,487 @@ mod tests {
         // Vorbis-comments gebruiken hun eigen namen.
         assert!(keys.contains(&"TITLE"), "sleutels waren: {keys:?}");
         assert!(keys.contains(&"ARTIST"), "sleutels waren: {keys:?}");
+    }
+
+    /// Kopieert een fixture naar een tempdir en geeft het pad naar de kopie.
+    ///
+    /// Schrijftests werken nooit tegen de fixture in de repo zelf.
+    fn writable_copy(name: &str) -> (tempfile::TempDir, std::path::PathBuf) {
+        testfixtures::copy_to_tempdir(name)
+    }
+
+    /// Het model dat de schrijftests wegschrijven.
+    fn wanted_tags() -> Tags {
+        Tags {
+            title: Some("Nieuwe titel".to_string()),
+            artist: Some("Nieuwe artiest".to_string()),
+            album_artist: Some("Nieuwe albumartiest".to_string()),
+            album: Some("Nieuw album".to_string()),
+            track: Some(7),
+            track_total: Some(9),
+            disc: Some(2),
+            disc_total: Some(3),
+            year: Some("2001".to_string()),
+            genre: Some("Shoegaze".to_string()),
+            composer: Some("Nieuwe componist".to_string()),
+            comment: Some("Een nieuw commentaar".to_string()),
+        }
+    }
+
+    /// De ruwe sleutels van een bestand, voor controles op frameniveau.
+    fn raw_keys(path: &std::path::Path) -> Vec<String> {
+        read_raw_tags(path)
+            .expect("ruwe tags moeten leesbaar zijn")
+            .items
+            .into_iter()
+            .map(|item| item.key)
+            .collect()
+    }
+
+    /// De ruwe waarde van één sleutel; paniekt als de sleutel ontbreekt.
+    fn raw_value(path: &std::path::Path, key: &str) -> String {
+        read_raw_tags(path)
+            .expect("ruwe tags moeten leesbaar zijn")
+            .items
+            .into_iter()
+            .find(|item| item.key == key)
+            .unwrap_or_else(|| panic!("sleutel '{key}' ontbreekt in {}", path.display()))
+            .value
+    }
+
+    #[test]
+    fn writes_the_whole_model_to_mp3_and_flac() {
+        for name in [testfixtures::MP3_WITH_TAGS, testfixtures::FLAC_WITH_TAGS] {
+            let (_tempdir, path) = writable_copy(name);
+
+            write(&path, &wanted_tags(), atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name} moet schrijfbaar zijn: {error}"));
+
+            let after = read(&path).expect("teruglezen moet lukken");
+            assert_eq!(after.tags, wanted_tags(), "fixture: {name}");
+        }
+    }
+
+    #[test]
+    fn writing_works_on_a_file_without_any_tags() {
+        for name in [
+            testfixtures::MP3_WITHOUT_TAGS,
+            testfixtures::FLAC_WITHOUT_TAGS,
+        ] {
+            let (_tempdir, path) = writable_copy(name);
+
+            write(&path, &wanted_tags(), atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name} moet schrijfbaar zijn: {error}"));
+
+            assert_eq!(
+                read(&path).expect("teruglezen").tags,
+                wanted_tags(),
+                "fixture: {name}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_emptied_field_is_removed_from_the_file() {
+        // Niet alleen uit het model: de sleutel hoort werkelijk uit het bestand
+        // te verdwijnen in plaats van als lege waarde achter te blijven.
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_WITH_TAGS);
+        assert!(raw_keys(&path).contains(&"TCOM".to_string()));
+
+        let mut wanted = read(&path).expect("lezen").tags;
+        wanted.composer = None;
+        // Een waarde die alleen uit spaties bestaat telt ook als leeg.
+        wanted.genre = Some("   ".to_string());
+
+        write(&path, &wanted, atomic::Options::default()).expect("schrijven moet lukken");
+
+        let keys = raw_keys(&path);
+        assert!(!keys.contains(&"TCOM".to_string()), "sleutels: {keys:?}");
+        assert!(!keys.contains(&"TCON".to_string()), "sleutels: {keys:?}");
+
+        let after = read(&path).expect("teruglezen").tags;
+        assert_eq!(after.composer, None);
+        assert_eq!(after.genre, None);
+    }
+
+    /// Zet twee velden in een bestand die Sleeve niet modelleert.
+    ///
+    /// De ingecheckte fixtures dragen uitsluitend velden die het model kent, dus
+    /// zonder deze stap valt er niets te bewijzen. Uitgever en ISRC zijn geen
+    /// bedachte gevallen: Picard schrijft ze standaard, en een bibliotheek die
+    /// daar doorheen is gegaan zit er vol mee.
+    fn add_unmodelled_fields(path: &std::path::Path) {
+        let file = open(path).expect("bestand moet leesbaar zijn");
+        let target = tag_type_for(format_of(&file).expect("formaat moet bekend zijn"));
+
+        let mut tag = file
+            .tag(target)
+            .cloned()
+            .unwrap_or_else(|| Tag::new(target));
+
+        tag.insert_text(ItemKey::Publisher, "Een platenlabel".to_string());
+        tag.insert_text(ItemKey::Isrc, "NLA123456789".to_string());
+
+        tag.save_to_path(path, WriteOptions::new())
+            .expect("de voorbereiding moet schrijfbaar zijn");
+    }
+
+    #[test]
+    fn fields_outside_the_model_survive_a_write() {
+        // Per formaat de sleutels waaronder uitgever en ISRC terechtkomen.
+        for (name, keys) in [
+            (testfixtures::MP3_WITH_TAGS, ["TPUB", "TSRC"]),
+            (testfixtures::FLAC_WITH_TAGS, ["PUBLISHER", "ISRC"]),
+        ] {
+            let (_tempdir, path) = writable_copy(name);
+            add_unmodelled_fields(&path);
+
+            let before = raw_keys(&path);
+            for key in keys {
+                assert!(
+                    before.contains(&key.to_string()),
+                    "{name}: de voorbereiding zette '{key}' niet: {before:?}"
+                );
+            }
+
+            write(&path, &wanted_tags(), atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            let after = raw_keys(&path);
+            for key in keys {
+                assert!(
+                    after.contains(&key.to_string()),
+                    "{name}: '{key}' is verdwenen na het schrijven: {after:?}"
+                );
+            }
+            assert_eq!(
+                raw_value(&path, keys[1]),
+                "NLA123456789",
+                "{name}: de waarde is veranderd"
+            );
+        }
+    }
+
+    #[test]
+    fn embedded_art_survives_a_write() {
+        // Een tagwijziging mag de hoes niet slopen.
+        for name in [testfixtures::MP3_WITH_ART, testfixtures::FLAC_WITH_ART] {
+            let (_tempdir, path) = writable_copy(name);
+            let before = read_front_cover(&path)
+                .expect("lezen")
+                .expect("de fixture heeft een hoes");
+
+            write(&path, &wanted_tags(), atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            let after = read_front_cover(&path)
+                .expect("lezen")
+                .unwrap_or_else(|| panic!("{name}: de hoes is verdwenen"));
+
+            assert_eq!(after.0, before.0, "{name}: het MIME-type is veranderd");
+            assert_eq!(after.1, before.1, "{name}: de hoes is veranderd");
+        }
+    }
+
+    /// Leest een syncsafe geheel getal van vier bytes (ID3v2.4).
+    fn syncsafe(bytes: &[u8]) -> usize {
+        bytes
+            .iter()
+            .fold(0usize, |total, byte| (total << 7) | (*byte as usize & 0x7F))
+    }
+
+    /// De lengte van het ID3v2-blok aan het begin van een bestand, met header.
+    fn id3v2_length(bytes: &[u8]) -> Option<usize> {
+        if bytes.len() < 10 || &bytes[..3] != b"ID3" {
+            return None;
+        }
+        Some(10 + syncsafe(&bytes[6..10]))
+    }
+
+    /// De tekstinhoud van één ID3v2.4-frame, rechtstreeks uit de bytes gelezen.
+    ///
+    /// Nodig omdat `read_raw_tags` de gesplitste kijk van de tagbibliotheek
+    /// geeft: een `TRCK` met `7/9` komt daar als twee regels langs. Om te
+    /// bewijzen dat er één frame met `7/9` in het bestand staat, moet je naar de
+    /// bytes zelf kijken.
+    fn id3v2_frame(bytes: &[u8], wanted: &str) -> Option<String> {
+        let end = id3v2_length(bytes)?;
+        let mut at = 10;
+
+        while at + 10 <= end {
+            let id = &bytes[at..at + 4];
+            if id == [0, 0, 0, 0] {
+                // Vanaf hier is het opvulling.
+                break;
+            }
+
+            // ID3v2.4 gebruikt ook voor framelengtes syncsafe getallen.
+            let size = syncsafe(&bytes[at + 4..at + 8]);
+            let content = &bytes[at + 10..(at + 10 + size).min(bytes.len())];
+
+            if id == wanted.as_bytes() {
+                // De eerste byte van een tekstframe is de codering.
+                let text = String::from_utf8_lossy(&content[1..]);
+                return Some(text.trim_end_matches('\0').to_string());
+            }
+
+            at += 10 + size;
+        }
+
+        None
+    }
+
+    /// De audio-inhoud van een bestand: alles behalve de tagblokken.
+    ///
+    /// Voor MP3 vervallen het ID3v2-blok vooraan en een eventuele ID3v1-staart
+    /// van 128 bytes; voor FLAC alle metadatablokken tot en met het laatste.
+    /// Wat overblijft zijn de audioframes, en die horen een tagwijziging
+    /// byte-voor-byte te overleven.
+    fn audio_bytes(path: &std::path::Path) -> Vec<u8> {
+        let bytes = std::fs::read(path).expect("bestand moet leesbaar zijn");
+
+        if bytes.starts_with(b"fLaC") {
+            let mut at = 4;
+            loop {
+                let header = &bytes[at..at + 4];
+                let last = header[0] & 0x80 != 0;
+                let length =
+                    ((header[1] as usize) << 16) | ((header[2] as usize) << 8) | header[3] as usize;
+                at += 4 + length;
+                if last {
+                    break;
+                }
+            }
+            return bytes[at..].to_vec();
+        }
+
+        let start = id3v2_length(&bytes).unwrap_or(0);
+        let mut end = bytes.len();
+        if end >= 128 && &bytes[end - 128..end - 125] == b"TAG" {
+            end -= 128;
+        }
+
+        bytes[start..end].to_vec()
+    }
+
+    #[test]
+    fn an_mp3_is_id3v2_4_after_writing() {
+        // Ook wanneer het bestand daarvoor iets anders had: de fixture met
+        // alleen een ID3v1-tag heeft helemaal geen ID3v2 om mee te beginnen.
+        for name in [testfixtures::MP3_WITH_TAGS, testfixtures::MP3_ID3V1_ONLY] {
+            let (_tempdir, path) = writable_copy(name);
+
+            write(&path, &wanted_tags(), atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            let bytes = std::fs::read(&path).expect("lezen");
+            assert_eq!(&bytes[..3], b"ID3", "{name}: geen ID3v2-blok");
+            assert_eq!(
+                bytes[3], 4,
+                "{name}: geen ID3v2.4 maar versie 2.{}",
+                bytes[3]
+            );
+
+            // UTF-8 hoort erbij: codering 3 is UTF-8, en de waarde moet er
+            // ongeschonden uit komen.
+            let title = id3v2_frame(&bytes, "TIT2").expect("TIT2 moet er staan");
+            assert_eq!(title, "Nieuwe titel", "{name}");
+        }
+    }
+
+    #[test]
+    fn an_id3v1_tag_is_gone_after_writing() {
+        // De fixture met een ID3v1 die afwijkt van ID3v2 is het lastige geval:
+        // laten staan zou betekenen dat een speler die ID3v1 leest iets anders
+        // toont dan Sleeve. Verwijderen maakt dat onmogelijk.
+        for name in [
+            testfixtures::MP3_ID3V1_INCONSISTENT,
+            testfixtures::MP3_ID3V1_ONLY,
+        ] {
+            let (_tempdir, path) = writable_copy(name);
+
+            let before = std::fs::read(&path).expect("lezen");
+            assert_eq!(
+                &before[before.len() - 128..before.len() - 125],
+                b"TAG",
+                "{name}: de fixture heeft geen ID3v1-tag om op te testen"
+            );
+
+            write(&path, &wanted_tags(), atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            let after = std::fs::read(&path).expect("lezen");
+            assert_ne!(
+                &after[after.len() - 128..after.len() - 125],
+                b"TAG",
+                "{name}: er staat nog een ID3v1-tag in het bestand"
+            );
+        }
+    }
+
+    #[test]
+    fn combined_fields_use_the_notation_of_their_format() {
+        // ID3v2 stopt nummer en totaal in één frame met een schuine streep.
+        let (_tempdir, mp3) = writable_copy(testfixtures::MP3_WITH_TAGS);
+        write(&mp3, &wanted_tags(), atomic::Options::default()).expect("schrijven");
+
+        let bytes = std::fs::read(&mp3).expect("lezen");
+        assert_eq!(id3v2_frame(&bytes, "TRCK").as_deref(), Some("7/9"));
+        assert_eq!(id3v2_frame(&bytes, "TPOS").as_deref(), Some("2/3"));
+
+        // Vorbis-comments houden ze uit elkaar.
+        let (_tempdir, flac) = writable_copy(testfixtures::FLAC_WITH_TAGS);
+        write(&flac, &wanted_tags(), atomic::Options::default()).expect("schrijven");
+
+        assert_eq!(raw_value(&flac, "TRACKNUMBER"), "7");
+        assert_eq!(raw_value(&flac, "TRACKTOTAL"), "9");
+        assert_eq!(raw_value(&flac, "DISCNUMBER"), "2");
+        assert_eq!(raw_value(&flac, "DISCTOTAL"), "3");
+    }
+
+    #[test]
+    fn the_audio_survives_a_tag_change_bit_for_bit() {
+        for name in [
+            testfixtures::MP3_WITH_TAGS,
+            testfixtures::FLAC_WITH_TAGS,
+            testfixtures::MP3_WITH_ART,
+            testfixtures::FLAC_WITH_ART,
+        ] {
+            let (_tempdir, path) = writable_copy(name);
+            let before = audio_bytes(&path);
+            assert!(!before.is_empty(), "{name}: geen audio gevonden");
+
+            write(&path, &wanted_tags(), atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            assert_eq!(
+                audio_bytes(&path),
+                before,
+                "{name}: de audio is veranderd door een tagwijziging"
+            );
+        }
+    }
+
+    #[test]
+    fn writing_the_same_tags_leaves_the_file_untouched() {
+        // Een bestand herschrijven dat gelijk blijft is een ongevraagde
+        // wijziging: de wijzigingsdatum verspringt en Navidrome gaat er
+        // opnieuw naar kijken zonder dat er iets te zien valt.
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_WITH_TAGS);
+        let before = std::fs::read(&path).expect("lezen");
+        let unchanged = read(&path).expect("lezen").tags;
+
+        write(&path, &unchanged, atomic::Options::default()).expect("schrijven moet lukken");
+
+        assert_eq!(
+            std::fs::read(&path).expect("lezen"),
+            before,
+            "het bestand is aangeraakt terwijl er niets veranderde"
+        );
+    }
+
+    #[test]
+    fn a_failed_write_leaves_the_audio_file_intact() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let (tempdir, path) = writable_copy(testfixtures::MP3_WITH_TAGS);
+        let before = std::fs::read(&path).expect("lezen");
+
+        // Een map waarin niets bijgemaakt mag worden: het tijdelijke bestand
+        // kan niet eens ontstaan.
+        std::fs::set_permissions(tempdir.path(), std::fs::Permissions::from_mode(0o555))
+            .expect("rechten moeten in te stellen zijn");
+
+        let result = write(&path, &wanted_tags(), atomic::Options::default());
+
+        // Rechten terugzetten, anders kan de tempdir niet opgeruimd worden.
+        std::fs::set_permissions(tempdir.path(), std::fs::Permissions::from_mode(0o755))
+            .expect("rechten moeten terug te zetten zijn");
+
+        assert!(result.is_err(), "de schrijfactie had moeten mislukken");
+        assert_eq!(
+            std::fs::read(&path).expect("lezen"),
+            before,
+            "het bestand is aangetast door een mislukte schrijfactie"
+        );
+    }
+
+    #[test]
+    fn an_independent_tool_reads_back_what_was_written() {
+        // De onafhankelijke controle uit het acceptatiecriterium. ffprobe hoort
+        // niet bij de toolchain, dus zonder ffprobe slaat deze test zichzelf
+        // over: de kwaliteitspoort mag niet van een systeemtool afhangen.
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_WITH_TAGS);
+        write(&path, &wanted_tags(), atomic::Options::default()).expect("schrijven");
+
+        let output = match std::process::Command::new("ffprobe")
+            .args([
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format_tags",
+                "-of",
+                "default=noprint_wrappers=1",
+            ])
+            .arg(&path)
+            .output()
+        {
+            Ok(output) => output,
+            Err(_) => {
+                eprintln!("ffprobe ontbreekt; de onafhankelijke controle is overgeslagen");
+                return;
+            }
+        };
+
+        let tags = String::from_utf8_lossy(&output.stdout);
+        for expected in [
+            "TAG:title=Nieuwe titel",
+            "TAG:artist=Nieuwe artiest",
+            "TAG:album=Nieuw album",
+            "TAG:track=7/9",
+            "TAG:disc=2/3",
+        ] {
+            assert!(
+                tags.contains(expected),
+                "ffprobe zag '{expected}' niet. Wat het wel zag:\n{tags}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_lofty_workarounds_are_still_needed() {
+        // `tags::write` gaat om twee gebreken in lofty 0.25.1 heen. Deze test
+        // legt vast dát ze er zijn: gaat hij bij een nieuwere versie stuk, dan
+        // is dat het sein om de omweg weg te halen in plaats van hem mee te
+        // slepen omdat niemand meer weet waarom hij er staat.
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_ID3V1_ONLY);
+
+        // 1. `remove_from_path` opent het bestand alleen-lezen en probeert er
+        //    dan in te schrijven.
+        assert!(
+            TagType::Id3v1
+                .remove_from_path(&path, WriteOptions::new())
+                .is_err(),
+            "remove_from_path werkt weer; de omweg in remove_stale_tags kan weg"
+        );
+
+        // 2. `remove_others` laat de ID3v1-tag gewoon staan.
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_ID3V1_INCONSISTENT);
+        let tag = open(&path)
+            .expect("lezen")
+            .tag(TagType::Id3v2)
+            .cloned()
+            .expect("de fixture heeft een ID3v2-tag");
+
+        tag.save_to_path(&path, WriteOptions::new().remove_others(true))
+            .expect("schrijven moet lukken");
+
+        let bytes = std::fs::read(&path).expect("lezen");
+        assert_eq!(
+            &bytes[bytes.len() - 128..bytes.len() - 125],
+            b"TAG",
+            "remove_others werkt weer; de handmatige opruiming kan weg"
+        );
     }
 
     #[test]

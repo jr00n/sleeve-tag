@@ -22,10 +22,9 @@
 //! geschreven, om verwarring met de crate-eigen module [`crate::fs`] te
 //! voorkomen.
 
-// Tot het wegschrijven van tags er is (task-13) roepen alleen de tests deze
-// module aan. De schrijfstrategie hoort er wél als eerste te staan: alles wat
-// daarna komt leunt erop, en omgekeerd zou elke schrijfactie zijn eigen
-// veiligheidsnet moeten uitvinden.
+// `tags::write` gebruikt deze module, maar die wordt zelf pas door het
+// bewerkformulier (task-14) aangeroepen. Zolang die keten nergens in een
+// handler eindigt, ziet de compiler het geheel als ongebruikt.
 #![allow(dead_code)]
 
 use std::os::unix::fs::MetadataExt;

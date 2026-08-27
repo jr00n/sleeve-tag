@@ -11,6 +11,11 @@ de conventies vast waar code zich aan houdt.
   werkt alleen met het genormaliseerde tagmodel uit PRD §7 en weet niet of een
   bestand ID3v2-frames of Vorbis-comments bevat. Deze regel wordt afgedwongen
   door `tests/architecture.rs`.
+- **Schrijven van tags gaat via `tags::write`.** Die begint bij de tag die al in
+  het bestand staat, zodat niet-gemodelleerde velden blijven bestaan, en gaat
+  door `atomic::replace`. Een veld dat leeg is, wordt verwijderd en niet als
+  lege waarde opgeslagen; `Tags::normalized` legt die regel op één plek vast.
+  Verandert er niets, dan wordt het bestand niet aangeraakt.
 - **Alle padvertaling loopt via `fs::`.** Een door de gebruiker aangeleverd pad
   wordt daar gecanonicaliseerd en gecontroleerd tegen `MUSIC_ROOT`; handlers
   bouwen nooit zelf een pad op. Dat geldt ook voor het opsommen van een map:

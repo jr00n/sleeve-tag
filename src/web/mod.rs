@@ -307,6 +307,12 @@ impl IntoResponse for WebError {
                     // wat de gebruiker dacht dat er stond.
                     tags::TagError::Unreadable => StatusCode::NOT_FOUND,
                     tags::TagError::UnsupportedFormat => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+
+                    // Schrijffouten liggen niet aan het verzoek; het bestand is
+                    // op dat moment nog onaangetast.
+                    tags::TagError::Unwritable | tags::TagError::Mismatch => {
+                        StatusCode::INTERNAL_SERVER_ERROR
+                    }
                 };
 
                 tracing::warn!(%error, %status, "bestand kon niet gelezen worden");

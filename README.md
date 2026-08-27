@@ -204,6 +204,48 @@ Elke geslaagde schrijfactie wordt gelogd met het pad en de gewijzigde velden.
 Een mislukte hervalidatie krijgt een eigen foutregel: het origineel is dan heel,
 maar er is wel zojuist een onbruikbaar bestand geproduceerd.
 
+## Tags wegschrijven
+
+`tags::write` neemt het genormaliseerde model aan en zet het in het bestand. De
+regels komen uit PRD §7 en zijn strenger dan ze op het eerste gezicht lijken,
+omdat Navidrome dezelfde bestanden leest.
+
+- **Alleen gemodelleerde velden worden aangeraakt.** Er wordt begonnen bij de
+  tag die al in het bestand staat, niet bij een lege. Alles wat Sleeve niet
+  kent — een `TPUB` van je platenlabel, een `TSRC`, een `ENCODER` — blijft
+  gewoon staan. Ook de embedded hoes overleeft een tagwijziging; een test
+  bewaakt beide.
+- **Leeg betekent verwijderen.** Een veld dat leeg is (of alleen spaties
+  bevat) verdwijnt uit het bestand in plaats van als lege waarde achter te
+  blijven. `Tags::normalized` legt dat op één plek vast, zodat geen enkel
+  formulier er nog aan hoeft te denken.
+- **MP3 wordt ID3v2.4 met UTF-8**, ook wanneer het bestand daarvoor iets anders
+  had. Een bestaande ID3v1-tag wordt verwijderd: die kan maar dertig tekens per
+  veld en zou na een wijziging iets anders zeggen dan ID3v2. Verwijderen maakt
+  die tegenstrijdigheid onmogelijk, en dat is veiliger dan hem synchroniseren.
+- **Samengestelde velden volgen hun formaat.** ID3v2 krijgt `TRCK` en `TPOS` als
+  `nummer/totaal`; Vorbis-comments krijgen `TRACKNUMBER` en `TRACKTOTAL` apart.
+- **Het jaar gaat naar `TDRC`/`DATE`**, en een los `YEAR`-veld wordt opgeruimd.
+  Commentaar gaat naar `COMMENT`, waarbij `DESCRIPTION` (wat ffmpeg schrijft)
+  verdwijnt. Twee plekken met een verschillende waarde is precies de verwarring
+  die deze app moet wegnemen.
+- **De audio blijft bit-identiek.** Een tagwijziging raakt de audioframes niet;
+  een test knipt de tagblokken eraf en vergelijkt wat er overblijft.
+- **Verandert er niets, dan gebeurt er niets.** Een bestand herschrijven dat
+  gelijk blijft is een ongevraagde wijziging: de wijzigingsdatum verspringt en
+  Navidrome gaat er opnieuw naar kijken zonder dat er iets te zien valt.
+
+### Twee omwegen om lofty 0.25.1 heen
+
+Beide zijn met een test vastgelegd, zodat ze opvallen als een nieuwere versie ze
+oplost:
+
+- `WriteOptions::remove_others` bestaat wel maar wordt nergens uitgelezen; de
+  vlag doet niets. De ID3v1-tag wordt daarom met de hand verwijderd.
+- `TagType::remove_from_path` opent het bestand alleen-lezen en probeert er
+  vervolgens in te schrijven, wat altijd mislukt. Sleeve opent het bestand zelf
+  lees-schrijf en gebruikt `remove_from`.
+
 ## Mapbrowser
 
 De startpagina is de wortel van `MUSIC_ROOT`; elke map eronder heeft een eigen
