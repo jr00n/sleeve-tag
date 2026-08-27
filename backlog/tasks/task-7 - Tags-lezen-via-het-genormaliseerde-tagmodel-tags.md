@@ -1,9 +1,11 @@
 ---
 id: TASK-7
 title: 'Tags lezen via het genormaliseerde tagmodel (tags::)'
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - claude
 created_date: '2026-08-26 22:23'
+updated_date: '2026-08-27 05:03'
 labels: []
 milestone: m-1
 dependencies:

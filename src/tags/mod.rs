@@ -32,8 +32,8 @@ use lofty::probe::Probe;
 /// Pas bij het uitlezen van de audio-eigenschappen valt door de mand dat er geen
 /// geldige frames in zitten. Die stap is hier dus geen luxe maar de eigenlijke
 /// controle.
-pub fn herkent_formaat(pad: &Path) -> bool {
-    let Ok(probe) = Probe::open(pad) else {
+pub fn is_supported_format(path: &Path) -> bool {
+    let Ok(probe) = Probe::open(path) else {
         return false;
     };
     let Ok(probe) = probe.guess_file_type() else {
@@ -57,40 +57,45 @@ mod tests {
     use crate::testfixtures;
 
     #[test]
-    fn herkent_mp3_en_flac_fixtures() {
-        for naam in [
-            testfixtures::MP3_MET_TAGS,
-            testfixtures::MP3_ZONDER_TAGS,
-            testfixtures::MP3_MET_ART,
-            testfixtures::FLAC_MET_TAGS,
-            testfixtures::FLAC_ZONDER_TAGS,
-            testfixtures::FLAC_MET_ART,
+    fn recognizes_mp3_and_flac_fixtures() {
+        for name in [
+            testfixtures::MP3_WITH_TAGS,
+            testfixtures::MP3_WITHOUT_TAGS,
+            testfixtures::MP3_WITH_ART,
+            testfixtures::FLAC_WITH_TAGS,
+            testfixtures::FLAC_WITHOUT_TAGS,
+            testfixtures::FLAC_WITH_ART,
         ] {
-            let pad = testfixtures::fixture_pad(naam);
-            assert!(herkent_formaat(&pad), "{naam} zou herkend moeten worden");
+            let path = testfixtures::fixture_path(name);
+            assert!(
+                is_supported_format(&path),
+                "{name} zou herkend moeten worden"
+            );
         }
     }
 
     #[test]
-    fn weigert_een_afbeelding() {
-        let pad = testfixtures::fixture_pad(testfixtures::COVER_JPEG);
-        assert!(!herkent_formaat(&pad));
+    fn rejects_an_image() {
+        let path = testfixtures::fixture_path(testfixtures::COVER_JPEG);
+        assert!(!is_supported_format(&path));
     }
 
     #[test]
-    fn weigert_een_bestand_met_misleidende_extensie() {
+    fn rejects_a_file_with_a_misleading_extension() {
         // Een tekstbestand dat zich voordoet als MP3. De extensie klopt, de
         // inhoud niet; alleen naar de naam kijken is dus niet genoeg.
         let tempdir = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
-        let nep = tempdir.path().join("nep.mp3");
-        std::fs::write(&nep, b"dit is geen audio").expect("bestand moet te schrijven zijn");
+        let fake = tempdir.path().join("fake.mp3");
+        std::fs::write(&fake, b"dit is geen audio").expect("bestand moet te schrijven zijn");
 
-        assert!(!herkent_formaat(&nep));
+        assert!(!is_supported_format(&fake));
     }
 
     #[test]
-    fn weigert_een_niet_bestaand_pad() {
+    fn rejects_a_missing_path() {
         let tempdir = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
-        assert!(!herkent_formaat(&tempdir.path().join("bestaat-niet.mp3")));
+        assert!(!is_supported_format(
+            &tempdir.path().join("bestaat-niet.mp3")
+        ));
     }
 }

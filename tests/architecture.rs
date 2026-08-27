@@ -7,36 +7,36 @@
 use std::path::{Path, PathBuf};
 
 /// Verzamelt alle `.rs`-bestanden onder `dir`.
-fn rust_bestanden(dir: &Path, gevonden: &mut Vec<PathBuf>) {
+fn rust_files(dir: &Path, found: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("src-map moet leesbaar zijn") {
-        let pad = entry.expect("directory-entry moet leesbaar zijn").path();
-        if pad.is_dir() {
-            rust_bestanden(&pad, gevonden);
-        } else if pad.extension().is_some_and(|ext| ext == "rs") {
-            gevonden.push(pad);
+        let path = entry.expect("map-entry moet leesbaar zijn").path();
+        if path.is_dir() {
+            rust_files(&path, found);
+        } else if path.extension().is_some_and(|ext| ext == "rs") {
+            found.push(path);
         }
     }
 }
 
 #[test]
-fn lofty_wordt_uitsluitend_binnen_tags_gebruikt() {
+fn lofty_is_used_only_inside_tags() {
     let src = Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
     let tags = src.join("tags");
 
-    let mut bestanden = Vec::new();
-    rust_bestanden(&src, &mut bestanden);
-    assert!(!bestanden.is_empty(), "er zijn geen bronbestanden gevonden");
+    let mut files = Vec::new();
+    rust_files(&src, &mut files);
+    assert!(!files.is_empty(), "er zijn geen bronbestanden gevonden");
 
-    for bestand in bestanden {
-        if bestand.starts_with(&tags) || bestand == src.join("tags.rs") {
+    for file in files {
+        if file.starts_with(&tags) || file == src.join("tags.rs") {
             continue;
         }
 
-        let inhoud = std::fs::read_to_string(&bestand).expect("bronbestand moet leesbaar zijn");
+        let inhoud = std::fs::read_to_string(&file).expect("bronbestand moet leesbaar zijn");
         assert!(
             !inhoud.contains("lofty"),
             "{} verwijst naar lofty; tag-I/O hoort uitsluitend in tags::",
-            bestand.display()
+            file.display()
         );
     }
 }

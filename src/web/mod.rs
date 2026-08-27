@@ -17,7 +17,7 @@ use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::config::Config;
-use crate::fs::{Bibliotheek, PadFout};
+use crate::fs::{Library, PathError};
 
 /// Gedeelde toestand van de webserver.
 ///
@@ -28,7 +28,7 @@ use crate::fs::{Bibliotheek, PadFout};
 pub struct AppState {
     /// De enige route van gebruikerspad naar filesystem-pad; handlers lossen
     /// nooit zelf een pad op.
-    pub bibliotheek: Arc<Bibliotheek>,
+    pub library: Arc<Library>,
 }
 
 /// Bouwt de volledige router.
@@ -37,7 +37,7 @@ pub struct AppState {
 /// aanroepen.
 pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
     let state = AppState {
-        bibliotheek: Arc::new(Bibliotheek::nieuw(config.music_root)),
+        library: Arc::new(Library::new(config.music_root)),
     };
 
     Router::new()
@@ -57,7 +57,7 @@ struct IndexTemplate {
 
 async fn index(State(state): State<AppState>) -> Result<Html<String>, WebError> {
     let pagina = IndexTemplate {
-        music_root: state.bibliotheek.root().display().to_string(),
+        music_root: state.library.root().display().to_string(),
     };
 
     Ok(Html(pagina.render()?))
@@ -78,15 +78,15 @@ pub enum WebError {
     Render(#[from] askama::Error),
 
     #[error(transparent)]
-    Pad(#[from] crate::fs::PadFout),
+    Pad(#[from] crate::fs::PathError),
 }
 
 impl IntoResponse for WebError {
     fn into_response(self) -> axum::response::Response {
         match self {
-            WebError::Render(fout) => {
+            WebError::Render(error) => {
                 // De technische oorzaak hoort in het log, niet in de browser.
-                tracing::error!(%fout, "pagina kon niet worden opgebouwd");
+                tracing::error!(%error, "pagina kon niet worden opgebouwd");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     "Er ging iets mis bij het opbouwen van de pagina.",
@@ -94,20 +94,20 @@ impl IntoResponse for WebError {
                     .into_response()
             }
 
-            WebError::Pad(fout) => {
-                let status = match fout {
+            WebError::Pad(error) => {
+                let status = match error {
                     // Een pad buiten de bibliotheek is een geweigerd verzoek, geen
                     // vergissing in de URL: 403 in plaats van 404, zodat het in de
                     // logs te onderscheiden is van een dode link.
-                    PadFout::BuitenBibliotheek => StatusCode::FORBIDDEN,
-                    PadFout::NietGevonden => StatusCode::NOT_FOUND,
-                    PadFout::NietOndersteund => StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                    PathError::OutsideLibrary => StatusCode::FORBIDDEN,
+                    PathError::NotFound => StatusCode::NOT_FOUND,
+                    PathError::Unsupported => StatusCode::UNSUPPORTED_MEDIA_TYPE,
                 };
 
-                tracing::warn!(%fout, %status, "verzoek geweigerd");
+                tracing::warn!(%error, %status, "verzoek geweigerd");
 
                 // De melding van PadFout bevat bewust geen pad.
-                (status, fout.to_string()).into_response()
+                (status, error.to_string()).into_response()
             }
         }
     }
@@ -125,7 +125,7 @@ mod tests {
     /// Bouwt een router met een wegwerp-`MUSIC_ROOT`.
     ///
     /// Tests raken nooit de echte bibliotheek; de root is een lege tempdir.
-    fn testrouter(root: &tempfile::TempDir) -> Router {
+    fn test_router(root: &tempfile::TempDir) -> Router {
         let config = Config::try_parse_from([
             "sleeve-tag",
             "--music-root",
@@ -136,7 +136,7 @@ mod tests {
         router(config, std::path::Path::new("static"))
     }
 
-    async fn body_als_string(respons: axum::response::Response) -> String {
+    async fn body_as_string(respons: axum::response::Response) -> String {
         let bytes = axum::body::to_bytes(respons.into_body(), 1024 * 1024)
             .await
             .expect("body moet leesbaar zijn");
@@ -144,9 +144,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn healthz_geeft_200_met_korte_body() {
+    async fn healthz_returns_200_with_a_short_body() {
         let root = tempfile::tempdir().expect("tempdir");
-        let respons = testrouter(&root)
+        let respons = test_router(&root)
             .oneshot(
                 Request::builder()
                     .uri("/healthz")
@@ -157,13 +157,13 @@ mod tests {
             .expect("respons");
 
         assert_eq!(respons.status(), StatusCode::OK);
-        assert_eq!(body_als_string(respons).await, "ok");
+        assert_eq!(body_as_string(respons).await, "ok");
     }
 
     #[tokio::test]
-    async fn startpagina_rendert_met_de_naam_sleeve() {
+    async fn index_renders_with_the_name_sleeve() {
         let root = tempfile::tempdir().expect("tempdir");
-        let respons = testrouter(&root)
+        let respons = test_router(&root)
             .oneshot(
                 Request::builder()
                     .uri("/")
@@ -175,7 +175,7 @@ mod tests {
 
         assert_eq!(respons.status(), StatusCode::OK);
 
-        let html = body_als_string(respons).await;
+        let html = body_as_string(respons).await;
         assert!(html.contains("Sleeve"), "pagina was: {html}");
         assert!(html.contains("<!DOCTYPE html>"), "pagina was: {html}");
         assert!(
@@ -185,9 +185,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn startpagina_laadt_uitsluitend_lokale_assets() {
+    async fn index_loads_only_local_assets() {
         let root = tempfile::tempdir().expect("tempdir");
-        let respons = testrouter(&root)
+        let respons = test_router(&root)
             .oneshot(
                 Request::builder()
                     .uri("/")
@@ -197,7 +197,7 @@ mod tests {
             .await
             .expect("respons");
 
-        let html = body_als_string(respons).await;
+        let html = body_as_string(respons).await;
 
         // Op de NAS is er geen internet; een externe stylesheet of script zou
         // daar pas opvallen als de pagina half leeg blijft.
@@ -212,9 +212,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn statische_bestanden_worden_geserveerd() {
+    async fn static_files_are_served() {
         let root = tempfile::tempdir().expect("tempdir");
-        let respons = testrouter(&root)
+        let respons = test_router(&root)
             .oneshot(
                 Request::builder()
                     .uri("/static/htmx.min.js")
@@ -225,13 +225,13 @@ mod tests {
             .expect("respons");
 
         assert_eq!(respons.status(), StatusCode::OK);
-        assert!(body_als_string(respons).await.contains("htmx"));
+        assert!(body_as_string(respons).await.contains("htmx"));
     }
 
     #[tokio::test]
-    async fn onbekend_pad_geeft_404() {
+    async fn unknown_path_returns_404() {
         let root = tempfile::tempdir().expect("tempdir");
-        let respons = testrouter(&root)
+        let respons = test_router(&root)
             .oneshot(
                 Request::builder()
                     .uri("/bestaat-niet")
@@ -245,9 +245,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn statisch_pad_kan_niet_buiten_de_map_kijken() {
+    async fn static_path_cannot_escape_the_directory() {
         let root = tempfile::tempdir().expect("tempdir");
-        let respons = testrouter(&root)
+        let respons = test_router(&root)
             .oneshot(
                 Request::builder()
                     .uri("/static/../Cargo.toml")

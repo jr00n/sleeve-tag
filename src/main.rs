@@ -44,24 +44,24 @@ async fn main() {
     // 0.0.0.0 omdat de app in een container draait en van buiten de
     // netwerknamespace bereikbaar moet zijn. Afscherming gebeurt op
     // netwerkniveau (LAN en Tailscale), zoals het PRD vastlegt.
-    let adres = SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port));
+    let address = SocketAddr::from((Ipv4Addr::UNSPECIFIED, config.port));
     let app = web::router(config, Path::new(STATIC_DIR));
 
-    let listener = match tokio::net::TcpListener::bind(adres).await {
+    let listener = match tokio::net::TcpListener::bind(address).await {
         Ok(listener) => listener,
-        Err(fout) => {
-            tracing::error!(%adres, %fout, "kan niet op het adres luisteren");
+        Err(error) => {
+            tracing::error!(%address, %error, "kan niet op het adres luisteren");
             std::process::exit(1);
         }
     };
 
-    tracing::info!(%adres, "webserver luistert");
+    tracing::info!(%address, "webserver luistert");
 
-    if let Err(fout) = axum::serve(listener, app)
-        .with_graceful_shutdown(afsluitsignaal())
+    if let Err(error) = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
         .await
     {
-        tracing::error!(%fout, "webserver is met een fout gestopt");
+        tracing::error!(%error, "webserver is met een fout gestopt");
         std::process::exit(1);
     }
 
@@ -73,7 +73,7 @@ async fn main() {
 /// `docker stop` stuurt SIGTERM. Netjes afsluiten betekent dat een lopend
 /// verzoek zijn werk afmaakt in plaats van halverwege afgekapt te worden — bij
 /// een app die tags naar bestanden schrijft is dat geen luxe.
-async fn afsluitsignaal() {
+async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await

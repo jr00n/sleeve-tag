@@ -17,15 +17,15 @@ use std::path::PathBuf;
 use clap::Parser;
 
 /// Standaardpoort waarop de webserver luistert.
-const STANDAARD_PORT: &str = "8080";
+const DEFAULT_PORT: &str = "8080";
 /// Standaard-UID op de UGREEN NAS.
-const STANDAARD_PUID: &str = "1000";
+const DEFAULT_PUID: &str = "1000";
 /// Standaard-GID op de UGREEN NAS.
-const STANDAARD_PGID: &str = "10";
+const DEFAULT_PGID: &str = "10";
 /// Standaard maximale resolutie voor embedded album art.
-const STANDAARD_MAX_ART_SIZE: &str = "1000x1000";
+const DEFAULT_MAX_ART_SIZE: &str = "1000x1000";
 /// Standaard logniveau.
-const STANDAARD_LOG_LEVEL: &str = "info";
+const DEFAULT_LOG_LEVEL: &str = "info";
 
 /// De volledige configuratie van een draaiende Sleeve-instantie.
 ///
@@ -44,23 +44,23 @@ pub struct Config {
     pub music_root: PathBuf,
 
     /// Poort waarop de webserver luistert.
-    #[arg(long, env = "PORT", default_value = STANDAARD_PORT, value_parser = parse_port)]
+    #[arg(long, env = "PORT", default_value = DEFAULT_PORT, value_parser = parse_port)]
     pub port: u16,
 
     /// UID waaronder bestanden worden weggeschreven.
-    #[arg(long, env = "PUID", default_value = STANDAARD_PUID, value_parser = parse_puid)]
+    #[arg(long, env = "PUID", default_value = DEFAULT_PUID, value_parser = parse_puid)]
     pub puid: u32,
 
     /// GID waaronder bestanden worden weggeschreven.
-    #[arg(long, env = "PGID", default_value = STANDAARD_PGID, value_parser = parse_pgid)]
+    #[arg(long, env = "PGID", default_value = DEFAULT_PGID, value_parser = parse_pgid)]
     pub pgid: u32,
 
     /// Maximale resolutie van embedded album art.
-    #[arg(long, env = "MAX_ART_SIZE", default_value = STANDAARD_MAX_ART_SIZE, value_parser = parse_max_art_size)]
+    #[arg(long, env = "MAX_ART_SIZE", default_value = DEFAULT_MAX_ART_SIZE, value_parser = parse_max_art_size)]
     pub max_art_size: MaxArtSize,
 
     /// Logniveau voor `tracing`.
-    #[arg(long, env = "LOG_LEVEL", default_value = STANDAARD_LOG_LEVEL, value_parser = parse_log_level)]
+    #[arg(long, env = "LOG_LEVEL", default_value = DEFAULT_LOG_LEVEL, value_parser = parse_log_level)]
     pub log_level: String,
 
     /// Plaatst bij elke schrijfactie een `.bak` naast het bestand.
@@ -118,24 +118,24 @@ impl fmt::Display for MaxArtSize {
 /// De canonicalisatie gebeurt hier zodat de padmodule later een betrouwbaar
 /// anker heeft om binnenkomende paden tegen af te zetten.
 fn parse_music_root(raw: &str) -> Result<PathBuf, String> {
-    let pad = PathBuf::from(raw);
+    let path = PathBuf::from(raw);
 
-    if !pad.exists() {
+    if !path.exists() {
         return Err(format!("MUSIC_ROOT: '{raw}' bestaat niet"));
     }
-    if !pad.is_dir() {
+    if !path.is_dir() {
         return Err(format!("MUSIC_ROOT: '{raw}' is geen map"));
     }
 
-    std::fs::canonicalize(&pad)
-        .map_err(|fout| format!("MUSIC_ROOT: '{raw}' is niet te openen ({fout})"))
+    std::fs::canonicalize(&path)
+        .map_err(|error| format!("MUSIC_ROOT: '{raw}' is niet te openen ({error})"))
 }
 
 /// Parseert een poortnummer; poort 0 is geen bruikbare luisterpoort.
 fn parse_port(raw: &str) -> Result<u16, String> {
     match raw.trim().parse::<u16>() {
         Ok(0) => Err("PORT: 0 is geen geldige poort".to_string()),
-        Ok(poort) => Ok(poort),
+        Ok(port) => Ok(port),
         Err(_) => Err(format!(
             "PORT: ongeldige waarde '{raw}'; verwacht een getal tussen 1 en 65535"
         )),
@@ -143,10 +143,10 @@ fn parse_port(raw: &str) -> Result<u16, String> {
 }
 
 /// Parseert een numerieke id voor `PUID` of `PGID`.
-fn parse_id(variabele: &str, raw: &str) -> Result<u32, String> {
+fn parse_id(variable: &str, raw: &str) -> Result<u32, String> {
     raw.trim()
         .parse::<u32>()
-        .map_err(|_| format!("{variabele}: ongeldige waarde '{raw}'; verwacht een getal"))
+        .map_err(|_| format!("{variable}: ongeldige waarde '{raw}'; verwacht een getal"))
 }
 
 fn parse_puid(raw: &str) -> Result<u32, String> {
@@ -165,10 +165,10 @@ fn parse_pgid(raw: &str) -> Result<u32, String> {
 fn parse_max_art_size(raw: &str) -> Result<MaxArtSize, String> {
     const UITLEG: &str = "verwacht 'N' of 'BxH', bijvoorbeeld 1000 of 1000x1000";
 
-    let waarde = raw.trim().to_ascii_lowercase();
-    let (breedte, hoogte) = match waarde.split_once('x') {
+    let value = raw.trim().to_ascii_lowercase();
+    let (breedte, hoogte) = match value.split_once('x') {
         Some((b, h)) => (b, h),
-        None => (waarde.as_str(), waarde.as_str()),
+        None => (value.as_str(), value.as_str()),
     };
 
     let breedte = breedte
@@ -195,11 +195,11 @@ fn parse_max_art_size(raw: &str) -> Result<MaxArtSize, String> {
 /// Een lege variabele is in compose-bestanden makkelijk gemaakt (`LOG_LEVEL=`)
 /// en mag de container niet laten weigeren te starten.
 fn parse_log_level(raw: &str) -> Result<String, String> {
-    let niveau = raw.trim();
-    if niveau.is_empty() {
-        return Ok(STANDAARD_LOG_LEVEL.to_string());
+    let level = raw.trim();
+    if level.is_empty() {
+        return Ok(DEFAULT_LOG_LEVEL.to_string());
     }
-    Ok(niveau.to_string())
+    Ok(level.to_string())
 }
 
 /// Parseert een booleaanse omgevingsvariabele in de gangbare schrijfwijzen.
@@ -221,84 +221,84 @@ mod tests {
     ///
     /// Tests raken nooit de echte bibliotheek; elke test die een root nodig
     /// heeft, krijgt hier een eigen wegwerpmap.
-    fn tijdelijke_root() -> tempfile::TempDir {
+    fn temporary_root() -> tempfile::TempDir {
         tempfile::tempdir().expect("tempdir moet aan te maken zijn")
     }
 
     #[test]
-    fn music_root_wordt_gecanonicaliseerd() {
-        let root = tijdelijke_root();
+    fn music_root_is_canonicalized() {
+        let root = temporary_root();
         let met_omweg = root.path().join("subdir").join("..");
         std::fs::create_dir(root.path().join("subdir")).expect("subdir moet aan te maken zijn");
 
-        let resultaat = parse_music_root(met_omweg.to_str().expect("pad moet UTF-8 zijn"))
+        let result = parse_music_root(met_omweg.to_str().expect("pad moet UTF-8 zijn"))
             .expect("bestaande map moet geaccepteerd worden");
 
-        assert!(!resultaat.to_string_lossy().contains(".."));
+        assert!(!result.to_string_lossy().contains(".."));
         assert_eq!(
-            resultaat,
+            result,
             std::fs::canonicalize(root.path()).expect("root moet te canonicaliseren zijn")
         );
     }
 
     #[test]
-    fn music_root_weigert_niet_bestaand_pad() {
-        let root = tijdelijke_root();
-        let ontbreekt = root.path().join("bestaat-niet");
+    fn music_root_rejects_a_missing_path() {
+        let root = temporary_root();
+        let missing = root.path().join("bestaat-niet");
 
-        let fout = parse_music_root(ontbreekt.to_str().expect("pad moet UTF-8 zijn"))
+        let error = parse_music_root(missing.to_str().expect("pad moet UTF-8 zijn"))
             .expect_err("een niet-bestaand pad moet geweigerd worden");
 
-        assert!(fout.contains("MUSIC_ROOT"), "melding was: {fout}");
-        assert!(fout.contains("bestaat niet"), "melding was: {fout}");
+        assert!(error.contains("MUSIC_ROOT"), "melding was: {error}");
+        assert!(error.contains("bestaat niet"), "melding was: {error}");
     }
 
     #[test]
-    fn music_root_weigert_bestand_in_plaats_van_map() {
-        let root = tijdelijke_root();
-        let bestand = root.path().join("track.mp3");
-        std::fs::write(&bestand, b"geen map").expect("bestand moet te schrijven zijn");
+    fn music_root_rejects_a_file_instead_of_a_directory() {
+        let root = temporary_root();
+        let file = root.path().join("track.mp3");
+        std::fs::write(&file, b"geen map").expect("bestand moet te schrijven zijn");
 
-        let fout = parse_music_root(bestand.to_str().expect("pad moet UTF-8 zijn"))
+        let error = parse_music_root(file.to_str().expect("pad moet UTF-8 zijn"))
             .expect_err("een bestand mag geen MUSIC_ROOT zijn");
 
-        assert!(fout.contains("MUSIC_ROOT"), "melding was: {fout}");
-        assert!(fout.contains("geen map"), "melding was: {fout}");
+        assert!(error.contains("MUSIC_ROOT"), "melding was: {error}");
+        assert!(error.contains("geen map"), "melding was: {error}");
     }
 
     #[test]
-    fn port_accepteert_geldige_waarde() {
+    fn port_accepts_a_valid_value() {
         assert_eq!(parse_port("8080"), Ok(8080));
         assert_eq!(parse_port(" 9000 "), Ok(9000));
     }
 
     #[test]
-    fn port_weigert_niet_numerieke_waarde() {
-        let fout = parse_port("abc").expect_err("tekst is geen poort");
-        assert!(fout.contains("PORT"), "melding was: {fout}");
-        assert!(fout.contains("abc"), "melding was: {fout}");
+    fn port_rejects_a_non_numeric_value() {
+        let error = parse_port("abc").expect_err("tekst is geen poort");
+        assert!(error.contains("PORT"), "melding was: {error}");
+        assert!(error.contains("abc"), "melding was: {error}");
     }
 
     #[test]
-    fn port_weigert_nul_en_te_grote_waarde() {
+    fn port_rejects_zero_and_out_of_range() {
         assert!(parse_port("0").is_err());
         assert!(parse_port("70000").is_err());
     }
 
     #[test]
-    fn ids_worden_geparseerd_met_hun_eigen_naam_in_de_fout() {
+    fn ids_name_their_own_variable_in_errors() {
         assert_eq!(parse_puid("1000"), Ok(1000));
         assert_eq!(parse_pgid("10"), Ok(10));
 
-        let fout = parse_puid("jeroen").expect_err("tekst is geen uid");
-        assert!(fout.contains("PUID"), "melding was: {fout}");
+        let error = parse_puid("jeroen").expect_err("tekst is geen uid");
+        assert!(error.contains("PUID"), "melding was: {error}");
 
-        let fout = parse_pgid("staff").expect_err("tekst is geen gid");
-        assert!(fout.contains("PGID"), "melding was: {fout}");
+        let error = parse_pgid("staff").expect_err("tekst is geen gid");
+        assert!(error.contains("PGID"), "melding was: {error}");
     }
 
     #[test]
-    fn max_art_size_accepteert_beide_schrijfwijzen() {
+    fn max_art_size_accepts_both_notations() {
         assert_eq!(
             parse_max_art_size("1000"),
             Ok(MaxArtSize {
@@ -323,29 +323,29 @@ mod tests {
     }
 
     #[test]
-    fn max_art_size_weigert_onzin_en_nul() {
-        let fout = parse_max_art_size("groot").expect_err("tekst is geen afmeting");
-        assert!(fout.contains("MAX_ART_SIZE"), "melding was: {fout}");
+    fn max_art_size_rejects_nonsense_and_zero() {
+        let error = parse_max_art_size("groot").expect_err("tekst is geen afmeting");
+        assert!(error.contains("MAX_ART_SIZE"), "melding was: {error}");
 
         assert!(parse_max_art_size("0x1000").is_err());
         assert!(parse_max_art_size("1000x").is_err());
     }
 
     #[test]
-    fn max_art_size_wordt_leesbaar_weergegeven() {
+    fn max_art_size_displays_readably() {
         let afmeting = parse_max_art_size("1000").expect("geldige waarde");
         assert_eq!(afmeting.to_string(), "1000x1000");
     }
 
     #[test]
-    fn log_level_valt_terug_op_info() {
+    fn log_level_falls_back_to_info() {
         assert_eq!(parse_log_level(""), Ok("info".to_string()));
         assert_eq!(parse_log_level("   "), Ok("info".to_string()));
         assert_eq!(parse_log_level("debug"), Ok("debug".to_string()));
     }
 
     #[test]
-    fn backup_on_write_accepteert_gangbare_schrijfwijzen() {
+    fn backup_on_write_accepts_common_notations() {
         for waar in ["true", "TRUE", "1", "yes", "on"] {
             assert_eq!(parse_backup_on_write(waar), Ok(true), "waarde: {waar}");
         }
@@ -355,9 +355,9 @@ mod tests {
     }
 
     #[test]
-    fn backup_on_write_weigert_onbekende_waarde() {
-        let fout = parse_backup_on_write("misschien").expect_err("onbekende waarde");
-        assert!(fout.contains("BACKUP_ON_WRITE"), "melding was: {fout}");
+    fn backup_on_write_rejects_unknown_values() {
+        let error = parse_backup_on_write("misschien").expect_err("onbekende waarde");
+        assert!(error.contains("BACKUP_ON_WRITE"), "melding was: {error}");
     }
 
     // De standaardwaarden en het ontbreken van MUSIC_ROOT worden bewust niet
@@ -366,14 +366,14 @@ mod tests {
     // tests/config_env.rs, die de binary met een lege omgeving start.
 
     #[test]
-    fn overrides_overschrijven_de_standaardwaarden() {
-        let root = tijdelijke_root();
-        let pad = root.path().to_str().expect("pad moet UTF-8 zijn");
+    fn overrides_replace_the_defaults() {
+        let root = temporary_root();
+        let path = root.path().to_str().expect("pad moet UTF-8 zijn");
 
         let config = Config::try_parse_from([
             "sleeve-tag",
             "--music-root",
-            pad,
+            path,
             "--port",
             "9000",
             "--puid",

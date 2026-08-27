@@ -12,15 +12,15 @@
 //! Binnen deze module wordt `std::fs::` altijd volledig gekwalificeerd
 //! geschreven, om verwarring met deze crate-eigen module te voorkomen.
 
-// De mapbrowser is de eerste die paden oplost; tot die taak worden `resolveer`
-// en `is_bewerkbaar` alleen door de tests aangeroepen. De functionaliteit hoort
+// De mapbrowser is de eerste die paden oplost; tot die taak worden `resolve`
+// en `is_editable` alleen door de tests aangeroepen. De functionaliteit hoort
 // hier al te staan, want elke latere handler leunt erop.
 #![allow(dead_code)]
 
 use std::path::{Component, Path, PathBuf};
 
 /// Extensies die de app als bewerkbaar beschouwt.
-const BEWERKBARE_EXTENSIES: &[&str] = &["mp3", "flac"];
+const EDITABLE_EXTENSIONS: &[&str] = &["mp3", "flac"];
 
 /// Wat er mis kan gaan bij het omzetten van een gebruikerspad.
 ///
@@ -28,31 +28,31 @@ const BEWERKBARE_EXTENSIES: &[&str] = &["mp3", "flac"];
 /// een absoluut pad van de NAS hoort daar niet te belanden. Voor diagnose logt
 /// de aanroeper het volledige pad erbij.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
-pub enum PadFout {
+pub enum PathError {
     #[error("dit pad valt buiten de muziekbibliotheek")]
-    BuitenBibliotheek,
+    OutsideLibrary,
 
     #[error("dit pad bestaat niet")]
-    NietGevonden,
+    NotFound,
 
     #[error("dit bestandstype wordt niet ondersteund")]
-    NietOndersteund,
+    Unsupported,
 }
 
 /// De muziekbibliotheek: alles onder de geconfigureerde `MUSIC_ROOT`.
 #[derive(Debug, Clone)]
-pub struct Bibliotheek {
+pub struct Library {
     root: PathBuf,
 }
 
-impl Bibliotheek {
+impl Library {
     /// Maakt een bibliotheek met `root` als grens.
     ///
     /// `root` moet al gecanonicaliseerd zijn; de configuratielaag doet dat bij
     /// het inlezen van `MUSIC_ROOT`. Is dat niet gebeurd, dan mislukt de
     /// vergelijking met het gecanonicaliseerde doelpad en wordt alles geweigerd
     /// — vervelend, maar de veilige kant.
-    pub fn nieuw(root: PathBuf) -> Self {
+    pub fn new(root: PathBuf) -> Self {
         Self { root }
     }
 
@@ -66,40 +66,40 @@ impl Bibliotheek {
     ///
     /// Een lege invoer (of `.`) levert de root zelf op, wat de mapbrowser als
     /// startpunt gebruikt.
-    pub fn resolveer(&self, relatief: &str) -> Result<PathBuf, PadFout> {
-        let veilig = self.controleer_componenten(relatief)?;
-        let kandidaat = self.root.join(veilig);
+    pub fn resolve(&self, relative: &str) -> Result<PathBuf, PathError> {
+        let safe = self.check_components(relative)?;
+        let candidate = self.root.join(safe);
 
         // canonicalize volgt symlinks en lost `.` op. Bestaat het pad niet, dan
         // is er niets te tonen; dat is een 404 en geen beveiligingsprobleem.
-        let absoluut = std::fs::canonicalize(&kandidaat).map_err(|_| PadFout::NietGevonden)?;
+        let absolute = std::fs::canonicalize(&candidate).map_err(|_| PathError::NotFound)?;
 
         // Pas ná het volgen van symlinks is te zien waar het pad écht uitkomt.
-        if !absoluut.starts_with(&self.root) {
-            return Err(PadFout::BuitenBibliotheek);
+        if !absolute.starts_with(&self.root) {
+            return Err(PathError::OutsideLibrary);
         }
 
-        Ok(absoluut)
+        Ok(absolute)
     }
 
-    /// Zoals [`Bibliotheek::resolveer`], maar eist dat het resultaat een
+    /// Zoals [`Library::resolve`], maar eist dat het resultaat een
     /// bewerkbaar audiobestand is.
-    pub fn resolveer_bewerkbaar_bestand(&self, relatief: &str) -> Result<PathBuf, PadFout> {
-        let absoluut = self.resolveer(relatief)?;
+    pub fn resolve_editable_file(&self, relative: &str) -> Result<PathBuf, PathError> {
+        let absolute = self.resolve(relative)?;
 
-        if !absoluut.is_file() || !is_bewerkbaar(&absoluut) {
-            return Err(PadFout::NietOndersteund);
+        if !absolute.is_file() || !is_editable(&absolute) {
+            return Err(PathError::Unsupported);
         }
 
-        Ok(absoluut)
+        Ok(absolute)
     }
 
     /// Het pad zoals de UI het mag tonen: relatief aan de root.
     ///
     /// Voorkomt dat het absolute pad van de NAS in de interface of in een URL
     /// belandt.
-    pub fn relatief_pad<'a>(&self, absoluut: &'a Path) -> Option<&'a Path> {
-        absoluut.strip_prefix(&self.root).ok()
+    pub fn relative_path<'a>(&self, absolute: &'a Path) -> Option<&'a Path> {
+        absolute.strip_prefix(&self.root).ok()
     }
 
     /// Weigert padcomponenten die buiten de bibliotheek kunnen wijzen.
@@ -108,23 +108,23 @@ impl Bibliotheek {
     /// De controle ná canonicalisatie vangt hetzelfde af, maar twee sloten op
     /// dezelfde deur is hier op zijn plaats: dit is de enige barrière tussen een
     /// URL en de bestanden van de gebruiker.
-    fn controleer_componenten(&self, relatief: &str) -> Result<PathBuf, PadFout> {
-        let mut schoon = PathBuf::new();
+    fn check_components(&self, relative: &str) -> Result<PathBuf, PathError> {
+        let mut clean = PathBuf::new();
 
-        for component in Path::new(relatief).components() {
+        for component in Path::new(relative).components() {
             match component {
-                Component::Normal(deel) => schoon.push(deel),
+                Component::Normal(part) => clean.push(part),
                 // `.` mag; het verandert niets aan waar het pad uitkomt.
                 Component::CurDir => {}
                 // `..`, een leidende `/` of een Windows-prefix wijzen allemaal
                 // weg van de root.
                 Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                    return Err(PadFout::BuitenBibliotheek);
+                    return Err(PathError::OutsideLibrary);
                 }
             }
         }
 
-        Ok(schoon)
+        Ok(clean)
     }
 }
 
@@ -134,23 +134,23 @@ impl Bibliotheek {
 /// oordeel. Alleen op de extensie afgaan zou betekenen dat de app een willekeurig
 /// bestand met de naam `track.mp3` als bewerkbaar presenteert — en er straks
 /// tags in probeert te schrijven.
-pub fn is_bewerkbaar(pad: &Path) -> bool {
-    if !heeft_bewerkbare_extensie(pad) {
+pub fn is_editable(path: &Path) -> bool {
+    if !has_editable_extension(path) {
         return false;
     }
 
-    crate::tags::herkent_formaat(pad)
+    crate::tags::is_supported_format(path)
 }
 
 /// Controleert alleen de extensie, hoofdletterongevoelig.
 ///
-/// Apart van [`is_bewerkbaar`], omdat een maplijst hiermee eerst goedkoop kan
+/// Apart van [`is_editable`], omdat een maplijst hiermee eerst goedkoop kan
 /// filteren voordat er bestanden geopend worden.
-pub fn heeft_bewerkbare_extensie(pad: &Path) -> bool {
-    pad.extension()
+pub fn has_editable_extension(path: &Path) -> bool {
+    path.extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())
-        .is_some_and(|ext| BEWERKBARE_EXTENSIES.contains(&ext.as_str()))
+        .is_some_and(|ext| EDITABLE_EXTENSIONS.contains(&ext.as_str()))
 }
 
 #[cfg(test)]
@@ -163,53 +163,53 @@ mod tests {
     ///
     /// De root wordt gecanonicaliseerd omdat macOS `/var` naar `/private/var`
     /// laat wijzen; zonder die stap zou elke vergelijking mislukken.
-    fn bibliotheek_met_album() -> (tempfile::TempDir, Bibliotheek) {
+    fn library_with_album() -> (tempfile::TempDir, Library) {
         let tempdir = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
         let album = tempdir.path().join("Artiest").join("Album");
         std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
 
-        testfixtures::kopieer_naar(&album, testfixtures::MP3_MET_TAGS);
-        testfixtures::kopieer_naar(&album, testfixtures::FLAC_MET_TAGS);
+        testfixtures::copy_to(&album, testfixtures::MP3_WITH_TAGS);
+        testfixtures::copy_to(&album, testfixtures::FLAC_WITH_TAGS);
 
         let root =
             std::fs::canonicalize(tempdir.path()).expect("root moet te canonicaliseren zijn");
-        (tempdir, Bibliotheek::nieuw(root))
+        (tempdir, Library::new(root))
     }
 
     #[test]
-    fn resolveert_een_bestaand_bestand() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn resolves_an_existing_file() {
+        let (_tempdir, library) = library_with_album();
 
-        let pad = bibliotheek
-            .resolveer("Artiest/Album/tagged.mp3")
+        let path = library
+            .resolve("Artiest/Album/tagged.mp3")
             .expect("een bestaand bestand moet oplosbaar zijn");
 
-        assert!(pad.is_file());
-        assert!(pad.starts_with(bibliotheek.root()));
+        assert!(path.is_file());
+        assert!(path.starts_with(library.root()));
     }
 
     #[test]
-    fn resolveert_een_map_en_de_root_zelf() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn resolves_a_directory_and_the_root_itself() {
+        let (_tempdir, library) = library_with_album();
 
-        let map = bibliotheek
-            .resolveer("Artiest/Album")
+        let directory = library
+            .resolve("Artiest/Album")
             .expect("een bestaande map moet oplosbaar zijn");
-        assert!(map.is_dir());
+        assert!(directory.is_dir());
 
-        for invoer in ["", ".", "./"] {
-            let root = bibliotheek
-                .resolveer(invoer)
-                .unwrap_or_else(|fout| panic!("'{invoer}' moet de root opleveren, kreeg {fout}"));
-            assert_eq!(root, bibliotheek.root());
+        for input in ["", ".", "./"] {
+            let root = library
+                .resolve(input)
+                .unwrap_or_else(|error| panic!("'{input}' moet de root opleveren, kreeg {error}"));
+            assert_eq!(root, library.root());
         }
     }
 
     #[test]
-    fn weigert_traversal_met_dubbele_punt() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn rejects_traversal_with_dotdot() {
+        let (_tempdir, library) = library_with_album();
 
-        for poging in [
+        for attempt in [
             "..",
             "../",
             "../../etc/passwd",
@@ -217,151 +217,151 @@ mod tests {
             "Artiest/Album/../../../etc/hosts",
         ] {
             assert_eq!(
-                bibliotheek.resolveer(poging),
-                Err(PadFout::BuitenBibliotheek),
-                "'{poging}' had geweigerd moeten worden"
+                library.resolve(attempt),
+                Err(PathError::OutsideLibrary),
+                "'{attempt}' had geweigerd moeten worden"
             );
         }
     }
 
     #[test]
-    fn weigert_een_absoluut_pad() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn rejects_an_absolute_path() {
+        let (_tempdir, library) = library_with_album();
 
-        for poging in ["/etc/passwd", "/", "/Users"] {
+        for attempt in ["/etc/passwd", "/", "/Users"] {
             assert_eq!(
-                bibliotheek.resolveer(poging),
-                Err(PadFout::BuitenBibliotheek),
-                "'{poging}' had geweigerd moeten worden"
+                library.resolve(attempt),
+                Err(PathError::OutsideLibrary),
+                "'{attempt}' had geweigerd moeten worden"
             );
         }
     }
 
     #[test]
-    fn staat_een_symlink_binnen_de_bibliotheek_toe() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn allows_a_symlink_inside_the_library() {
+        let (_tempdir, library) = library_with_album();
 
         // Een gebruiker mag best met symlinks werken binnen zijn eigen
         // bibliotheek; alleen naar buiten wijzen is verboden.
-        let doel = bibliotheek.root().join("Artiest").join("Album");
-        let link = bibliotheek.root().join("Snelkoppeling");
-        std::os::unix::fs::symlink(&doel, &link).expect("symlink moet aan te maken zijn");
+        let target = library.root().join("Artiest").join("Album");
+        let link = library.root().join("Snelkoppeling");
+        std::os::unix::fs::symlink(&target, &link).expect("symlink moet aan te maken zijn");
 
-        let pad = bibliotheek
-            .resolveer("Snelkoppeling/tagged.mp3")
+        let path = library
+            .resolve("Snelkoppeling/tagged.mp3")
             .expect("een symlink binnen de bibliotheek moet werken");
 
-        assert!(pad.is_file());
-        assert!(pad.starts_with(bibliotheek.root()));
+        assert!(path.is_file());
+        assert!(path.starts_with(library.root()));
     }
 
     #[test]
-    fn weigert_een_symlink_die_de_bibliotheek_uit_wijst() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn rejects_a_symlink_pointing_outside() {
+        let (_tempdir, library) = library_with_album();
 
-        let buiten = tempfile::tempdir().expect("tweede tempdir moet aan te maken zijn");
-        let geheim = buiten.path().join("geheim.txt");
-        std::fs::write(&geheim, b"niet voor de app").expect("bestand moet te schrijven zijn");
+        let outside = tempfile::tempdir().expect("tweede tempdir moet aan te maken zijn");
+        let secret = outside.path().join("geheim.txt");
+        std::fs::write(&secret, b"niet voor de app").expect("bestand moet te schrijven zijn");
 
-        let link = bibliotheek.root().join("ontsnapping");
-        std::os::unix::fs::symlink(buiten.path(), &link).expect("symlink moet aan te maken zijn");
+        let link = library.root().join("ontsnapping");
+        std::os::unix::fs::symlink(outside.path(), &link).expect("symlink moet aan te maken zijn");
 
         // De componentcontrole laat dit door — er staat geen `..` in — dus dit
         // geval wordt uitsluitend gevangen doordat canonicalize de symlink volgt.
         assert_eq!(
-            bibliotheek.resolveer("ontsnapping/geheim.txt"),
-            Err(PadFout::BuitenBibliotheek)
+            library.resolve("ontsnapping/geheim.txt"),
+            Err(PathError::OutsideLibrary)
         );
     }
 
     #[test]
-    fn geeft_niet_gevonden_voor_een_onbestaand_pad() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn reports_not_found_for_a_missing_path() {
+        let (_tempdir, library) = library_with_album();
 
         assert_eq!(
-            bibliotheek.resolveer("Artiest/Album/bestaat-niet.mp3"),
-            Err(PadFout::NietGevonden)
+            library.resolve("Artiest/Album/bestaat-niet.mp3"),
+            Err(PathError::NotFound)
         );
     }
 
     #[test]
-    fn bewerkbaar_bestand_moet_juiste_extensie_en_formaat_hebben() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn editable_file_requires_extension_and_format() {
+        let (_tempdir, library) = library_with_album();
 
         assert!(
-            bibliotheek
-                .resolveer_bewerkbaar_bestand("Artiest/Album/tagged.mp3")
+            library
+                .resolve_editable_file("Artiest/Album/tagged.mp3")
                 .is_ok()
         );
         assert!(
-            bibliotheek
-                .resolveer_bewerkbaar_bestand("Artiest/Album/tagged.flac")
+            library
+                .resolve_editable_file("Artiest/Album/tagged.flac")
                 .is_ok()
         );
 
         // Verkeerde extensie.
-        let tekst = bibliotheek.root().join("Artiest").join("notities.txt");
-        std::fs::write(&tekst, b"geen audio").expect("bestand moet te schrijven zijn");
+        let text = library.root().join("Artiest").join("notities.txt");
+        std::fs::write(&text, b"geen audio").expect("bestand moet te schrijven zijn");
         assert_eq!(
-            bibliotheek.resolveer_bewerkbaar_bestand("Artiest/notities.txt"),
-            Err(PadFout::NietOndersteund)
+            library.resolve_editable_file("Artiest/notities.txt"),
+            Err(PathError::Unsupported)
         );
 
         // Juiste extensie, verkeerde inhoud: een JPEG die zich voordoet als MP3.
-        let nep = bibliotheek.root().join("Artiest").join("nep.mp3");
-        std::fs::copy(testfixtures::fixture_pad(testfixtures::COVER_JPEG), &nep)
+        let fake = library.root().join("Artiest").join("fake.mp3");
+        std::fs::copy(testfixtures::fixture_path(testfixtures::COVER_JPEG), &fake)
             .expect("kopie moet lukken");
         assert_eq!(
-            bibliotheek.resolveer_bewerkbaar_bestand("Artiest/nep.mp3"),
-            Err(PadFout::NietOndersteund)
+            library.resolve_editable_file("Artiest/fake.mp3"),
+            Err(PathError::Unsupported)
         );
 
         // Een map is geen bewerkbaar bestand.
         assert_eq!(
-            bibliotheek.resolveer_bewerkbaar_bestand("Artiest/Album"),
-            Err(PadFout::NietOndersteund)
+            library.resolve_editable_file("Artiest/Album"),
+            Err(PathError::Unsupported)
         );
     }
 
     #[test]
-    fn extensiecontrole_is_hoofdletterongevoelig() {
-        assert!(heeft_bewerkbare_extensie(Path::new("track.mp3")));
-        assert!(heeft_bewerkbare_extensie(Path::new("track.MP3")));
-        assert!(heeft_bewerkbare_extensie(Path::new("track.Flac")));
+    fn extension_check_is_case_insensitive() {
+        assert!(has_editable_extension(Path::new("track.mp3")));
+        assert!(has_editable_extension(Path::new("track.MP3")));
+        assert!(has_editable_extension(Path::new("track.Flac")));
 
-        assert!(!heeft_bewerkbare_extensie(Path::new("track.m4a")));
-        assert!(!heeft_bewerkbare_extensie(Path::new("cover.jpg")));
-        assert!(!heeft_bewerkbare_extensie(Path::new("zonder-extensie")));
+        assert!(!has_editable_extension(Path::new("track.m4a")));
+        assert!(!has_editable_extension(Path::new("cover.jpg")));
+        assert!(!has_editable_extension(Path::new("zonder-extensie")));
     }
 
     #[test]
-    fn relatief_pad_verbergt_de_root() {
-        let (_tempdir, bibliotheek) = bibliotheek_met_album();
+    fn relative_path_hides_the_root() {
+        let (_tempdir, library) = library_with_album();
 
-        let absoluut = bibliotheek
-            .resolveer("Artiest/Album/tagged.mp3")
+        let absolute = library
+            .resolve("Artiest/Album/tagged.mp3")
             .expect("bestand moet oplosbaar zijn");
 
         assert_eq!(
-            bibliotheek.relatief_pad(&absoluut),
+            library.relative_path(&absolute),
             Some(Path::new("Artiest/Album/tagged.mp3"))
         );
-        assert_eq!(bibliotheek.relatief_pad(Path::new("/etc/passwd")), None);
+        assert_eq!(library.relative_path(Path::new("/etc/passwd")), None);
     }
 
     #[test]
-    fn foutmeldingen_lekken_geen_paden() {
+    fn error_messages_do_not_leak_paths() {
         // Deze melding gaat naar de browser. Een absoluut pad van de NAS zou
         // daar informatie prijsgeven over de mapstructuur van de gebruiker.
-        for fout in [
-            PadFout::BuitenBibliotheek,
-            PadFout::NietGevonden,
-            PadFout::NietOndersteund,
+        for error in [
+            PathError::OutsideLibrary,
+            PathError::NotFound,
+            PathError::Unsupported,
         ] {
-            let melding = fout.to_string();
+            let message = error.to_string();
             assert!(
-                !melding.contains('/'),
-                "melding bevat een pad-achtige tekst: {melding}"
+                !message.contains('/'),
+                "melding bevat een pad-achtige tekst: {message}"
             );
         }
     }

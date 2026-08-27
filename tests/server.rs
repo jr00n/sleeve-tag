@@ -11,51 +11,51 @@ mod common;
 use common::Server;
 
 #[test]
-fn healthz_geeft_200_op_de_geconfigureerde_poort() {
+fn healthz_returns_200_on_the_configured_port() {
     let server = Server::start(&[]);
-    let antwoord = server.get("/healthz");
+    let response = server.get("/healthz");
 
     assert!(
-        antwoord.starts_with("HTTP/1.1 200 OK"),
-        "antwoord was: {antwoord}"
+        response.starts_with("HTTP/1.1 200 OK"),
+        "antwoord was: {response}"
     );
-    assert!(antwoord.ends_with("ok"), "antwoord was: {antwoord}");
+    assert!(response.ends_with("ok"), "antwoord was: {response}");
 }
 
 #[test]
-fn startpagina_rendert_over_http() {
+fn index_renders_over_http() {
     let server = Server::start(&[]);
-    let antwoord = server.get("/");
+    let response = server.get("/");
 
     assert!(
-        antwoord.starts_with("HTTP/1.1 200 OK"),
-        "antwoord was: {antwoord}"
+        response.starts_with("HTTP/1.1 200 OK"),
+        "antwoord was: {response}"
     );
-    assert!(antwoord.contains("Sleeve"), "antwoord was: {antwoord}");
+    assert!(response.contains("Sleeve"), "antwoord was: {response}");
     assert!(
-        antwoord.contains("/static/htmx.min.js"),
-        "antwoord was: {antwoord}"
+        response.contains("/static/htmx.min.js"),
+        "antwoord was: {response}"
     );
 }
 
 #[test]
-fn htmx_wordt_lokaal_geserveerd() {
+fn htmx_is_served_locally() {
     let server = Server::start(&[]);
-    let antwoord = server.get("/static/htmx.min.js");
+    let response = server.get("/static/htmx.min.js");
 
     assert!(
-        antwoord.starts_with("HTTP/1.1 200 OK"),
+        response.starts_with("HTTP/1.1 200 OK"),
         "antwoord begon met: {}",
-        antwoord.lines().next().unwrap_or_default()
+        response.lines().next().unwrap_or_default()
     );
-    assert!(antwoord.contains("htmx"), "htmx-bestand lijkt leeg");
+    assert!(response.contains("htmx"), "htmx-bestand lijkt leeg");
 }
 
 #[test]
-fn verzoeken_worden_gelogd() {
+fn requests_are_logged() {
     let server = Server::start(&[("LOG_LEVEL", "debug")]);
     let _ = server.get("/healthz");
 
-    let log = server.wacht_op_log("/healthz");
+    let log = server.wait_for_log("/healthz");
     assert!(log.contains("/healthz"), "log was: {log}");
 }

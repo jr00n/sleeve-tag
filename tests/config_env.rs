@@ -8,14 +8,14 @@
 
 mod common;
 
-use common::{Server, start_en_verwacht_afsluiten};
+use common::{Server, start_and_expect_exit};
 
 #[test]
-fn start_met_alleen_music_root_en_logt_de_standaardwaarden() {
+fn starts_with_only_music_root_and_logs_defaults() {
     // De poort wordt door de testhelper gezet omdat tests parallel draaien; de
     // overige waarden komen uit de standaardwaarden van de applicatie.
     let server = Server::start(&[]);
-    let log = server.wacht_op_log("Configuratie geladen");
+    let log = server.wait_for_log("Configuratie geladen");
 
     assert!(log.contains("puid=1000"), "log was: {log}");
     assert!(log.contains("pgid=10"), "log was: {log}");
@@ -25,7 +25,7 @@ fn start_met_alleen_music_root_en_logt_de_standaardwaarden() {
 }
 
 #[test]
-fn logt_de_opgegeven_waarden_in_plaats_van_de_standaardwaarden() {
+fn logs_given_values_instead_of_defaults() {
     let server = Server::start(&[
         ("PUID", "1001"),
         ("PGID", "20"),
@@ -33,7 +33,7 @@ fn logt_de_opgegeven_waarden_in_plaats_van_de_standaardwaarden() {
         ("LOG_LEVEL", "debug"),
         ("BACKUP_ON_WRITE", "true"),
     ]);
-    let log = server.wacht_op_log("Configuratie geladen");
+    let log = server.wait_for_log("Configuratie geladen");
 
     assert!(log.contains("puid=1001"), "log was: {log}");
     assert!(log.contains("pgid=20"), "log was: {log}");
@@ -42,67 +42,65 @@ fn logt_de_opgegeven_waarden_in_plaats_van_de_standaardwaarden() {
 }
 
 #[test]
-fn lege_log_level_valt_terug_op_info() {
+fn empty_log_level_falls_back_to_info() {
     let server = Server::start(&[("LOG_LEVEL", "")]);
-    let log = server.wacht_op_log("Configuratie geladen");
+    let log = server.wait_for_log("Configuratie geladen");
 
     assert!(log.contains("log_level=info"), "log was: {log}");
 }
 
 #[test]
-fn weigert_te_starten_zonder_music_root() {
-    let resultaat = start_en_verwacht_afsluiten(&[]);
+fn refuses_to_start_without_music_root() {
+    let result = start_and_expect_exit(&[]);
 
     assert!(
-        !resultaat.status.success(),
+        !result.status.success(),
         "zonder MUSIC_ROOT mag de app niet starten"
     );
 
-    let melding = String::from_utf8_lossy(&resultaat.stderr);
-    assert!(melding.contains("MUSIC_ROOT"), "melding was: {melding}");
+    let message = String::from_utf8_lossy(&result.stderr);
+    assert!(message.contains("MUSIC_ROOT"), "melding was: {message}");
 }
 
 #[test]
-fn weigert_te_starten_met_niet_bestaande_music_root() {
+fn refuses_to_start_with_a_missing_music_root() {
     let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
-    let ontbreekt = root.path().join("bestaat-niet");
-    let resultaat = start_en_verwacht_afsluiten(&[(
-        "MUSIC_ROOT",
-        ontbreekt.to_str().expect("pad moet UTF-8 zijn"),
-    )]);
+    let missing = root.path().join("bestaat-niet");
+    let result =
+        start_and_expect_exit(&[("MUSIC_ROOT", missing.to_str().expect("pad moet UTF-8 zijn"))]);
 
     assert!(
-        !resultaat.status.success(),
+        !result.status.success(),
         "een niet-bestaande MUSIC_ROOT mag de app niet laten starten"
     );
 
-    let melding = String::from_utf8_lossy(&resultaat.stderr);
-    assert!(melding.contains("MUSIC_ROOT"), "melding was: {melding}");
-    assert!(melding.contains("bestaat niet"), "melding was: {melding}");
+    let message = String::from_utf8_lossy(&result.stderr);
+    assert!(message.contains("MUSIC_ROOT"), "melding was: {message}");
+    assert!(message.contains("bestaat niet"), "melding was: {message}");
 }
 
 #[test]
-fn noemt_de_variabelenaam_bij_een_ongeldige_waarde() {
+fn names_the_variable_on_an_invalid_value() {
     let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
-    let pad = root.path().to_str().expect("pad moet UTF-8 zijn");
+    let path = root.path().to_str().expect("pad moet UTF-8 zijn");
 
-    for (variabele, waarde) in [
+    for (variable, value) in [
         ("PORT", "geen-getal"),
         ("MAX_ART_SIZE", "groot"),
         ("BACKUP_ON_WRITE", "misschien"),
         ("PUID", "jeroen"),
     ] {
-        let resultaat = start_en_verwacht_afsluiten(&[("MUSIC_ROOT", pad), (variabele, waarde)]);
+        let result = start_and_expect_exit(&[("MUSIC_ROOT", path), (variable, value)]);
 
         assert!(
-            !resultaat.status.success(),
-            "een ongeldige {variabele} moet de start blokkeren"
+            !result.status.success(),
+            "een ongeldige {variable} moet de start blokkeren"
         );
 
-        let melding = String::from_utf8_lossy(&resultaat.stderr);
+        let message = String::from_utf8_lossy(&result.stderr);
         assert!(
-            melding.contains(variabele),
-            "melding noemt {variabele} niet: {melding}"
+            message.contains(variable),
+            "melding noemt {variable} niet: {message}"
         );
     }
 }
