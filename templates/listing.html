@@ -3,6 +3,19 @@
    Wordt zowel binnen `directory.html` gerenderd als los teruggegeven aan HTMX;
    daarom staat er geen omhullende container in — die hoort bij de pagina. #}
 
+{# Wat er tussen de bestanden van deze map onderling niet klopt (FR-4). Puur
+   informatief: Sleeve past nooit ongevraagd iets aan. #}
+{% if !listing.folder_issues.is_empty() %}
+<aside class="signalering" role="note">
+  <h2 class="signalering__kop">Let op in deze map</h2>
+  <ul class="signalering__lijst">
+    {% for issue in listing.folder_issues %}
+    <li>{{ issue.describe() }}</li>
+    {% endfor %}
+  </ul>
+</aside>
+{% endif %}
+
 {% if !listing.folders.is_empty() %}
 <ul class="mappen">
   {% for folder in listing.folders %}
@@ -43,6 +56,15 @@
         <span class="track__album">{{ track.album_label() }}</span>
       </span>
       <span class="track__bestand">{{ track.name }}</span>
+      {% if !track.issues.is_empty() %}
+      {# Zichtbare labels en niet alleen een tooltip: op een telefoon is er
+         geen hover, en dan zou er niets te zien zijn. #}
+      <span class="track__signalen">
+        {% for issue in track.issues %}
+        <span class="signaal">{{ issue.label() }}</span>
+        {% endfor %}
+      </span>
+      {% endif %}
     </span>
 
     <span class="track__rechts">

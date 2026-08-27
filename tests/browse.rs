@@ -228,6 +228,123 @@ fn navigating_above_the_root_is_refused() {
 }
 
 #[test]
+fn the_listing_points_out_what_is_wrong() {
+    // De signalering uit FR-4. De afwijkende-waarden-kant (twee albumtitels in
+    // één map) is met de ingecheckte fixtures niet te maken — daarvoor moeten
+    // er tags geschreven worden — en wordt in `checks::tests` gedekt. Hier
+    // gaat het om wat er werkelijk op de pagina belandt.
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Rommelig album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    // Beide getagde fixtures hebben tracknummer 3: een dubbel nummer.
+    place_fixture(&album, "een.mp3", "tagged.mp3");
+    place_fixture(&album, "twee.flac", "tagged.flac");
+    // En één bestand zonder enige tag.
+    place_fixture(&album, "drie.mp3", "untagged.mp3");
+
+    let server = Server::start_in(root, &[]);
+    let html = body(&server.get("/map/Rommelig%20album"));
+
+    // Op mapniveau (AC #2, #3).
+    assert!(
+        html.contains("Let op in deze map"),
+        "de mapmeldingen ontbreken:\n{html}"
+    );
+    for expected in [
+        "tracknummer 3 komt meer dan eens voor",
+        "1 bestand heeft geen tracknummer",
+    ] {
+        assert!(
+            html.contains(expected),
+            "'{expected}' ontbreekt op de pagina:\n{html}"
+        );
+    }
+
+    // Per bestand (AC #1, #4): zichtbare tekst, geen tooltip-alleen.
+    for expected in [
+        "geen titel",
+        "geen artiest",
+        "geen album",
+        "geen hoes",
+        "geen tracknummer",
+        "dubbel tracknummer",
+    ] {
+        assert!(
+            html.contains(expected),
+            "'{expected}' ontbreekt op de pagina:\n{html}"
+        );
+    }
+}
+
+#[test]
+fn a_tidy_directory_shows_no_warnings() {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Net album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+    place_fixture(&album, "enige.mp3", "tagged-with-art.mp3");
+
+    let server = Server::start_in(root, &[]);
+    let html = body(&server.get("/map/Net%20album"));
+
+    assert!(
+        !html.contains("Let op in deze map"),
+        "een nette map hoort geen waarschuwing te krijgen:\n{html}"
+    );
+    assert!(
+        !html.contains("signaal"),
+        "een compleet getagd bestand hoort geen label te krijgen:\n{html}"
+    );
+}
+
+#[test]
+fn marking_leaves_the_files_untouched() {
+    // AC #5: de signalering is puur informatief. Na het bekijken van een map
+    // met van alles mis moeten de bestanden byte voor byte gelijk zijn.
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Rommelig album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "een.mp3", "tagged.mp3");
+    place_fixture(&album, "twee.flac", "tagged.flac");
+    place_fixture(&album, "drie.mp3", "untagged.mp3");
+
+    let before = fingerprint(&album);
+
+    let server = Server::start_in(root, &[]);
+    let _ = server.get("/map/Rommelig%20album");
+    let _ = server.get("/map/Rommelig%20album?q=een");
+
+    assert_eq!(
+        fingerprint(&album),
+        before,
+        "de bestanden zijn veranderd door ze te bekijken"
+    );
+}
+
+/// De naam, grootte en volledige inhoud van elk bestand in een map.
+fn fingerprint(directory: &std::path::Path) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = std::fs::read_dir(directory)
+        .expect("map moet leesbaar zijn")
+        .map(|entry| {
+            let path = entry.expect("map-entry moet leesbaar zijn").path();
+            let name = path
+                .file_name()
+                .expect("bestandsnaam")
+                .to_string_lossy()
+                .into_owned();
+            (
+                name,
+                std::fs::read(&path).expect("bestand moet leesbaar zijn"),
+            )
+        })
+        .collect();
+
+    files.sort();
+    files
+}
+
+#[test]
 fn a_directory_with_thirty_tracks_renders_quickly() {
     // PRD §8.5 eist < 1 s voor dertig tracks. De maatgevende meting gebeurt op
     // de NAS (task-27); deze test bewaakt dat er per bestand niet meer werk

@@ -163,6 +163,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `fs` | Padvalidatie en containment binnen `MUSIC_ROOT`; de enige plek die een gebruikerspad naar een filesystem-pad vertaalt |
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
 | `art` | Album art decoderen, verkleinen en encoderen (de enige plek die pixels aanraakt) |
+| `checks` | Signalering van ontbrekende en onderling afwijkende tags; leest en schrijft niets |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `web` | Axum-router, handlers en askama-templates |
 
@@ -212,6 +213,26 @@ placeholder en doen geen verzoek dat toch niets zou opleveren.
 
 De antwoorden dragen `Cache-Control: no-cache`: na een latere schrijfactie mag
 de browser geen oude hoes blijven tonen.
+
+### Signalering van tagproblemen
+
+De lijst wijst zelf aan waar iets mis is, zodat je niet elk bestand hoeft te
+openen om dat te ontdekken. Dit is **puur informatief**: Sleeve past nooit
+ongevraagd iets aan.
+
+Per bestand verschijnt een label bij een ontbrekende titel, artiest, album of
+hoes, en bij een ontbrekend of dubbel tracknummer. Boven de lijst staat wat er
+tussen de bestanden onderling niet klopt: meer dan één albumtitel, albumartiest
+of jaartal in dezelfde map, hoeveel bestanden geen tracknummer hebben, en welke
+tracknummers meer dan eens voorkomen.
+
+Een ontbrekende waarde geldt niet als tegenstrijdigheid — dat is een gebrek van
+dat ene bestand. Zonder dat onderscheid zou elke map met één ongetagd bestand
+als inconsistent gelden.
+
+De labels zijn zichtbare tekst en geen tooltip: op een telefoon is er geen
+hover. De beoordeling loopt over de héle map, ook wanneer er gefilterd wordt —
+aan de map verandert niets doordat je zoekt.
 
 ## Frontend zonder build-stap
 

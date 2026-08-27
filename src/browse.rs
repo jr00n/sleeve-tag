@@ -14,8 +14,9 @@ use std::time::Duration;
 
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 
+use crate::checks::{self, FolderIssue, TrackIssue};
 use crate::fs::{DirEntry, Library, PathError};
-use crate::tags;
+use crate::tags::{self, Tags};
 
 /// Naam van de bibliotheekwortel in het broodkruimelpad.
 ///
@@ -75,10 +76,15 @@ pub struct TrackSummary {
     /// Pad relatief aan `MUSIC_ROOT`; het handvat voor latere bewerkacties.
     pub path: String,
 
-    pub track: Option<u32>,
-    pub title: Option<String>,
-    pub artist: Option<String>,
-    pub album: Option<String>,
+    /// Het volledige genormaliseerde tagmodel van dit bestand.
+    ///
+    /// De lijst toont er maar een handvol velden van, maar de signalering
+    /// kijkt ook naar albumartiest en jaar, en het bewerkformulier heeft
+    /// straks alles nodig.
+    pub tags: Tags,
+
+    /// Wat er aan dit bestand mankeert; leeg wanneer er niets te melden is.
+    pub issues: Vec<TrackIssue>,
 
     /// Speelduur als `m:ss`, of `u:mm:ss` vanaf een uur.
     pub duration: String,
@@ -102,7 +108,8 @@ impl TrackSummary {
     /// Bewust leeg en niet `—`: in een smalle kolom vóór de titel is een streepje
     /// per regel meer ruis dan informatie.
     pub fn track_label(&self) -> String {
-        self.track
+        self.tags
+            .track
             .map(|number| number.to_string())
             .unwrap_or_default()
     }
@@ -112,15 +119,15 @@ impl TrackSummary {
     /// De bestandsnaam invullen zou vriendelijk lijken, maar verbergt precies
     /// wat de gebruiker moet zien: hier staat geen titel in het bestand.
     pub fn title_label(&self) -> &str {
-        self.title.as_deref().unwrap_or(MISSING)
+        self.tags.title.as_deref().unwrap_or(MISSING)
     }
 
     pub fn artist_label(&self) -> &str {
-        self.artist.as_deref().unwrap_or(MISSING)
+        self.tags.artist.as_deref().unwrap_or(MISSING)
     }
 
     pub fn album_label(&self) -> &str {
-        self.album.as_deref().unwrap_or(MISSING)
+        self.tags.album.as_deref().unwrap_or(MISSING)
     }
 }
 
@@ -142,6 +149,12 @@ pub struct Listing {
 
     pub folders: Vec<Folder>,
     pub tracks: Vec<TrackSummary>,
+
+    /// Wat er tussen de bestanden van deze map onderling niet klopt.
+    ///
+    /// Wordt over de héle map bepaald, ook wanneer er gefilterd wordt: aan de
+    /// map verandert niets doordat de gebruiker zoekt.
+    pub folder_issues: Vec<FolderIssue>,
 
     /// De zoekterm zoals de gebruiker hem heeft ingevuld.
     pub query: String,
@@ -175,16 +188,22 @@ pub fn listing(library: &Library, relative: &str, query: &str) -> Result<Listing
         })
         .collect();
 
+    // Eerst de hele map inlezen en beoordelen, dan pas filteren: een melding
+    // als "twee verschillende albumtitels" hoort niet te verdwijnen zodra de
+    // gebruiker zoekt.
     let mut tracks: Vec<TrackSummary> = contents
         .files
         .iter()
         .filter_map(|entry| summarize(entry, &path))
-        .filter(|track| matches_query(track, &needle))
         .collect();
 
+    let folder_issues = review(&mut tracks);
+
+    tracks.retain(|track| matches_query(track, &needle));
     sort_tracks(&mut tracks);
 
     Ok(Listing {
+        folder_issues,
         name: name_of(&path),
         crumbs: crumbs_for(&path),
         url: url_for(&path),
@@ -220,14 +239,36 @@ fn summarize(entry: &DirEntry, directory: &str) -> Option<TrackSummary> {
         art_url: thumbnail_url(&path),
         path,
         name: entry.name.clone(),
-        track: track.tags.track,
-        title: track.tags.title,
-        artist: track.tags.artist,
-        album: track.tags.album,
         duration: format_duration(track.duration),
         format: track.format.to_string(),
         has_art: track.art.is_some(),
+        tags: track.tags,
+        // Wordt hierna ingevuld: wat er aan één bestand mankeert hangt mede af
+        // van de rest van de map.
+        issues: Vec::new(),
     })
+}
+
+/// Laat de signalering over de hele map lopen en hangt de bevindingen op.
+///
+/// Geeft de meldingen op mapniveau terug; die per bestand komen op de rij zelf
+/// terecht.
+fn review(tracks: &mut [TrackSummary]) -> Vec<FolderIssue> {
+    let entries: Vec<checks::Entry<'_>> = tracks
+        .iter()
+        .map(|track| checks::Entry {
+            tags: &track.tags,
+            has_art: track.has_art,
+        })
+        .collect();
+
+    let review = checks::review(&entries);
+
+    for (track, issues) in tracks.iter_mut().zip(review.tracks) {
+        track.issues = issues;
+    }
+
+    review.folder
 }
 
 /// Sorteert op tracknummer, met de bestandsnaam als terugval.
@@ -238,9 +279,10 @@ fn summarize(entry: &DirEntry, directory: &str) -> Option<TrackSummary> {
 /// erachter, onderling op naam.
 fn sort_tracks(tracks: &mut [TrackSummary]) {
     tracks.sort_by(|a, b| {
-        a.track
+        a.tags
+            .track
             .unwrap_or(u32::MAX)
-            .cmp(&b.track.unwrap_or(u32::MAX))
+            .cmp(&b.tags.track.unwrap_or(u32::MAX))
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
 }
@@ -253,6 +295,7 @@ fn matches_query(track: &TrackSummary, needle: &str) -> bool {
 
     track.name.to_lowercase().contains(needle)
         || track
+            .tags
             .title
             .as_deref()
             .is_some_and(|title| title.to_lowercase().contains(needle))
@@ -376,10 +419,10 @@ mod tests {
         assert_eq!(track.name, "tagged.mp3");
         assert_eq!(track.path, "Artiest/Album/tagged.mp3");
         assert_eq!(track.format, "MP3");
-        assert!(track.track.is_some(), "tracknummer ontbreekt");
-        assert!(track.title.is_some(), "titel ontbreekt");
-        assert!(track.artist.is_some(), "artiest ontbreekt");
-        assert!(track.album.is_some(), "album ontbreekt");
+        assert!(track.tags.track.is_some(), "tracknummer ontbreekt");
+        assert!(track.tags.title.is_some(), "titel ontbreekt");
+        assert!(track.tags.artist.is_some(), "artiest ontbreekt");
+        assert!(track.tags.album.is_some(), "album ontbreekt");
         assert_eq!(track.duration, "0:01", "de fixture is één seconde stilte");
     }
 
@@ -485,7 +528,7 @@ mod tests {
             let all = album_listing(&library, "");
             all.tracks
                 .iter()
-                .find_map(|track| track.title.clone())
+                .find_map(|track| track.tags.title.clone())
                 .expect("de getagde fixture heeft een titel")
         };
 
@@ -570,6 +613,89 @@ mod tests {
         assert_eq!(
             thumbnail_url("Sigur Rós/( )/01 intro.flac"),
             "/art/Sigur%20R%C3%B3s/(%20)/01%20intro.flac?size=thumb"
+        );
+    }
+
+    #[test]
+    fn issues_land_on_the_file_they_belong_to() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "compleet.mp3", testfixtures::MP3_WITH_ART);
+        place(&library, "kaal.mp3", testfixtures::MP3_WITHOUT_TAGS);
+
+        let listing = album_listing(&library, "");
+
+        let complete = listing
+            .tracks
+            .iter()
+            .find(|track| track.name == "compleet.mp3")
+            .expect("het volledig getagde bestand moet er staan");
+        assert!(
+            complete.issues.is_empty(),
+            "onterechte meldingen: {:?}",
+            complete.issues
+        );
+
+        let bare = listing
+            .tracks
+            .iter()
+            .find(|track| track.name == "kaal.mp3")
+            .expect("het ongetagde bestand moet er staan");
+        assert!(bare.issues.contains(&TrackIssue::MissingTitle));
+        assert!(bare.issues.contains(&TrackIssue::MissingArt));
+        assert!(bare.issues.contains(&TrackIssue::MissingTrackNumber));
+    }
+
+    #[test]
+    fn folder_issues_describe_the_whole_directory() {
+        let (_tempdir, library) = library_with_album();
+        // Beide fixtures hebben tracknummer 3 en hetzelfde album, dus dit
+        // levert een dubbel tracknummer op maar geen afwijkende albumtitel.
+        place(&library, "een.mp3", testfixtures::MP3_WITH_TAGS);
+        place(&library, "twee.flac", testfixtures::FLAC_WITH_TAGS);
+
+        let listing = album_listing(&library, "");
+
+        assert!(
+            listing
+                .folder_issues
+                .contains(&FolderIssue::DuplicateTrackNumbers(vec![3])),
+            "gevonden: {:?}",
+            listing.folder_issues
+        );
+    }
+
+    #[test]
+    fn folder_issues_survive_a_filter() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "een.mp3", testfixtures::MP3_WITH_TAGS);
+        place(&library, "twee.flac", testfixtures::FLAC_WITH_TAGS);
+
+        let everything = album_listing(&library, "");
+        let filtered = album_listing(&library, "een");
+
+        assert_eq!(filtered.tracks.len(), 1, "het filter hoort te werken");
+        assert_eq!(
+            filtered.folder_issues, everything.folder_issues,
+            "aan de map verandert niets doordat de gebruiker zoekt"
+        );
+    }
+
+    #[test]
+    fn a_tidy_directory_reports_nothing() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "hoes.mp3", testfixtures::MP3_WITH_ART);
+
+        let listing = album_listing(&library, "");
+
+        assert!(
+            listing.folder_issues.is_empty(),
+            "gevonden: {:?}",
+            listing.folder_issues
+        );
+        assert!(
+            listing.tracks[0].issues.is_empty(),
+            "gevonden: {:?}",
+            listing.tracks[0].issues
         );
     }
 

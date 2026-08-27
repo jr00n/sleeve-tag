@@ -27,6 +27,9 @@ de conventies vast waar code zich aan houdt.
 - **Schrijven is atomisch.** Naar een tijdelijk bestand in dezelfde map,
   hervalideren door opnieuw in te lezen, en pas dan hernoemen over het origineel.
   Bij een fout blijft het origineel onaangetast.
+- **De signalering (`checks::`) constateert alleen.** Ze krijgt het
+  genormaliseerde tagmodel binnen, opent geen bestanden en stelt geen correcties
+  voor. Wat er met een gesignaleerd probleem gebeurt, beslist de gebruiker.
 - **Niets ongevraagd wijzigen.** Geen achtergrondjobs, geen opschoonacties, geen
   velden aanraken die de gebruiker niet zelf heeft ingevuld.
 

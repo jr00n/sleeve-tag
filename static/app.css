@@ -13,6 +13,8 @@
   --tekst: #e8eaed;
   --tekst-zacht: #a3a9b4;
   --accent: #7aa2f7;
+  --waarschuwing: #e0af68;
+  --waarschuwing-rand: #6a552e;
 }
 
 @media (prefers-color-scheme: light) {
@@ -23,6 +25,8 @@
     --tekst: #1c1f24;
     --tekst-zacht: #5b626d;
     --accent: #2f5fd0;
+    --waarschuwing: #8a5a00;
+    --waarschuwing-rand: #e3c98d;
   }
 }
 
@@ -278,4 +282,49 @@ a {
 
 .leeg {
   color: var(--tekst-zacht);
+}
+
+/* ── Signalering van ontbrekende en afwijkende tags ────────────────────── */
+
+/*
+ * Bewust rustig van toon: dit zijn constateringen, geen fouten. Sleeve past
+ * nooit ongevraagd iets aan; de gebruiker beslist of er iets moet gebeuren.
+ */
+.signalering {
+  margin: 0 0 1rem;
+  padding: 0.75rem 0.9rem;
+  background: var(--vlak);
+  border: 1px solid var(--waarschuwing-rand);
+  border-left-width: 3px;
+  border-radius: 10px;
+}
+
+.signalering__kop {
+  margin: 0 0 0.35rem;
+  font-size: 0.95rem;
+  color: var(--waarschuwing);
+}
+
+.signalering__lijst {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: var(--tekst-zacht);
+  font-size: 0.9rem;
+}
+
+.track__signalen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.2rem;
+}
+
+.signaal {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--waarschuwing-rand);
+  border-radius: 999px;
+  color: var(--waarschuwing);
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: nowrap;
 }

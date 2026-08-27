@@ -5,6 +5,7 @@
 
 mod art;
 mod browse;
+mod checks;
 mod config;
 mod fs;
 mod tags;

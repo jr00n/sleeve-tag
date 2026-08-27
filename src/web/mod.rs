@@ -570,6 +570,28 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn the_listing_shows_what_is_wrong_in_the_directory() {
+        let root = root_with_art();
+        let html = body_as_string(get(&root, "/map/Album").await).await;
+
+        // Beide fixtures hebben tracknummer 3; dat hoort de pagina te melden.
+        assert!(
+            html.contains("Let op in deze map"),
+            "de mapmeldingen ontbreken: {html}"
+        );
+        assert!(
+            html.contains("tracknummer 3 komt meer dan eens voor"),
+            "het dubbele tracknummer wordt niet gemeld: {html}"
+        );
+
+        // En per bestand: de MP3 zonder hoes hoort dat als label te krijgen.
+        assert!(
+            html.contains("geen hoes"),
+            "het ontbreken van een hoes wordt niet gemarkeerd: {html}"
+        );
+    }
+
+    #[tokio::test]
     async fn the_listing_links_to_the_thumbnail_endpoint() {
         let root = root_with_art();
         let html = body_as_string(get(&root, "/map/Album").await).await;
