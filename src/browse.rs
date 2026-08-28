@@ -86,6 +86,12 @@ pub struct TrackSummary {
     /// Wat er aan dit bestand mankeert; leeg wanneer er niets te melden is.
     pub issues: Vec<TrackIssue>,
 
+    /// Tagblokken in dit bestand die niet bij het formaat horen, bij naam.
+    ///
+    /// Komt uit `tags::` en gaat naar de signalering; de lijst zelf toont het
+    /// niet, want daar staat de melding die er uit volgt al.
+    pub foreign_tags: Vec<String>,
+
     /// Speelduur als `m:ss`, of `u:mm:ss` vanaf een uur.
     pub duration: String,
 
@@ -264,6 +270,7 @@ fn summarize(entry: &DirEntry, directory: &str) -> Option<TrackSummary> {
         format: track.format.to_string(),
         art: track.art,
         tags: track.tags,
+        foreign_tags: track.foreign_tags,
         // Wordt hierna ingevuld: wat er aan één bestand mankeert hangt mede af
         // van de rest van de map.
         issues: Vec::new(),
@@ -280,6 +287,7 @@ fn review(tracks: &mut [TrackSummary]) -> Vec<FolderIssue> {
         .map(|track| checks::Entry {
             tags: &track.tags,
             art: track.art.as_ref(),
+            foreign_tags: &track.foreign_tags,
         })
         .collect();
 

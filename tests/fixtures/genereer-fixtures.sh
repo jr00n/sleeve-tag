@@ -172,6 +172,15 @@ echo "FLAC met embedded album art"
   -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (front)" \
   "${TAGS[@]}" tagged-with-art.flac
 
+# Zo'n bestand hoort niet te bestaan — de FLAC-standaard kent alleen
+# Vorbis-comments — maar oudere rippers zetten er toch een ID3v2-blok vóór, en
+# op de echte bibliotheek staan hele albums die er zo uitzien. De titel in het
+# ID3-blok wijkt bewust af van die in de Vorbis-comments, zodat een test kan
+# aantonen wélke van de twee Sleeve leest en wat er na een bewerking overblijft.
+echo "FLAC met een ID3v2-blok ervoor"
+cp tagged.flac id3-in-flac.flac
+python3 zet-id3v2-voor-flac.py id3-in-flac.flac "Titel uit het ID3-blok" "Artiest uit het ID3-blok"
+
 echo
 echo "Klaar. Totale omvang:"
 du -ch ./*.mp3 ./*.flac ./*.png ./*.jpg | tail -1

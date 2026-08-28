@@ -87,6 +87,18 @@ de conventies vast waar code zich aan houdt.
   `cover.jpg` en is altijd JPEG — één vaste naam vraagt om één vast formaat, dus
   een PNG wordt daarvoor door `art::as_jpeg` gehaald terwijl het embedded
   origineel PNG blijft.
+- **Eén bestand houdt één tagblok over.** Twee tagblokken in één bestand kunnen
+  verschillende dingen zeggen, en welke een speler kiest is niet te
+  voorspellen. `tags::remove_stale_tags` haalt daarom bij het schrijven weg wat
+  er niet naast hoort: bij een MP3 de ID3v1-tag, bij een FLAC een ID3-blok. Dat
+  laatste verdwijnt ook zónder die stap, omdat de FLAC-writer van de
+  tagbibliotheek het bij het herschrijven laat vallen — maar wat een bestand
+  overhoudt hoort een keuze van deze module te zijn en niet van een dependency.
+  Alleen wat er werkelijk in zit wordt verwijderd, en alleen wanneer het bestand
+  tóch al herschreven wordt: een bestand van gigabytes aanraken om iets op te
+  ruimen wat de gebruiker niet heeft gewijzigd, is precies de ongevraagde
+  wijziging die hieronder verboden is. Tot die tijd meldt `checks::` het, en
+  `write` rapporteert wat er is verdwenen zodat het niet stilzwijgend gebeurt.
 - **De signalering (`checks::`) constateert alleen.** Ze krijgt het
   genormaliseerde tagmodel binnen, opent geen bestanden en stelt geen correcties
   voor. Wat er met een gesignaleerd probleem gebeurt, beslist de gebruiker.

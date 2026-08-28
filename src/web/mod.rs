@@ -351,11 +351,15 @@ fn save_one(
             return Ok(batch::Outcome::Unchanged);
         }
 
-        tags::write(&absolute, &wanted, options).map_err(|error| error.to_string())?;
+        let written =
+            tags::write(&absolute, &wanted, options).map_err(|error| error.to_string())?;
 
-        Ok(batch::Outcome::Saved(
-            changes.into_iter().map(|change| change.label).collect(),
-        ))
+        // Wat er is opgeruimd hoort in het rapport, achter de velden die de
+        // gebruiker zelf heeft gewijzigd.
+        let mut labels: Vec<String> = changes.into_iter().map(|change| change.label).collect();
+        labels.extend(written.removal_labels());
+
+        Ok(batch::Outcome::Saved(labels))
     };
 
     match outcome() {
@@ -676,9 +680,17 @@ fn write_one_cover(
     let cover = cover.map(|(mime, data)| (mime.as_str(), data.as_slice()));
 
     match tags::write_art(absolute, cover, options) {
-        Ok(true) if cover.is_some() => batch::Outcome::Saved(vec!["Hoes".to_string()]),
-        Ok(true) => batch::Outcome::Saved(vec!["Hoes verwijderd".to_string()]),
-        Ok(false) => batch::Outcome::Unchanged,
+        Ok(written) if written.changed => {
+            let mut labels = vec![if cover.is_some() {
+                "Hoes".to_string()
+            } else {
+                "Hoes verwijderd".to_string()
+            }];
+            labels.extend(written.removal_labels());
+
+            batch::Outcome::Saved(labels)
+        }
+        Ok(_) => batch::Outcome::Unchanged,
         Err(error) => {
             tracing::error!(path = %absolute.display(), %error, "de hoes kon niet weggeschreven worden");
             batch::Outcome::Failed(error.to_string())
@@ -802,9 +814,14 @@ async fn save_tags(
     .await??;
 
     let notice = match outcome {
-        Ok(()) => Notice::Saved(
-            "Opgeslagen. Hieronder staat wat er nu werkelijk in het bestand staat.".to_string(),
-        ),
+        Ok(written) => {
+            let mut lines = vec![
+                "Opgeslagen. Hieronder staat wat er nu werkelijk in het bestand staat.".to_string(),
+            ];
+            lines.extend(written.removal_notice());
+
+            Notice::Saved(lines)
+        }
 
         Err(error) => {
             tracing::error!(path = %path, %error, "tags konden niet opgeslagen worden");

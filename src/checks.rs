@@ -28,6 +28,11 @@ pub struct Entry<'a> {
     /// Wat er over de embedded hoes bekend is; `None` wanneer het bestand er
     /// geen heeft.
     pub art: Option<&'a ArtInfo>,
+
+    /// Tagblokken die niet bij het formaat van dit bestand horen, bij naam.
+    ///
+    /// Komt zo uit [`crate::tags`]; deze module leest zelf geen bestanden.
+    pub foreign_tags: &'a [String],
 }
 
 /// Wat er aan één bestand mankeert.
@@ -41,6 +46,14 @@ pub enum TrackIssue {
 
     /// Het tracknummer van dit bestand komt in deze map vaker voor.
     DuplicateTrackNumber,
+
+    /// Er zit een tagblok in dat niet bij dit bestandsformaat hoort.
+    ///
+    /// In de praktijk een ID3-blok vóór een FLAC. Zo'n blok wordt niet gelezen
+    /// en niet bijgewerkt, en zegt na een wijziging dus iets anders dan de tag
+    /// die er wél toe doet. Welke van de twee een speler kiest, is niet te
+    /// voorspellen — vandaar dat het opvalt vóórdat er iets bewerkt wordt.
+    ForeignTagBlock,
 }
 
 impl TrackIssue {
@@ -53,6 +66,7 @@ impl TrackIssue {
             TrackIssue::MissingArt => "geen hoes",
             TrackIssue::MissingTrackNumber => "geen tracknummer",
             TrackIssue::DuplicateTrackNumber => "dubbel tracknummer",
+            TrackIssue::ForeignTagBlock => "tagblok dat er niet hoort",
         }
     }
 }
@@ -249,6 +263,13 @@ fn track_issues(entry: &Entry<'_>, duplicates: &[u32]) -> Vec<TrackIssue> {
         Some(_) => {}
     }
 
+    // Dit gaat niet over wat er in de tag staat maar over hoeveel tags er zijn:
+    // een blok dat niet bij het formaat hoort, loopt na de eerste bewerking uit
+    // de pas met de tag die wél gelezen wordt.
+    if !entry.foreign_tags.is_empty() {
+        issues.push(TrackIssue::ForeignTagBlock);
+    }
+
     issues
 }
 
@@ -340,7 +361,40 @@ mod tests {
     }
 
     fn entries<'a>(tags: &'a [Tags], art: Option<&'a ArtInfo>) -> Vec<Entry<'a>> {
-        tags.iter().map(|tags| Entry { tags, art }).collect()
+        tags.iter()
+            .map(|tags| Entry {
+                tags,
+                art,
+                foreign_tags: &[],
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_foreign_tag_block_is_reported_before_anything_is_edited() {
+        // Een ID3-blok in een FLAC wordt niet gelezen en niet bijgewerkt: na de
+        // eerste wijziging zegt het iets anders dan de tag die er wél toe doet.
+        // Dat hoort op te vallen vóórdat iemand gaat bewerken, en niet pas als
+        // een speler de verkeerde titel toont.
+        let files = [complete(1)];
+        let id3 = ["ID3v2".to_string()];
+
+        let with_id3 = review(&[Entry {
+            tags: &files[0],
+            art: Some(&cover()),
+            foreign_tags: &id3,
+        }]);
+
+        assert_eq!(with_id3.tracks[0], vec![TrackIssue::ForeignTagBlock]);
+
+        // En zonder zo'n blok blijft het stil: dit is geen melding die elk
+        // bestand krijgt.
+        let clean = review(&entries(&files, Some(&cover())));
+        assert!(
+            clean.tracks[0].is_empty(),
+            "gevonden: {:?}",
+            clean.tracks[0]
+        );
     }
 
     #[test]

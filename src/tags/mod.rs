@@ -161,6 +161,18 @@ pub struct Track {
     pub duration: Duration,
     pub tags: Tags,
     pub art: Option<ArtInfo>,
+
+    /// Tagblokken in dit bestand die niet bij dit formaat horen, bij naam.
+    ///
+    /// In de praktijk is dat een ID3-blok vóór een FLAC: de FLAC-standaard kent
+    /// alleen Vorbis-comments, maar oudere rippers zetten er toch een ID3v2-tag
+    /// voor. Zo'n blok wordt niet gelezen en niet bijgewerkt, en zegt dus na de
+    /// eerste bewerking iets anders dan de tag die er wél toe doet.
+    ///
+    /// Dit is een constatering en geen oordeel: wat ermee gebeurt, bepaalt
+    /// [`crate::checks`] (melden) en [`write`] (opruimen zodra het bestand toch
+    /// herschreven wordt).
+    pub foreign_tags: Vec<String>,
 }
 
 /// Eén ruwe tag zoals die werkelijk in het bestand staat.
@@ -173,21 +185,39 @@ pub struct RawTag {
     pub value: String,
 }
 
-/// Alles wat er ruw in één bestand staat.
+/// Eén tagblok zoals het in het bestand staat.
 ///
 /// De tagsoort hoort erbij: dezelfde titel heet `TIT2` in een ID3v2-frame en
 /// `TITLE` in een Vorbis-comment, en zonder te vermelden waar je naar kijkt is
 /// zo'n lijst raadselachtig in plaats van diagnostisch.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct RawTags {
-    pub format: Format,
+pub struct RawBlock {
+    /// De tagsoort, bijvoorbeeld `ID3v2` of `Vorbis-comments`.
+    pub kind: String,
 
-    /// De tagsoort zoals hij in het bestand staat, bijvoorbeeld `ID3v2`.
-    /// `None` wanneer het bestand helemaal geen tag heeft.
-    pub kind: Option<String>,
+    /// Of dit het blok is dat Sleeve leest en bijwerkt.
+    pub primary: bool,
+
+    /// Of dit soort blok in dit containerformaat thuishoort.
+    pub belongs: bool,
 
     /// Alle sleutel-waardeparen, op sleutel gesorteerd.
     pub items: Vec<RawTag>,
+}
+
+/// Alles wat er ruw in één bestand staat.
+///
+/// Een bestand kan meer dan één tagblok dragen — een MP3 met ID3v2 én ID3v1,
+/// een FLAC met een ID3-blok ervoor. Ze staan hier allemaal in: juist deze
+/// pagina hoort te laten zien wat er wérkelijk in het bestand staat, en niet
+/// alleen wat de app ervan gebruikt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RawTags {
+    pub format: Format,
+
+    /// Elk tagblok in het bestand; leeg wanneer er geen enkele tag in zit.
+    /// Het primaire blok staat vooraan.
+    pub blocks: Vec<RawBlock>,
 }
 
 /// Leest het volledige model van één bestand.
@@ -199,13 +229,37 @@ pub fn read(path: &Path) -> Result<Track, TagError> {
     let tag = primary_tag(&file);
     let tags = tag.map(read_tags).unwrap_or_default();
     let art = tag.and_then(front_cover).and_then(describe_art);
+    let foreign_tags = foreign_tag_types(&file, format)
+        .into_iter()
+        .map(name_of)
+        .collect();
 
     Ok(Track {
         format,
         duration,
         tags,
         art,
+        foreign_tags,
     })
+}
+
+/// De tagsoorten in dit bestand die niet bij dit containerformaat horen.
+///
+/// Wat er wél hoort, is per formaat een korte lijst. Een MP3 mag naast ID3v2
+/// een ID3v1-tag dragen: dat is niet netjes maar wel gangbaar, en [`write`]
+/// ruimt hem op. Een FLAC kent alleen Vorbis-comments; alles daarnaast is er
+/// door een andere tool ingezet en hoort er niet.
+fn foreign_tag_types(file: &TaggedFile, format: Format) -> Vec<TagType> {
+    let allowed: &[TagType] = match format {
+        Format::Mp3 => &[TagType::Id3v2, TagType::Id3v1],
+        Format::Flac => &[TagType::VorbisComments],
+    };
+
+    file.tags()
+        .iter()
+        .map(|tag| tag.tag_type())
+        .filter(|kind| !allowed.contains(kind))
+        .collect()
 }
 
 /// Geeft de ruwe bytes van de embedded front cover.
@@ -230,14 +284,29 @@ pub fn read_raw_tags(path: &Path) -> Result<RawTags, TagError> {
     let file = open(path)?;
     let format = format_of(&file)?;
 
-    let Some(tag) = primary_tag(&file) else {
-        return Ok(RawTags {
-            format,
-            kind: None,
-            items: Vec::new(),
-        });
-    };
+    let primary = primary_tag(&file).map(|tag| tag.tag_type());
+    let foreign = foreign_tag_types(&file, format);
 
+    let mut blocks: Vec<RawBlock> = file
+        .tags()
+        .iter()
+        .map(|tag| RawBlock {
+            kind: name_of(tag.tag_type()),
+            primary: primary == Some(tag.tag_type()),
+            belongs: !foreign.contains(&tag.tag_type()),
+            items: raw_items(tag),
+        })
+        .collect();
+
+    // Het blok dat Sleeve leest en schrijft hoort bovenaan; de rest is
+    // aanvullende informatie.
+    blocks.sort_by_key(|block| !block.primary);
+
+    Ok(RawTags { format, blocks })
+}
+
+/// Zet één tagblok om in leesbare sleutel-waardeparen.
+fn raw_items(tag: &Tag) -> Vec<RawTag> {
     let tag_type = tag.tag_type();
     let mut raw: Vec<RawTag> = tag
         .items()
@@ -267,11 +336,7 @@ pub fn read_raw_tags(path: &Path) -> Result<RawTags, TagError> {
     // Een vaste volgorde maakt de weergave voorspelbaar en de tests stabiel.
     raw.sort_by(|a, b| a.key.cmp(&b.key));
 
-    Ok(RawTags {
-        format,
-        kind: Some(name_of(tag_type)),
-        items: raw,
-    })
+    raw
 }
 
 /// De naam van een tagsoort zoals de weergave hem toont.
@@ -306,7 +371,7 @@ fn name_of(tag_type: TagType) -> String {
 /// Het schrijven zelf loopt via [`crate::atomic::replace`]: naar een tijdelijk
 /// bestand, hervalideren door opnieuw in te lezen, en pas dan over het origineel
 /// heen.
-pub fn write(path: &Path, wanted: &Tags, options: atomic::Options) -> Result<(), WriteError> {
+pub fn write(path: &Path, wanted: &Tags, options: atomic::Options) -> Result<Written, WriteError> {
     let wanted = wanted.normalized();
 
     let current = read(path).map_err(atomic::WriteError::Prepare)?;
@@ -317,7 +382,7 @@ pub fn write(path: &Path, wanted: &Tags, options: atomic::Options) -> Result<(),
             path = %path.display(),
             "geen wijzigingen; het bestand wordt niet aangeraakt"
         );
-        return Ok(());
+        return Ok(Written::untouched());
     }
 
     atomic::replace(
@@ -333,7 +398,66 @@ pub fn write(path: &Path, wanted: &Tags, options: atomic::Options) -> Result<(),
                 Err(TagError::Mismatch)
             }
         },
-    )
+    )?;
+
+    Ok(Written {
+        changed: true,
+        removed_foreign: current.foreign_tags,
+    })
+}
+
+/// Wat een schrijfactie heeft opgeleverd, buiten de gewijzigde velden om.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Written {
+    /// Of het bestand werkelijk is aangepast.
+    ///
+    /// `false` betekent dat er niets te doen viel en het bestand niet is
+    /// aangeraakt — geen nieuwe wijzigingsdatum, geen nieuwe scan door
+    /// Navidrome.
+    pub changed: bool,
+
+    /// Tagblokken die er niet in thuishoorden en bij deze schrijfactie zijn
+    /// verdwenen, bij naam.
+    ///
+    /// De aanroeper meldt dit aan de gebruiker. Stilzwijgend iets uit een
+    /// bestand halen is een ongevraagde wijziging, ook als het iets is wat er
+    /// nooit had moeten staan.
+    pub removed_foreign: Vec<String>,
+}
+
+impl Written {
+    /// Het bestand is niet aangeraakt.
+    fn untouched() -> Written {
+        Written::default()
+    }
+
+    /// Korte labels voor een rapport dat per bestand een regel toont.
+    ///
+    /// Leeg wanneer er niets is opgeruimd; dan valt er ook niets te melden.
+    pub fn removal_labels(&self) -> Vec<String> {
+        self.removed_foreign
+            .iter()
+            .map(|kind| format!("{kind}-blok verwijderd"))
+            .collect()
+    }
+
+    /// Eén zin voor boven het bewerkformulier, of `None` als er niets verdween.
+    pub fn removal_notice(&self) -> Option<String> {
+        if self.removed_foreign.is_empty() {
+            return None;
+        }
+
+        Some(format!(
+            "Dit bestand droeg ook een {}. Zo'n blok hoort niet in dit \
+             bestandsformaat en zou na een wijziging iets anders zeggen dan de \
+             tag die wél gelezen wordt; het is bij het opslaan verwijderd.",
+            self.removed_foreign
+                .iter()
+                .map(|kind| format!("{kind}-blok"))
+                .collect::<Vec<_>>()
+                .join(" en een ")
+        ))
+    }
 }
 
 /// Zet of verwijdert de front cover van een bestand (FR-13 en FR-16).
@@ -359,7 +483,7 @@ pub fn write_art(
     path: &Path,
     cover: Option<(&str, &[u8])>,
     options: atomic::Options,
-) -> Result<bool, WriteError> {
+) -> Result<Written, WriteError> {
     let current = read_front_cover(path).map_err(atomic::WriteError::Prepare)?;
 
     let unchanged = match (&current, cover) {
@@ -375,8 +499,15 @@ pub fn write_art(
             path = %path.display(),
             "de hoes is al zoals bedoeld; het bestand wordt niet aangeraakt"
         );
-        return Ok(false);
+        return Ok(Written::untouched());
     }
+
+    // Wat er straks verdwijnt, moet gelezen worden vóórdat het weg is. Dit
+    // kost één extra keer de kop van het bestand inlezen, en alleen op het pad
+    // dat toch al gaat schrijven.
+    let foreign = read(path)
+        .map(|track| track.foreign_tags)
+        .unwrap_or_default();
 
     let changes = if cover.is_some() {
         "hoes"
@@ -404,7 +535,10 @@ pub fn write_art(
         },
     )?;
 
-    Ok(true)
+    Ok(Written {
+        changed: true,
+        removed_foreign: foreign,
+    })
 }
 
 /// Wisselt de front cover in de tag van het tijdelijke bestand.
@@ -487,10 +621,21 @@ fn apply(path: &Path, wanted: &Tags) -> Result<(), TagError> {
 
 /// Verwijdert tagsoorten die naast de geschreven tag niet horen te bestaan.
 ///
-/// Voor MP3 is dat ID3v1: die kan maar dertig tekens per veld en zou na een
-/// wijziging iets anders zeggen dan ID3v2. Het PRD verbiedt zo'n
-/// tegenstrijdigheid; verwijderen maakt hem onmogelijk en is veiliger dan
-/// synchroniseren, want dan is er niets meer om uit de pas te lopen.
+/// Twee gevallen, met dezelfde reden: twee tagblokken in één bestand kunnen
+/// verschillende dingen zeggen, en welke van de twee een speler kiest, is niet
+/// te voorspellen. Het PRD verbiedt zo'n tegenstrijdigheid. Verwijderen maakt
+/// hem onmogelijk en is veiliger dan synchroniseren, want dan is er niets meer
+/// om uit de pas te lopen.
+///
+/// - **MP3:** de ID3v1-tag. Die kan maar dertig tekens per veld en zou na een
+///   wijziging al snel iets anders zeggen dan ID3v2.
+/// - **FLAC:** een ID3-blok. Dat hoort er sowieso niet in — de FLAC-standaard
+///   kent alleen Vorbis-comments — maar oudere rippers zetten het er toch voor.
+///
+/// Dat het ID3-blok van een FLAC ook zónder deze stap verdwijnt, omdat lofty's
+/// FLAC-writer het bij het herschrijven laat vallen, is geen reden het hier weg
+/// te laten: dat is ongedocumenteerd gedrag van een dependency. Wat het bestand
+/// overhoudt, hoort een keuze van deze module te zijn.
 ///
 /// Twee omwegen om lofty 0.25.1 heen zijn hier nodig:
 ///
@@ -500,7 +645,24 @@ fn apply(path: &Path, wanted: &Tags) -> Result<(), TagError> {
 ///   vervolgens in te schrijven, wat altijd mislukt. Daarom wordt het bestand
 ///   hier zelf lees-schrijf geopend en `remove_from` gebruikt.
 fn remove_stale_tags(path: &Path, kept: TagType) -> Result<(), TagError> {
-    if kept != TagType::Id3v2 {
+    let candidates: &[TagType] = match kept {
+        TagType::Id3v2 => &[TagType::Id3v1],
+        TagType::VorbisComments => &[TagType::Id3v2],
+        _ => &[],
+    };
+
+    // Alleen verwijderen wat er werkelijk in zit. lofty weigert een tagsoort
+    // te verwijderen die in dit containerformaat niet voor kan komen, en dat is
+    // geen fout die een schrijfactie hoort af te breken.
+    let present = open(path)?;
+    let stale: Vec<TagType> = candidates
+        .iter()
+        .copied()
+        .filter(|kind| present.tag(*kind).is_some())
+        .collect();
+    drop(present);
+
+    if stale.is_empty() {
         return Ok(());
     }
 
@@ -509,17 +671,27 @@ fn remove_stale_tags(path: &Path, kept: TagType) -> Result<(), TagError> {
         .write(true)
         .open(path)
         .map_err(|error| {
-            tracing::error!(%error, "bestand kon niet geopend worden om ID3v1 te verwijderen");
+            tracing::error!(%error, "bestand kon niet geopend worden om een oude tag te verwijderen");
             TagError::Unwritable
         })?;
 
-    TagType::Id3v1
-        .remove_from(&mut file, WriteOptions::new())
-        .map_err(|error| {
-            tracing::error!(%error, "de ID3v1-tag kon niet verwijderd worden");
-            TagError::Unwritable
-        })
+    for kind in &stale {
+        kind.remove_from(&mut file, WriteOptions::new())
+            .map_err(|error| {
+                tracing::error!(tag = ?kind, %error, "de tag kon niet verwijderd worden");
+                TagError::Unwritable
+            })?;
+    }
+
+    Ok(())
 }
+
+/// Het logdoel van de bibliotheek waarmee deze module tags leest en schrijft.
+///
+/// Staat hier omdat de naam van die crate binnen `tags::` hoort te blijven; het
+/// logfilter in `main` heeft hem nodig om haar meldingen te kunnen dempen,
+/// zonder te weten waar hij vandaan komt.
+pub const LOG_TARGET: &str = "lofty";
 
 /// De tagsoort waarin Sleeve voor dit formaat schrijft.
 fn tag_type_for(format: Format) -> TagType {
@@ -882,7 +1054,11 @@ mod tests {
     fn raw_tags_use_the_original_key_names() {
         let mp3 = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_WITH_TAGS))
             .expect("lezen moet lukken");
-        let keys: Vec<&str> = mp3.items.iter().map(|tag| tag.key.as_str()).collect();
+        let keys: Vec<&str> = primary_block(&mp3)
+            .items
+            .iter()
+            .map(|tag| tag.key.as_str())
+            .collect();
 
         // ID3v2 gebruikt frame-ID's, geen genormaliseerde veldnamen.
         assert!(keys.contains(&"TIT2"), "sleutels waren: {keys:?}");
@@ -890,7 +1066,11 @@ mod tests {
 
         let flac = read_raw_tags(&testfixtures::fixture_path(testfixtures::FLAC_WITH_TAGS))
             .expect("lezen moet lukken");
-        let keys: Vec<&str> = flac.items.iter().map(|tag| tag.key.as_str()).collect();
+        let keys: Vec<&str> = primary_block(&flac)
+            .items
+            .iter()
+            .map(|tag| tag.key.as_str())
+            .collect();
 
         // Vorbis-comments gebruiken hun eigen namen.
         assert!(keys.contains(&"TITLE"), "sleutels waren: {keys:?}");
@@ -922,21 +1102,30 @@ mod tests {
         }
     }
 
+    /// Het tagblok dat Sleeve leest en schrijft; paniekt als het ontbreekt.
+    fn primary_block(raw: &RawTags) -> &RawBlock {
+        raw.blocks
+            .iter()
+            .find(|block| block.primary)
+            .expect("er hoort een primair tagblok te zijn")
+    }
+
     /// De ruwe sleutels van een bestand, voor controles op frameniveau.
     fn raw_keys(path: &std::path::Path) -> Vec<String> {
-        read_raw_tags(path)
-            .expect("ruwe tags moeten leesbaar zijn")
+        let raw = read_raw_tags(path).expect("ruwe tags moeten leesbaar zijn");
+        primary_block(&raw)
             .items
-            .into_iter()
-            .map(|item| item.key)
+            .iter()
+            .map(|item| item.key.clone())
             .collect()
     }
 
     /// De ruwe waarde van één sleutel; paniekt als de sleutel ontbreekt.
     fn raw_value(path: &std::path::Path, key: &str) -> String {
-        read_raw_tags(path)
-            .expect("ruwe tags moeten leesbaar zijn")
+        let raw = read_raw_tags(path).expect("ruwe tags moeten leesbaar zijn");
+        primary_block(&raw)
             .items
+            .clone()
             .into_iter()
             .find(|item| item.key == key)
             .unwrap_or_else(|| panic!("sleutel '{key}' ontbreekt in {}", path.display()))
@@ -1252,7 +1441,10 @@ mod tests {
                 atomic::Options::default(),
             )
             .unwrap_or_else(|error| panic!("{name}: {error}"));
-            assert!(written, "{name}: er hoorde iets geschreven te worden");
+            assert!(
+                written.changed,
+                "{name}: er hoorde iets geschreven te worden"
+            );
 
             let (mime, data) = read_front_cover(&path)
                 .expect("lezen")
@@ -1308,7 +1500,10 @@ mod tests {
             let written = write_art(&path, None, atomic::Options::default())
                 .unwrap_or_else(|error| panic!("{name}: {error}"));
 
-            assert!(written, "{name}: er hoorde iets geschreven te worden");
+            assert!(
+                written.changed,
+                "{name}: er hoorde iets geschreven te worden"
+            );
             assert!(read(&path).expect("lezen").art.is_none(), "{name}");
             assert_eq!(
                 read(&path).expect("lezen").tags,
@@ -1329,7 +1524,7 @@ mod tests {
         let written = write_art(&path, Some((&mime, &data)), atomic::Options::default())
             .expect("schrijven moet lukken");
 
-        assert!(!written, "er viel niets te wijzigen");
+        assert!(!written.changed, "er viel niets te wijzigen");
         assert_eq!(std::fs::read(&path).expect("lezen"), before);
     }
 
@@ -1341,7 +1536,7 @@ mod tests {
         let written =
             write_art(&path, None, atomic::Options::default()).expect("dit hoort te lukken");
 
-        assert!(!written);
+        assert!(!written.changed);
         assert_eq!(std::fs::read(&path).expect("lezen"), before);
     }
 
@@ -1511,6 +1706,111 @@ mod tests {
         );
     }
 
+    /// De eerste bytes van een bestand, om te zien of er een ID3-blok voor
+    /// staat: dat begint altijd met `ID3`, een FLAC met `fLaC`.
+    fn leading_marker(path: &std::path::Path) -> String {
+        let bytes = std::fs::read(path).expect("bestand moet leesbaar zijn");
+        String::from_utf8_lossy(&bytes[..4]).into_owned()
+    }
+
+    #[test]
+    fn a_flac_with_an_id3_block_says_so_and_still_reads_its_vorbis_comments() {
+        let track = read_fixture(testfixtures::FLAC_WITH_ID3);
+
+        // Het ID3-blok wordt gemeld, maar bepaalt niets: gelezen worden de
+        // Vorbis-comments, want dat is de tag die in een FLAC hoort.
+        assert_eq!(track.foreign_tags, vec!["ID3v2".to_string()]);
+        assert_eq!(track.tags.title.as_deref(), Some("Stilte in D"));
+        assert_eq!(track.tags.artist.as_deref(), Some("De Testartiest"));
+    }
+
+    #[test]
+    fn a_tagged_file_without_strays_reports_nothing_foreign() {
+        // Een MP3 met ID3v2 én ID3v1 is niet netjes maar wel gangbaar; dat is
+        // geen vreemd blok, en `write` ruimt de ID3v1 sowieso op.
+        for name in [
+            testfixtures::MP3_WITH_TAGS,
+            testfixtures::FLAC_WITH_TAGS,
+            testfixtures::MP3_ID3V1_INCONSISTENT,
+        ] {
+            let track = read_fixture(name);
+            assert!(
+                track.foreign_tags.is_empty(),
+                "{name} meldde: {:?}",
+                track.foreign_tags
+            );
+        }
+    }
+
+    #[test]
+    fn writing_a_flac_removes_the_id3_block_and_reports_it() {
+        let (_tempdir, path) = writable_copy(testfixtures::FLAC_WITH_ID3);
+        assert_eq!(
+            leading_marker(&path),
+            "ID3\u{4}",
+            "de fixture mist zijn blok"
+        );
+
+        let written = write(&path, &wanted_tags(), atomic::Options::default())
+            .expect("schrijven moet lukken");
+
+        // Het blok is weg, en dat is een keuze van deze module: `remove_stale_tags`
+        // haalt hem er gericht uit, en niet als bijwerking van de writer.
+        assert_eq!(leading_marker(&path), "fLaC");
+        assert_eq!(written.removed_foreign, vec!["ID3v2".to_string()]);
+        assert!(written.changed);
+
+        // Stilzwijgend gebeurt het niet: hier staat de zin die de gebruiker
+        // boven het formulier te zien krijgt.
+        let notice = written
+            .removal_notice()
+            .expect("er hoort iets gemeld te worden");
+        assert!(notice.contains("ID3v2-blok"), "melding was: {notice}");
+
+        // En het bestand houdt precies één tag over: die van het formaat zelf.
+        let after = read(&path).expect("teruglezen moet lukken");
+        assert!(after.foreign_tags.is_empty());
+        assert_eq!(after.tags, wanted_tags());
+    }
+
+    #[test]
+    fn a_file_that_needs_no_change_keeps_its_id3_block() {
+        // Een bestand van gigabytes herschrijven om iets op te ruimen wat de
+        // gebruiker niet heeft aangeraakt, is precies de ongevraagde wijziging
+        // die het PRD verbiedt. Het blok verdwijnt bij de eerste échte
+        // bewerking; tot die tijd meldt de signalering hem.
+        let (_tempdir, path) = writable_copy(testfixtures::FLAC_WITH_ID3);
+        let before = std::fs::read(&path).expect("lezen");
+
+        let current = read(&path).expect("lezen").tags;
+        let written =
+            write(&path, &current, atomic::Options::default()).expect("dit hoort te lukken");
+
+        assert!(!written.changed);
+        assert!(written.removed_foreign.is_empty());
+        assert_eq!(std::fs::read(&path).expect("lezen"), before);
+    }
+
+    #[test]
+    fn embedding_a_cover_also_clears_the_id3_block() {
+        // Elke schrijfroute komt langs dezelfde opruiming; anders zou het van
+        // de toevallig gekozen actie afhangen wat een bestand overhoudt.
+        let (_tempdir, path) = writable_copy(testfixtures::FLAC_WITH_ID3);
+        let cover = std::fs::read(testfixtures::fixture_path(testfixtures::COVER_JPEG))
+            .expect("de cover moet leesbaar zijn");
+
+        let written = write_art(
+            &path,
+            Some(("image/jpeg", &cover)),
+            atomic::Options::default(),
+        )
+        .expect("schrijven moet lukken");
+
+        assert!(written.changed);
+        assert_eq!(written.removed_foreign, vec!["ID3v2".to_string()]);
+        assert_eq!(leading_marker(&path), "fLaC");
+    }
+
     #[test]
     fn raw_tags_name_the_kind_of_tag() {
         // Dezelfde titel heet in MP3 `TIT2` en in FLAC `TITLE`; de weergave
@@ -1518,17 +1818,49 @@ mod tests {
         let mp3 = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_WITH_TAGS))
             .expect("lezen moet lukken");
         assert_eq!(mp3.format, Format::Mp3);
-        assert_eq!(mp3.kind.as_deref(), Some("ID3v2"));
+        assert_eq!(primary_block(&mp3).kind, "ID3v2");
 
         let flac = read_raw_tags(&testfixtures::fixture_path(testfixtures::FLAC_WITH_TAGS))
             .expect("lezen moet lukken");
         assert_eq!(flac.format, Format::Flac);
-        assert_eq!(flac.kind.as_deref(), Some("Vorbis-comments"));
+        assert_eq!(primary_block(&flac).kind, "Vorbis-comments");
 
         // Een MP3 zonder ID3v2 valt terug op de tag die er wél is.
         let old = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_ID3V1_ONLY))
             .expect("lezen moet lukken");
-        assert_eq!(old.kind.as_deref(), Some("ID3v1"));
+        assert_eq!(primary_block(&old).kind, "ID3v1");
+    }
+
+    #[test]
+    fn raw_tags_show_every_block_in_the_file() {
+        // Een FLAC met een ID3-blok ervoor draagt er twee. Juist deze weergave
+        // hoort te laten zien wat er wérkelijk in staat, en niet alleen wat de
+        // app ervan gebruikt.
+        let raw = read_raw_tags(&testfixtures::fixture_path(testfixtures::FLAC_WITH_ID3))
+            .expect("lezen moet lukken");
+
+        let kinds: Vec<&str> = raw.blocks.iter().map(|block| block.kind.as_str()).collect();
+        assert_eq!(kinds, vec!["Vorbis-comments", "ID3v2"]);
+
+        // Het blok dat gelezen en geschreven wordt staat vooraan, en het blok
+        // dat er niet in hoort is als zodanig gemarkeerd.
+        assert!(raw.blocks[0].primary);
+        assert!(raw.blocks[0].belongs);
+        assert!(!raw.blocks[1].primary);
+        assert!(!raw.blocks[1].belongs);
+
+        // En de inhoud van dat vreemde blok is ook te zien: het spreekt de
+        // Vorbis-comments tegen, en dat is precies wat een gebruiker hier komt
+        // vaststellen.
+        let id3: Vec<&str> = raw.blocks[1]
+            .items
+            .iter()
+            .map(|item| item.value.as_str())
+            .collect();
+        assert!(
+            id3.contains(&"Titel uit het ID3-blok"),
+            "waarden waren: {id3:?}"
+        );
     }
 
     #[test]
@@ -1536,8 +1868,7 @@ mod tests {
         // Een MP3 zonder tags heeft werkelijk geen tagblok.
         let mp3 = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_WITHOUT_TAGS))
             .expect("lezen moet lukken");
-        assert_eq!(mp3.kind, None);
-        assert!(mp3.items.is_empty(), "{:?}", mp3.items);
+        assert!(mp3.blocks.is_empty(), "{:?}", mp3.blocks);
 
         // De "ongetagde" FLAC draagt wél een Vorbis-comment-blok, met daarin
         // `ENCODER=ffmpeg`: dat schrijft ffmpeg ook met `-map_metadata -1`.
@@ -1546,9 +1877,9 @@ mod tests {
         // deze weergave voor bestaat.
         let flac = read_raw_tags(&testfixtures::fixture_path(testfixtures::FLAC_WITHOUT_TAGS))
             .expect("lezen moet lukken");
-        assert_eq!(flac.kind.as_deref(), Some("Vorbis-comments"));
+        assert_eq!(primary_block(&flac).kind, "Vorbis-comments");
         assert_eq!(
-            flac.items,
+            primary_block(&flac).items,
             vec![RawTag {
                 key: "ENCODER".to_string(),
                 value: "ffmpeg".to_string(),
@@ -1569,7 +1900,7 @@ mod tests {
         let raw = read_raw_tags(&testfixtures::fixture_path(testfixtures::MP3_WITH_ART))
             .expect("lezen moet lukken");
 
-        let art = raw
+        let art = primary_block(&raw)
             .items
             .iter()
             .find(|tag| tag.value.contains("bytes"))

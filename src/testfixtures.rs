@@ -34,6 +34,13 @@ pub const FLAC_WITHOUT_TAGS: &str = "untagged.flac";
 pub const FLAC_WITH_TAGS: &str = "tagged.flac";
 /// FLAC met volledige tags én een embedded front cover.
 pub const FLAC_WITH_ART: &str = "tagged-with-art.flac";
+/// FLAC met een ID3v2-blok vóór de Vorbis-comments.
+///
+/// Zo'n bestand hoort niet te bestaan — de FLAC-standaard kent alleen
+/// Vorbis-comments — maar oudere rippers maken ze, en op de echte bibliotheek
+/// staan hele albums die er zo uitzien. De twee tags spreken elkaar tegen:
+/// Vorbis zegt "Stilte in D", het ID3-blok zegt "Titel uit het ID3-blok".
+pub const FLAC_WITH_ID3: &str = "id3-in-flac.flac";
 
 /// Losse coverafbeeldingen, voor het testen van uploaden en embedden.
 pub const COVER_JPEG: &str = "cover.jpg";
@@ -52,6 +59,7 @@ pub const ALL_FIXTURES: &[&str] = &[
     FLAC_WITHOUT_TAGS,
     FLAC_WITH_TAGS,
     FLAC_WITH_ART,
+    FLAC_WITH_ID3,
     COVER_JPEG,
     COVER_PNG,
     OTHER_COVER_PNG,

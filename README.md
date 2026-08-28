@@ -56,7 +56,7 @@ ontwikkelen; `sleeve-tag --help` toont ze.
 | `MAX_ART_SIZE` | `1000x1000` | Maximale resolutie van embedded album art. Ook `1000` is geldig; verkleinen behoudt de beeldverhouding. |
 | `ART_QUALITY` | `85` | JPEG-kwaliteit (1–100) waarmee een verkleinde hoes wordt gecodeerd. Daarboven lopen de bytes hard op zonder zichtbaar verschil, daaronder worden vlakken korrelig. |
 | `MAX_UPLOAD_MB` | `10` | Bovengrens aan een geüploade afbeelding, in megabytes. Ruim boven wat een hoes nodig heeft, ruim onder wat een NAS met weinig geheugen plat legt. |
-| `LOG_LEVEL` | `info` | Logniveau voor `tracing`. Een lege waarde valt terug op `info`. |
+| `LOG_LEVEL` | `info` | Logniveau voor `tracing`. Een lege waarde valt terug op `info`. De tagbibliotheek staat standaard op `error`; zie [Eén bestand, één tagblok](#één-bestand-één-tagblok). |
 | `BACKUP_ON_WRITE` | `false` | Plaatst bij elke schrijfactie een `.bak` naast het bestand. Accepteert `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`. |
 
 Een ontbrekende of ongeldige waarde laat de app bij start stoppen met een
@@ -156,6 +156,7 @@ zo'n 84 KB) die de tagvarianten dekken waar de code mee om moet gaan:
 | `tagged-with-art.mp3` / `tagged-with-art.flac` | idem, plus embedded front cover |
 | `id3v1-only.mp3` | uitsluitend een ID3v1-tag, geen ID3v2 |
 | `id3v1-inconsistent.mp3` | ID3v1 en ID3v2 met verschillende waarden |
+| `id3-in-flac.flac` | een ID3v2-blok vóór de Vorbis-comments, met een andere titel |
 | `cover.jpg` / `cover.png` | losse afbeeldingen voor het testen van uploads |
 
 De laatste twee MP3-varianten bestaan omdat het PRD eist dat een ID3v1-tag nooit
@@ -324,6 +325,35 @@ over te laten:
 5. Bij `BACKUP_ON_WRITE=true` komt er een `<naam>.bak` naast te staan, met de
    inhoud van vóór deze schrijfactie. Standaard staat dat uit, om de share niet
    te vervuilen.
+
+### Eén bestand, één tagblok
+
+Een bestand kan meer dan één tagblok dragen. Een MP3 met ID3v2 én ID3v1 is niet
+netjes maar wel gangbaar; een FLAC met een ID3-blok ervóór hoort helemaal niet te
+bestaan — de FLAC-standaard kent alleen Vorbis-comments — maar oudere rippers
+maken ze bij bosjes.
+
+Sleeve leest en schrijft alleen het blok dat bij het formaat hoort. Het andere
+blok blijft dus staan met de oude waarden, en welke van de twee een speler kiest,
+is niet te voorspellen. Daarom haalt `tags::` bij het schrijven weg wat er niet
+naast hoort: bij een MP3 de ID3v1-tag, bij een FLAC een ID3-blok.
+
+Drie regels waar het zich aan houdt:
+
+- **Alleen wanneer er tóch geschreven wordt.** Verandert er niets aan de tags,
+  dan blijft het bestand onaangeraakt — ook met zo'n blok erin. Gigabytes
+  herschrijven om iets op te ruimen wat je niet hebt gewijzigd, is precies de
+  ongevraagde wijziging die het PRD verbiedt.
+- **Nooit stilzwijgend.** Wat er verdwijnt, staat in de melding boven het
+  formulier en in het rapport van een batch.
+- **Zichtbaar vóór je begint.** De maplijst markeert zo'n bestand met "tagblok
+  dat er niet hoort", en op de pagina met ruwe tags staat elk blok apart, met de
+  waarschuwing erbij welke er niet in thuishoort.
+
+De tagbibliotheek waarschuwt zelf bij élk inlezen van zo'n bestand. Op een map
+met tientallen albums van dezelfde ripper verdringt dat alles wat er wél toe
+doet, dus staat die bibliotheek standaard op `error`. Wie de meldingen tóch wil
+zien: `LOG_LEVEL=info,lofty=warn`.
 
 ### Waarom een groot bestand minuten kost
 

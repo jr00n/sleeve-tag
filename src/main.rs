@@ -56,7 +56,7 @@ async fn main() {
     // Kleuren alleen wanneer een mens meekijkt: in `docker logs` of een
     // logbestand leveren ANSI-codes onleesbare rommel op.
     tracing_subscriber::fmt()
-        .with_env_filter(tracing_subscriber::EnvFilter::new(&config.log_level))
+        .with_env_filter(log_filter(&config.log_level))
         .with_ansi(std::io::stdout().is_terminal())
         .init();
 
@@ -93,6 +93,35 @@ async fn main() {
     }
 
     tracing::info!("Sleeve afgesloten");
+}
+
+/// Bouwt het logfilter uit `LOG_LEVEL`, met de tagbibliotheek standaard stiller.
+///
+/// Die bibliotheek waarschuwt bij élk inlezen van een FLAC met een ID3-blok dat
+/// ze die tag niet kan herschrijven. Op een bibliotheek waar een ripper hele
+/// albums zo heeft achtergelaten, levert het openen van één map tientallen
+/// identieke regels op — en die verdringen wat er wél toe doet. Dat een bestand
+/// zo'n blok draagt, meldt Sleeve zelf: in de maplijst, op de pagina met ruwe
+/// tags, en in het rapport zodra het is opgeruimd.
+///
+/// Wie de meldingen tóch wil zien, noemt het doel zelf in `LOG_LEVEL` — de
+/// naam staat in [`tags::LOG_TARGET`] en in de README; dan blijft die keuze
+/// staan en wordt er hier niets meer aan toegevoegd. Hoe
+/// dat doel heet, weet alleen `tags::` — de rest van de app hoort niet te weten
+/// met welke crate daar tags gelezen worden.
+fn log_filter(log_level: &str) -> tracing_subscriber::EnvFilter {
+    let filter = tracing_subscriber::EnvFilter::new(log_level);
+    let target = tags::LOG_TARGET;
+
+    if log_level.contains(target) {
+        return filter;
+    }
+
+    filter.add_directive(
+        format!("{target}=error")
+            .parse()
+            .expect("het vaste filter voor de tagbibliotheek moet geldig zijn"),
+    )
 }
 
 /// Wacht op Ctrl-C of SIGTERM.

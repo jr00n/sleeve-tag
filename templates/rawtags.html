@@ -14,7 +14,7 @@
 <h1 class="maptitel">{{ name }}</h1>
 
 <p class="uitleg">
-  {{ raw.format }}{% if let Some(kind) = raw.kind %} · {{ kind }}{% endif %}
+  {{ raw.format }}{% for block in raw.blocks %} · {{ block.kind }}{% endfor %}
 </p>
 
 {# Alleen-lezen, en dat is geen tijdelijke beperking: ruwe frames bewerken is
@@ -35,37 +35,61 @@
   sleutel.
 </p>
 
-{% if raw.items.is_empty() %}
-<p class="leeg">
-  {%- if raw.kind.is_none() -%}
-    Dit bestand bevat geen tagblok.
-  {%- else -%}
-    Het tagblok van dit bestand is leeg.
-  {%- endif -%}
-</p>
+{% if raw.blocks.is_empty() %}
+<p class="leeg">Dit bestand bevat geen tagblok.</p>
 {% else %}
-{# Waarden kunnen lang zijn; de tabel scrollt in zijn eigen container zodat de
-   pagina zelf nooit horizontaal scrollt. #}
-<div class="tabelrand">
-  <table class="ruwetags">
-    <caption class="ruwetags__onderschrift">
-      {{ raw.items.len() }} velden in dit bestand
-    </caption>
-    <thead>
-      <tr>
-        <th scope="col">Sleutel</th>
-        <th scope="col">Waarde</th>
-      </tr>
-    </thead>
-    <tbody>
-      {% for item in raw.items %}
-      <tr>
-        <th scope="row" class="ruwetags__sleutel">{{ item.key }}</th>
-        <td class="ruwetags__waarde">{{ item.value }}</td>
-      </tr>
-      {% endfor %}
-    </tbody>
-  </table>
-</div>
+
+{# Eén tabel per tagblok. Een bestand kan er meer dan één dragen — een MP3 met
+   ID3v2 én ID3v1, een FLAC met een ID3-blok ervoor — en juist deze pagina hoort
+   te laten zien wat er wérkelijk in staat, niet alleen wat de app gebruikt. #}
+{% for block in raw.blocks %}
+<section class="tagblok">
+  <h2 class="tagblok__kop">
+    {{ block.kind }}
+    {% if block.primary %}
+    <span class="tagblok__rol">wordt gelezen en bijgewerkt</span>
+    {% endif %}
+  </h2>
+
+  {% if !block.belongs %}
+  {# Zo'n blok hoort er niet in en wordt niet bijgewerkt: het zegt straks iets
+     anders dan de tag die er wél toe doet. Bij de eerstvolgende bewerking
+     ruimt Sleeve het op. #}
+  <p class="melding melding--fout" role="status">
+    Dit blok hoort niet in een {{ raw.format }}-bestand. Het wordt niet gelezen
+    en niet bijgewerkt, dus het zegt na een wijziging iets anders dan de tag
+    hierboven. Bij de eerstvolgende keer opslaan wordt het verwijderd.
+  </p>
+  {% endif %}
+
+  {% if block.items.is_empty() %}
+  <p class="leeg">Dit tagblok is leeg.</p>
+  {% else %}
+  {# Waarden kunnen lang zijn; de tabel scrollt in zijn eigen container zodat de
+     pagina zelf nooit horizontaal scrollt. #}
+  <div class="tabelrand">
+    <table class="ruwetags">
+      <caption class="ruwetags__onderschrift">
+        {{ block.items.len() }} velden in dit blok
+      </caption>
+      <thead>
+        <tr>
+          <th scope="col">Sleutel</th>
+          <th scope="col">Waarde</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in block.items %}
+        <tr>
+          <th scope="row" class="ruwetags__sleutel">{{ item.key }}</th>
+          <td class="ruwetags__waarde">{{ item.value }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
+</section>
+{% endfor %}
 {% endif %}
 {% endblock %}

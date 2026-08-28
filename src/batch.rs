@@ -1651,6 +1651,7 @@ mod tests {
             path: format!("Album/{name}"),
             tags,
             issues: Vec::new(),
+            foreign_tags: Vec::new(),
             duration: "0:00".to_string(),
             format: "MP3".to_string(),
             art: None,

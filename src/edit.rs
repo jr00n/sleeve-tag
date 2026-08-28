@@ -101,7 +101,11 @@ impl Form {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Notice {
     /// Het opslaan is gelukt; de getoonde waarden komen uit het bestand.
-    Saved(String),
+    ///
+    /// Meer dan één regel, omdat er soms iets bij te melden valt: een tagblok
+    /// dat er niet in hoorde en bij deze schrijfactie is verdwenen, hoort de
+    /// gebruiker te zien en niet alleen in het logboek te staan.
+    Saved(Vec<String>),
 
     /// Er is niets geschreven, en het bestand is ongemoeid gebleven.
     Failed(Vec<String>),
@@ -116,7 +120,7 @@ impl Notice {
     /// De regels die getoond worden.
     pub fn lines(&self) -> Vec<String> {
         match self {
-            Notice::Saved(line) => vec![line.clone()],
+            Notice::Saved(lines) => lines.clone(),
             Notice::Failed(lines) => lines.clone(),
         }
     }
@@ -337,7 +341,7 @@ mod tests {
 
     #[test]
     fn a_notice_knows_what_it_is() {
-        let saved = Notice::Saved("Opgeslagen.".to_string());
+        let saved = Notice::Saved(vec!["Opgeslagen.".to_string()]);
         assert!(saved.is_saved());
         assert_eq!(saved.lines(), vec!["Opgeslagen.".to_string()]);
 
