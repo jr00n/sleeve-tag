@@ -35,5 +35,13 @@
   </span>
 </form>
 
+{# De ingang naar de albumweergave (FR-8). Alleen wanneer er iets te bewerken
+   valt: op een map met louter submappen is de knop een doodlopend spoor. #}
+{% if !listing.tracks.is_empty() %}
+<p class="mapacties">
+  <a class="knop" href="{{ listing.album_url }}">Meerdere bestanden bewerken</a>
+</p>
+{% endif %}
+
 <div id="maplijst">{% include "listing.html" %}</div>
 {% endblock %}

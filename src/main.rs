@@ -5,6 +5,7 @@
 
 mod art;
 mod atomic;
+mod batch;
 mod browse;
 mod checks;
 mod config;

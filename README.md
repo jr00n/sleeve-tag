@@ -167,6 +167,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
+| `batch` | De albumweergave: een selectie bestanden en wat de gedeelde velden ermee zouden doen |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
@@ -332,6 +333,35 @@ Er wordt bewust niet doorverwezen na het opslaan. Een herlaadactie stuurt
 hetzelfde formulier nog eens, en dat is ongevaarlijk: `tags::write` raakt het
 bestand niet aan wanneer er niets verandert. Dat scheelt een flash-mechanisme om
 de bevestiging te bewaren.
+
+### Albumweergave: een selectie in één keer zetten
+
+Bestand voor bestand corrigeren is te traag voor een heel album. "Meerdere
+bestanden bewerken" in de maplijst opent `/album/<pad>`: dezelfde bestanden,
+maar dan als tabel met een vinkje per rij en de vijf velden die een album deelt
+— albumartiest, album, jaar, genre en discnummer.
+
+Bij het openen is alles geselecteerd; met "Alles selecteren" en "Niets
+selecteren" is dat in één klik terug te zetten. De selectie, de ingevulde velden
+en de wissen-vinkjes zitten in één formulier en gaan samen mee met elk verzoek.
+Het aanpassen van de selectie laat de invoer dus staan, en andersom.
+
+Het invoerveld wordt **nooit voorgevuld** met de huidige waarde. Daardoor
+betekent leeg altijd hetzelfde: dit veld blijft in elk bestand zoals het is.
+Wissen is een aparte keuze, met een vinkje naast het veld. Wat er nú in de
+selectie staat, is als tekst onder het veld te lezen: één gedeelde waarde, leeg,
+of "verschillend" met de waarden die voorkomen. Onder het formulier staat per
+veld wat er bij het opslaan zou gebeuren.
+
+Er wordt op deze pagina **niets geschreven**, ook niet door de POST die de
+selectie bijwerkt: die bouwt de pagina alleen opnieuw op. Het wegschrijven gaat
+straks via een voorbeeldweergave die per bestand toont wat er verandert, zodat
+een batch-actie nooit zonder voorbeeld plaatsvindt. Een integratietest
+controleert dat de bestanden byte voor byte onaangeroerd blijven.
+
+De tabel is breder dan een telefoonscherm en scrollt daarom horizontaal binnen
+zijn eigen rand; de kolom met de bestandsnaam blijft daarbij staan, want zonder
+die naam is niet te zien wat je aanvinkt.
 
 ### Geavanceerde weergave: alle ruwe tags
 

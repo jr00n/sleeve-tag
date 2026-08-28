@@ -151,6 +151,10 @@ pub struct Listing {
     /// wijzen hiernaartoe.
     pub url: String,
 
+    /// URL van de albumweergave van deze map: dezelfde bestanden, maar dan om
+    /// er met een selectie tegelijk aan te werken (FR-8).
+    pub album_url: String,
+
     /// Van de bibliotheekwortel tot en met deze map.
     pub crumbs: Vec<Crumb>,
 
@@ -214,6 +218,7 @@ pub fn listing(library: &Library, relative: &str, query: &str) -> Result<Listing
         name: name_of(&path),
         crumbs: crumbs_for(&path),
         url: url_for(&path),
+        album_url: album_url(&path),
         path,
         folders,
         tracks,
@@ -355,6 +360,18 @@ fn url_for(path: &str) -> String {
         "/".to_string()
     } else {
         format!("/map/{}", encode(path))
+    }
+}
+
+/// De URL van de albumweergave van een map (FR-8).
+///
+/// De wortel heeft geen padsegment; die krijgt de kale route, net zoals de
+/// mapweergave daar `/` gebruikt.
+pub fn album_url(path: &str) -> String {
+    if path.is_empty() {
+        "/album".to_string()
+    } else {
+        format!("/album/{}", encode(path))
     }
 }
 

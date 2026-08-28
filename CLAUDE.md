@@ -29,6 +29,12 @@ de conventies vast waar code zich aan houdt.
   en `tags::` samen tot een weergavemodel; handlers renderen dat model en
   bevatten zelf geen sorteer-, filter- of opmaaklogica. Paden die naar de
   browser gaan zijn altijd relatief aan `MUSIC_ROOT`.
+- **De albumweergave (`batch::`) stelt alleen voor.** Ze krijgt een `Listing` en
+  een verstuurd formulier binnen, opent geen bestanden en schrijft niets. Wat
+  ermee gebeurt, beslist de gebruiker in de voorbeeldweergave; dat is de enige
+  route waarlangs een batch wordt weggeschreven. In een gedeeld veld betekent
+  leeg daar "ongemoeid laten" en niet "verwijderen" — het veld wordt nooit
+  voorgevuld, en wissen is een aparte, expliciete keuze.
 - **Schrijven is atomisch, en loopt via `atomic::replace`.** Naar een tijdelijk
   bestand in dezelfde map, hervalideren door opnieuw in te lezen, en pas dan
   hernoemen over het origineel. Bij een fout blijft het origineel onaangetast.

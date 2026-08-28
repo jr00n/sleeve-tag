@@ -540,3 +540,186 @@ a {
 .melding__regel + .melding__regel {
   margin-top: 0.35rem;
 }
+
+/* ── Albumweergave: selectie en gedeelde velden (FR-8) ─────────────────── */
+
+.mapacties {
+  margin: 0 0 1rem;
+}
+
+.batch {
+  display: flex;
+  flex-direction: column;
+  gap: 1.2rem;
+  margin-bottom: 2rem;
+}
+
+.batch__selectie {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem 1rem;
+}
+
+.batch__telling {
+  margin: 0;
+  color: var(--tekst-zacht);
+}
+
+.batch__knoppen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+/* De tabel is breder dan een telefoonscherm. Hij scrollt binnen deze rand en
+   niet met de hele pagina mee; `tabindex` maakt dat ook met het toetsenbord
+   mogelijk. */
+.tabelrand {
+  overflow-x: auto;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.tabelrand:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.batchtabel {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.batchtabel th,
+.batchtabel td {
+  padding: 0.55rem 0.7rem;
+  text-align: left;
+  border-bottom: 1px solid var(--rand);
+}
+
+.batchtabel tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.batchtabel th {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--tekst-zacht);
+}
+
+.batchtabel__rij--gekozen {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.batchtabel__nummer {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--tekst-zacht);
+}
+
+.batchtabel__kies {
+  /* De kolom staat stil terwijl de rest horizontaal scrollt: zonder de
+     bestandsnaam in beeld is niet te zien wat je aanvinkt. */
+  position: sticky;
+  left: 0;
+  background: var(--vlak);
+}
+
+.batchtabel__rij--gekozen .batchtabel__kies {
+  background: color-mix(in srgb, var(--accent) 10%, var(--vlak));
+}
+
+.batchtabel__titel {
+  color: var(--tekst);
+}
+
+.vinkje {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  cursor: pointer;
+}
+
+/* Ruim genoeg om op een telefoon met een duim te raken. */
+.vinkje__vakje {
+  width: 1.1rem;
+  height: 1.1rem;
+  flex: none;
+  accent-color: var(--accent);
+}
+
+.vinkje__tekst {
+  font-size: 0.85rem;
+}
+
+.gedeeld {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.gedeeld__kop {
+  padding: 0 0.4rem;
+  font-weight: 600;
+}
+
+.gedeeld__veld {
+  flex: 1 1 15rem;
+}
+
+.gedeeld__veld--verschillend .veld__label::after {
+  content: " · verschillend";
+  color: var(--waarschuwing);
+}
+
+.veld__hulp {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--tekst-zacht);
+}
+
+.veld__wissen {
+  margin-top: 0.2rem;
+}
+
+/* Een gewist veld is niet meer in te tikken, maar wordt wél meegestuurd; dat
+   het grijs is, laat zien dat de waarde er even niet toe doet. */
+.veld__invoer[readonly] {
+  color: var(--tekst-zacht);
+  background: var(--achtergrond);
+}
+
+.gevolg {
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--rand);
+  border-left: 3px solid var(--accent);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.gevolg__kop {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.gevolg__lijst {
+  margin: 0;
+  padding-left: 1.1rem;
+}
+
+.gevolg__regel {
+  margin: 0;
+}
+
+.gevolg .uitleg {
+  margin-bottom: 0;
+}

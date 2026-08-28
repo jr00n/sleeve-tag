@@ -168,20 +168,29 @@ fn value(raw: &str) -> Option<String> {
 
 /// Leest een getal uit een invoerveld en meldt het wanneer dat niet lukt.
 fn parse(raw: &str, label: &str, problems: &mut Vec<String>) -> Option<u32> {
-    let raw = raw.trim();
-    if raw.is_empty() {
-        return None;
-    }
-
-    match raw.parse::<u32>() {
-        Ok(number) => Some(number),
-        Err(_) => {
-            problems.push(format!(
-                "{label} moet een getal van 0 of hoger zijn; “{raw}” is dat niet."
-            ));
+    match parse_number(raw, label) {
+        Ok(number) => number,
+        Err(problem) => {
+            problems.push(problem);
             None
         }
     }
+}
+
+/// Leest een getal uit een invoerveld, of levert de melding erover.
+///
+/// Een leeg veld is geen fout maar een ontbrekende waarde. De melding staat
+/// hier en niet bij de aanroeper, zodat de albumweergave een verkeerd
+/// discnummer op precies dezelfde manier afkeurt als dit formulier.
+pub fn parse_number(raw: &str, label: &str) -> Result<Option<u32>, String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Ok(None);
+    }
+
+    raw.parse::<u32>()
+        .map(Some)
+        .map_err(|_| format!("{label} moet een getal van 0 of hoger zijn; “{raw}” is dat niet."))
 }
 
 #[cfg(test)]

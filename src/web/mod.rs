@@ -16,12 +16,13 @@ use axum::routing::get;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
+use crate::batch::AlbumPage;
 use crate::browse::{self, Crumb, Listing, THUMBNAIL_SIZE_PARAM};
 use crate::config::Config;
 use crate::edit::{EditPage, Notice};
 use crate::fs::{Library, PathError};
 use crate::tags::RawTags;
-use crate::{art, atomic, edit, tags};
+use crate::{art, atomic, batch, edit, tags};
 
 /// Gedeelde toestand van de webserver.
 ///
@@ -59,6 +60,9 @@ pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
         .route("/art/{*path}", get(art_of_file))
         .route("/tags/{*path}", get(raw_tags_of_file))
         .route("/bewerk/{*path}", get(edit_form).post(save_tags))
+        // De albumweergave hoort bij een map, dus ook de wortel heeft er een.
+        .route("/album", get(album_root).post(album_root_selection))
+        .route("/album/{*path}", get(album_page).post(album_selection))
         .route("/healthz", get(healthz))
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(TraceLayer::new_for_http())
@@ -125,13 +129,101 @@ async fn render_listing(
     // HTMX vraagt alleen het stuk op dat het vervangt. Elk ander verzoek — een
     // gedeelde link, een herlaadactie, een browser zonder JavaScript — krijgt de
     // hele pagina.
-    let html = if headers.contains_key("hx-request") {
+    let html = if is_htmx(headers) {
         ListingTemplate { listing }.render()?
     } else {
         DirectoryTemplate { listing }.render()?
     };
 
     Ok(Html(html))
+}
+
+/// De volledige albumpagina.
+#[derive(Template)]
+#[template(path = "album.html")]
+struct AlbumTemplate {
+    page: AlbumPage,
+}
+
+/// Alleen het formulier: de tabel, de gedeelde velden en wat er gebeurt.
+///
+/// HTMX vervangt hiermee het formulier zonder de pagina opnieuw op te bouwen;
+/// zonder JavaScript komt dezelfde inhoud als hele pagina terug.
+#[derive(Template)]
+#[template(path = "albumform.html")]
+struct AlbumFormTemplate {
+    page: AlbumPage,
+}
+
+/// De albumweergave van de wortel.
+async fn album_root(State(state): State<AppState>) -> Result<Html<String>, WebError> {
+    render_album(state, String::new(), batch::Form::select_all(), false).await
+}
+
+/// De albumweergave van een map onder de wortel (FR-8).
+///
+/// Bij het openen is alles geselecteerd: een album corrigeren begint vrijwel
+/// altijd bij het hele album.
+async fn album_page(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+) -> Result<Html<String>, WebError> {
+    render_album(state, path, batch::Form::select_all(), false).await
+}
+
+async fn album_root_selection(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    body: String,
+) -> Result<Html<String>, WebError> {
+    let form = batch::Form::parse(&body);
+    render_album(state, String::new(), form, is_htmx(&headers)).await
+}
+
+/// Neemt een gewijzigde selectie of invoer aan en toont het resultaat.
+///
+/// Er wordt hier niets geschreven. Deze POST bestaat om de pagina opnieuw op te
+/// bouwen met de selectie die de gebruiker net maakte: welke bestanden de
+/// gedeelde velden nu beschrijven, en wat er dus zou veranderen. Het
+/// wegschrijven zelf hoort bij de diff-preview, zodat een batch-wijziging nooit
+/// zonder voorbeeld plaatsvindt.
+async fn album_selection(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    headers: HeaderMap,
+    body: String,
+) -> Result<Html<String>, WebError> {
+    let form = batch::Form::parse(&body);
+    render_album(state, path, form, is_htmx(&headers)).await
+}
+
+async fn render_album(
+    state: AppState,
+    path: String,
+    form: batch::Form,
+    fragment: bool,
+) -> Result<Html<String>, WebError> {
+    let library = Arc::clone(&state.library);
+
+    // Net als de maplijst: elk bestand in de map wordt geopend om zijn tags te
+    // lezen, en dat hoort niet op de async-runtime.
+    let listing =
+        tokio::task::spawn_blocking(move || browse::listing(&library, &path, "")).await??;
+
+    let page = batch::album(&listing, &form);
+
+    let html = if fragment {
+        AlbumFormTemplate { page }.render()?
+    } else {
+        AlbumTemplate { page }.render()?
+    };
+
+    Ok(Html(html))
+}
+
+/// Of dit verzoek van HTMX komt en dus met een fragment toe kan.
+fn is_htmx(headers: &HeaderMap) -> bool {
+    headers.contains_key("hx-request")
 }
 
 /// De geavanceerde weergave: alles wat er ruw in één bestand staat (FR-7).

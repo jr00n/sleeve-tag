@@ -1,0 +1,142 @@
+{# De albumweergave: een selectie bestanden en de velden die ze delen (FR-8).
+
+   Dit is één formulier, en dat is met opzet: de selectie, de gedeelde velden en
+   de wissen-vinkjes gaan samen mee met elke POST, dus het bijwerken van het een
+   laat het ander staan.
+
+   Zonder JavaScript zijn de knoppen gewone submitknoppen en komt de hele pagina
+   terug. Met HTMX post een vinkje hetzelfde formulier en wordt alleen dit blok
+   vervangen; vandaar dat het zijn eigen `id` draagt en `outerHTML` wisselt. #}
+<form class="batch" id="album" method="post" action="{{ page.url }}"
+      hx-post="{{ page.url }}" hx-target="#album" hx-swap="outerHTML">
+
+  <div class="batch__selectie">
+    <p class="batch__telling" role="status">
+      {% if page.total == 0 %}
+      Deze map bevat geen bewerkbare bestanden.
+      {% else %}
+      {{ page.selected }} van {{ page.total }} bestanden geselecteerd.
+      {% endif %}
+    </p>
+
+    {% if page.total > 0 %}
+    <span class="batch__knoppen">
+      <button class="knop" type="submit" name="actie" value="alles">Alles selecteren</button>
+      <button class="knop" type="submit" name="actie" value="niets">Niets selecteren</button>
+    </span>
+    {% endif %}
+  </div>
+
+  {% if page.total > 0 %}
+  {# De tabel is breder dan een telefoon; hij scrollt binnen dit omhulsel en
+     niet met de hele pagina mee. #}
+  <div class="tabelrand" tabindex="0" role="region" aria-label="Bestanden in deze map">
+    <table class="batchtabel">
+      <thead>
+        <tr>
+          <th scope="col" class="batchtabel__kies">Kies</th>
+          <th scope="col">#</th>
+          <th scope="col">Titel</th>
+          <th scope="col">Artiest</th>
+          <th scope="col">Albumartiest</th>
+          <th scope="col">Album</th>
+          <th scope="col">Jaar</th>
+          <th scope="col">Genre</th>
+          <th scope="col">Disc</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in page.rows %}
+        <tr class="batchtabel__rij{% if row.selected %} batchtabel__rij--gekozen{% endif %}">
+          <td class="batchtabel__kies">
+            {# Het label is de bestandsnaam: op een telefoon is een vinkje van
+               een paar pixels geen doel, en zo is de hele cel aanklikbaar. #}
+            <label class="vinkje">
+              <input class="vinkje__vakje" type="checkbox" name="bestand"
+                     value="{{ row.name }}" {% if row.selected %}checked{% endif %}
+                     hx-post="{{ page.url }}" hx-include="closest form" />
+              <span class="vinkje__tekst">{{ row.name }}</span>
+            </label>
+          </td>
+          <td class="batchtabel__nummer">{{ row.track }}</td>
+          <td><a class="batchtabel__titel" href="{{ row.edit_url }}">{{ row.title }}</a></td>
+          <td>{{ row.artist }}</td>
+          <td>{{ row.album_artist }}</td>
+          <td>{{ row.album }}</td>
+          <td>{{ row.year }}</td>
+          <td>{{ row.genre }}</td>
+          <td class="batchtabel__nummer">{{ row.disc }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  {% if !page.problems.is_empty() %}
+  <div class="melding melding--fout" role="status">
+    {% for problem in page.problems %}
+    <p class="melding__regel">{{ problem }}</p>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <fieldset class="gedeeld">
+    <legend class="gedeeld__kop">Gedeelde velden</legend>
+
+    {% for field in page.fields %}
+    <div class="veld gedeeld__veld{% if field.current.is_different() %} gedeeld__veld--verschillend{% endif %}">
+      <label class="veld__label" for="gedeeld-{{ field.name }}">{{ field.label }}</label>
+
+      <input class="veld__invoer" id="gedeeld-{{ field.name }}" name="{{ field.name }}"
+             type="text" value="{{ field.value }}" autocomplete="off"
+             placeholder="{{ field.current.placeholder() }}"
+             aria-describedby="nu-{{ field.name }}"
+             {% if field.numeric %}inputmode="numeric"{% endif %}
+             {# `readonly` en niet `disabled`: een uitgeschakeld veld wordt niet
+                meegestuurd, en dan zou het uitzetten van het wissen-vinkje de
+                ingetikte waarde alsnog wegnemen. #}
+             {% if field.cleared %}readonly{% endif %} />
+
+      {# Wat er nu in de selectie staat. Niet als voorgevulde waarde, want dan
+         zou leeg soms "ongemoeid" en soms "overschrijven met hetzelfde"
+         betekenen; als tekst ernaast blijft leeg altijd leeg. #}
+      <p class="veld__hulp" id="nu-{{ field.name }}">{{ field.current.describe() }}</p>
+
+      <label class="vinkje veld__wissen">
+        <input class="vinkje__vakje" type="checkbox" name="{{ field.clear_name }}" value="aan"
+               {% if field.cleared %}checked{% endif %}
+               hx-post="{{ page.url }}" hx-include="closest form" />
+        <span class="vinkje__tekst">{{ field.label }} uit de selectie wissen</span>
+      </label>
+    </div>
+    {% endfor %}
+  </fieldset>
+
+  {# Wat er zou gebeuren, per veld. Zolang er nog niet geschreven wordt is dit
+     de enige plek waar het verschil tussen leeg laten en wissen te zien is; met
+     de voorbeeldweergave groeit het uit tot de diff per bestand. #}
+  <div class="gevolg">
+    <h2 class="gevolg__kop">Bij opslaan</h2>
+    {% if !page.has_selection() %}
+    <p class="gevolg__regel">Er is niets geselecteerd, dus er verandert niets.</p>
+    {% else if !page.changes_anything() %}
+    <p class="gevolg__regel">Er is nog niets ingevuld, dus er verandert niets.</p>
+    {% else %}
+    <ul class="gevolg__lijst">
+      {% for field in page.fields %}
+      <li class="gevolg__regel">{{ field.effect }}</li>
+      {% endfor %}
+    </ul>
+    {% endif %}
+
+    <p class="uitleg">
+      Opslaan gaat straks via een voorbeeldweergave die per bestand toont wat er
+      verandert; die komt in een volgende stap. Er is dus nog niets geschreven.
+    </p>
+  </div>
+  {% endif %}
+
+  <div class="knoppen">
+    <a class="knop" href="{{ page.back_url }}">Terug naar de map</a>
+  </div>
+</form>

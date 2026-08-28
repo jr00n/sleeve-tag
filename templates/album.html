@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page.name }} — albumweergave — Sleeve{% endblock %}
+
+{% block inhoud %}
+<nav class="kruimels" aria-label="Broodkruimelpad">
+  {% for crumb in page.crumbs %}
+  <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
+  <span class="kruimels__scheiding" aria-hidden="true">/</span>
+  {% endfor %}
+  <span class="kruimels__huidig" aria-current="page">Albumweergave</span>
+</nav>
+
+<h1 class="maptitel">{{ page.name }}</h1>
+
+{# Het enige gedrag dat een gebruiker hier kan verrassen: leeg is niet weg. Dat
+   staat er vóór het formulier, niet in een voetnoot eronder. #}
+<p class="uitleg">
+  Zet hier de velden die de geselecteerde bestanden delen. Een veld dat leeg
+  blijft, laat elk bestand houden wat het heeft; wissen doe je met het vinkje
+  ernaast. Titel en tracknummer horen bij één bestand en staan in de
+  <a href="{{ page.back_url }}">mapweergave</a>.
+</p>
+
+{% include "albumform.html" %}
+{% endblock %}

@@ -142,6 +142,19 @@ impl Server {
     /// De waarden worden percent-gecodeerd; zonder dat zou een spatie of een
     /// accent in een titel de body al onleesbaar maken.
     pub fn post_form(&self, path: &str, fields: &[(&str, &str)]) -> String {
+        self.post_form_with_headers(path, fields, &[])
+    }
+
+    /// Zoals [`Server::post_form`], met extra verzoekheaders.
+    ///
+    /// Nodig voor `HX-Request`: die header bepaalt of de server de hele pagina
+    /// of alleen het te vervangen fragment teruggeeft.
+    pub fn post_form_with_headers(
+        &self,
+        path: &str,
+        fields: &[(&str, &str)],
+        extra_headers: &[(&str, &str)],
+    ) -> String {
         let body = fields
             .iter()
             .map(|(name, value)| format!("{name}={}", form_encode(value)))
@@ -159,6 +172,11 @@ impl Server {
         let extra: String = headers
             .iter()
             .map(|(name, value)| format!("{name}: {value}\r\n"))
+            .chain(
+                extra_headers
+                    .iter()
+                    .map(|(name, value)| format!("{name}: {value}\r\n")),
+            )
             .collect();
 
         let request = format!(
