@@ -1,11 +1,11 @@
 ---
 id: TASK-24
 title: 'docker-compose.yml voor UGOS met volumes, env en healthcheck'
-status: In Progress
+status: Done
 assignee:
   - claude
 created_date: '2026-08-26 22:26'
-updated_date: '2026-08-28 19:32'
+updated_date: '2026-08-28 19:38'
 labels: []
 milestone: m-5
 dependencies:
@@ -46,7 +46,7 @@ Het pad is inmiddels bekend en tijdens de Dockerfile-taak in de praktijk gebruik
 - [x] #4 Alle omgevingsvariabelen uit het PRD staan in het bestand met de NAS-standaardwaarden, inclusief PUID=1000 en PGID=10
 - [x] #5 Er is een healthcheck gedefinieerd die /healthz gebruikt, zodat Docker een vastgelopen container herstart
 - [x] #6 Het bestand bevat commentaar dat uitlegt wat een UGOS-gebruiker moet aanpassen
-- [ ] #7 De UI is na het starten bereikbaar via http://<nas>:<port> en via Tailscale
+- [x] #7 De UI is na het starten bereikbaar via http://<nas>:<port> en via Tailscale
 <!-- AC:END -->
 
 ## Definition of Done
@@ -125,6 +125,8 @@ Op de NAS geverifieerd (2026-08-28), draaiend vanuit /volume2/Docker/sleeve-tag 
 De Tailscale-helft van AC #7 kan ik niet vaststellen: op de ontwikkelmachine staat geen Tailscale-client. Dat deel wacht op een controle door de eigenaar vanaf een apparaat op het tailnet.
 
 Onderweg twee dingen die in het geheugen zijn vastgelegd: `scp` naar deze NAS vereist `-O` (het SFTP-subsysteem is gechroot, waardoor een absoluut pad faalt met `remote mkdir: No such file or directory`), en de share heet `/volume1/Multimedia/Music` met hoofdletter — `.env.example` is daarop gecorrigeerd.
+
+AC #7 volledig: de eigenaar bevestigde op 2026-08-28 dat de UI ook via Tailscale bereikbaar is, naast de LAN-controle hierboven. Daarmee is de opstelling uit PRD §10.1 aangetoond: `docker compose up -d` op de UGREEN, UI bereikbaar op http://<nas>:8080 én via het tailnet.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
@@ -143,4 +145,6 @@ Onderweg twee dingen die in het geheugen zijn vastgelegd: `scp` naar deze NAS ve
 **Lokaal geverifieerd** met het amd64-image onder podman: `podman compose up -d` → status `healthy`, UI antwoordt 200, `--health` in de container geeft 0.
 
 **Open:** AC #7 — bereikbaar op de NAS en via Tailscale. Dat vraagt de UGREEN zelf; het image staat klaar om over te zetten.
+
+**Nagekomen:** AC #7 is op 2026-08-28 volledig aangetoond. Op de NAS meldt `docker compose ps` de container als `healthy`, de UI antwoordt vanaf het LAN met 200 en toont de echte mappen van de share, en de eigenaar bevestigde dat hij ook via Tailscale bereikbaar is.
 <!-- SECTION:FINAL_SUMMARY:END -->
