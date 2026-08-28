@@ -378,6 +378,7 @@ toevoeging: valt het weg, dan werkt elk formulier zoals het altijd deed.
 | **Bezig-weergave** | een knop die schrijft toont een spinner en neemt geen tweede klik meer aan |
 | **Een hoes neerslepen** | een JPEG of PNG op het uploadvak slepen vult het bestandsveld, met een miniatuur erbij |
 | **Idem op het hoesje** | op de bewerkpagina is het hoesje zelf ook een doel; daar verschijnt dan één knop, "In dit bestand zetten" |
+| **Idem voor een selectie** | in de voorbeeldweergave van een batch, voor de bestanden die je hebt aangevinkt |
 
 Slepen verandert niets aan wat er daarna gebeurt: de vinkjes en de knoppen
 bepalen nog steeds wat er met de afbeelding wordt gedaan, en er wordt niets
@@ -388,6 +389,15 @@ mislukte upload.
 Om die reden staat de uitnodiging om te slepen `hidden` in de template en haalt
 het script hem tevoorschijn: een hint die nergens toe leidt is erger dan geen
 hint.
+
+Een hoes voor een selectie hoort bij de **voorbeeldweergave** van een batch en
+niet bij de albumtabel zelf. Die tabel post zichzelf bij elk vinkje opnieuw; een
+afbeelding van megabytes zou dan bij iedere klik meereizen, en de server kan een
+bestandsveld daarna niet terugvullen. De voorbeeldstap leidt rechtstreeks naar
+het schrijven, dus daar gaat de afbeelding precies één keer over de lijn — en
+kan hij onderweg ook niet verdwijnen. Dat het voorbeeld tóch per bestand kan
+zeggen of een hoes wordt *toegevoegd* of *vervangen*, komt doordat dat volgt uit
+wat er nu in het bestand zit.
 
 Het hoesje op de bewerkpagina is een snelkoppeling naar de gewone route en geen
 tweede manier om te schrijven: het formulier eromheen post naar dezelfde

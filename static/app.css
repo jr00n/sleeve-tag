@@ -774,6 +774,38 @@ a.bestandskop__hoes {
   font-size: 0.85rem;
 }
 
+/* ── De hoes voor een selectie, in de voorbeeldweergave ────────────────── */
+
+.hoesbatch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin: 1.2rem 0;
+  padding: 0.9rem;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.hoesbatch.is-sleepdoel {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.hoesbatch__kop {
+  padding: 0 0.3rem;
+  font-weight: 600;
+}
+
+/* Wat een hoes met dit bestand zou doen; hoort bij de regel erboven en staat
+   daarom ingesprongen. */
+.voorbeeld__hoes {
+  margin: 0.3rem 0 0;
+  color: var(--tekst-zacht);
+  font-size: 0.85rem;
+}
+
 .hoesdoel__uitkomst--fout {
   border-color: var(--waarschuwing);
   background: color-mix(in srgb, var(--waarschuwing) 12%, transparent);

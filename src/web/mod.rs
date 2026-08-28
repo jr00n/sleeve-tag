@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Router;
-use axum::extract::{Form, Multipart, Path, Query, State};
+use axum::extract::{Form, FromRequest, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
@@ -191,7 +191,7 @@ struct AlbumPreviewFormTemplate {
 
 /// De albumweergave van de wortel.
 async fn album_root(State(state): State<AppState>) -> Result<Html<String>, WebError> {
-    render_album(state, String::new(), batch::Form::select_all(), false).await
+    render_album(state, String::new(), batch::Form::select_all(), None, false).await
 }
 
 /// De albumweergave van een map onder de wortel (FR-8).
@@ -202,7 +202,7 @@ async fn album_page(
     State(state): State<AppState>,
     Path(path): Path<String>,
 ) -> Result<Html<String>, WebError> {
-    render_album(state, path, batch::Form::select_all(), false).await
+    render_album(state, path, batch::Form::select_all(), None, false).await
 }
 
 async fn album_root_selection(
@@ -211,7 +211,7 @@ async fn album_root_selection(
     body: String,
 ) -> Result<Html<String>, WebError> {
     let form = batch::Form::parse(&body);
-    render_album(state, String::new(), form, is_htmx(&headers)).await
+    render_album(state, String::new(), form, None, is_htmx(&headers)).await
 }
 
 /// Neemt een gewijzigde selectie, invoer of knop aan en toont het resultaat.
@@ -224,17 +224,74 @@ async fn album_root_selection(
 async fn album_selection(
     State(state): State<AppState>,
     Path(path): Path<String>,
-    headers: HeaderMap,
-    body: String,
+    request: axum::extract::Request,
 ) -> Result<Html<String>, WebError> {
-    let form = batch::Form::parse(&body);
-    render_album(state, path, form, is_htmx(&headers)).await
+    let htmx = is_htmx(request.headers());
+    let (form, cover) = read_album_request(&state, request).await?;
+    render_album(state, path, form, cover, htmx).await
+}
+
+/// Leest het albumformulier, in welke vorm het ook binnenkomt.
+///
+/// Twee vormen, en dat is met opzet. Elk vinkje in de albumweergave post het
+/// hele formulier opnieuw; dat gaat urlencoded en blijft klein. Alleen de
+/// laatste stap — de voorbeeldweergave — mag een hoes meedragen, en die is
+/// daarom multipart. Zo reist een afbeelding van megabytes precies één keer,
+/// op het moment dat er ook werkelijk iets mee gebeurt.
+async fn read_album_request(
+    state: &AppState,
+    request: axum::extract::Request,
+) -> Result<(batch::Form, Option<Vec<u8>>), WebError> {
+    let is_multipart = request
+        .headers()
+        .get(header::CONTENT_TYPE)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| value.starts_with("multipart/form-data"));
+
+    if !is_multipart {
+        let bytes = axum::body::to_bytes(request.into_body(), usize::MAX)
+            .await
+            .map_err(|_| WebError::Unreadable)?;
+        let body = String::from_utf8_lossy(&bytes);
+
+        return Ok((batch::Form::parse(&body), None));
+    }
+
+    // De afwijzing van deze extractor is geen `MultipartError` maar een
+    // respons; hem als "onleesbaar" behandelen zegt hetzelfde en houdt de
+    // foutafhandeling op één plek.
+    let mut multipart = Multipart::from_request(request, state)
+        .await
+        .map_err(|_| WebError::Unreadable)?;
+
+    let mut pairs: Vec<(String, String)> = Vec::new();
+    let mut cover: Option<Vec<u8>> = None;
+
+    while let Some(field) = multipart.next_field().await.map_err(WebError::Upload)? {
+        let name = field.name().unwrap_or_default().to_string();
+
+        if name == "afbeelding" {
+            let bytes = field.bytes().await.map_err(WebError::Upload)?;
+            // Een leeg bestandsveld hoort niet als "een hoes" te tellen: dan is
+            // er simpelweg niets gekozen.
+            if !bytes.is_empty() {
+                cover = Some(bytes.to_vec());
+            }
+            continue;
+        }
+
+        let value = field.text().await.map_err(WebError::Upload)?;
+        pairs.push((name, value));
+    }
+
+    Ok((batch::Form::from_pairs(pairs), cover))
 }
 
 async fn render_album(
     state: AppState,
     path: String,
     form: batch::Form,
+    cover: Option<Vec<u8>>,
     fragment: bool,
 ) -> Result<Html<String>, WebError> {
     let listing = read_listing(&state, &path).await?;
@@ -243,12 +300,12 @@ async fn render_album(
         // De voorbeeldweergave: wat krijgt welk bestand (FR-11). Er wordt niets
         // geschreven; de knop om dat wél te doen staat pas op die pagina.
         batch::Action::Preview => {
-            let preview = batch::preview(&listing, &form);
+            let preview = describe_preview(&state, &listing, &form);
             render_preview(preview, fragment)
         }
 
         batch::Action::Save => {
-            let preview = batch::preview(&listing, &form);
+            let preview = describe_preview(&state, &listing, &form);
 
             // Een plan met een fout erin wordt niet half uitgevoerd: dan komt
             // het voorbeeld terug met wat eraan mankeert.
@@ -256,7 +313,27 @@ async fn render_album(
                 return render_preview(preview, fragment);
             }
 
-            let report = save_batch(&state, &listing, &form).await?;
+            // Een aangeleverde hoes wordt één keer klaargemaakt, niet per
+            // bestand: verkleinen en hercoderen is werk dat voor elk bestand
+            // hetzelfde uitpakt.
+            let prepared = match cover {
+                Some(bytes) => match art::prepare(&bytes, state.art_limits) {
+                    Ok(prepared) => Some(prepared),
+                    Err(error) => {
+                        // De afbeelding deugt niet: dan gaat er niets door, ook
+                        // de tags niet. Half uitvoeren van een plan dat niet
+                        // klopt is erger dan niets doen.
+                        let mut preview = preview;
+                        preview
+                            .problems
+                            .push(format!("De hoes deugt niet: {error}"));
+                        return render_preview(preview, fragment);
+                    }
+                },
+                None => None,
+            };
+
+            let report = save_batch(&state, &listing, &form, prepared.as_ref()).await?;
 
             // De waarden komen na afloop uit een verse leesronde: wat er nu op
             // het scherm staat, staat werkelijk in de bestanden. De invoer is
@@ -270,6 +347,32 @@ async fn render_album(
 
         _ => render_page(batch::album(&listing, &form), fragment),
     }
+}
+
+/// Bouwt de voorbeeldweergave en vult aan wat `batch::` niet kan weten.
+///
+/// De uploadgrens komt uit de configuratie en de losse hoes uit de map; `batch::`
+/// kent geen van beide, want die module opent geen bestanden en leest geen
+/// omgeving.
+fn describe_preview(
+    state: &AppState,
+    listing: &browse::Listing,
+    form: &batch::Form,
+) -> batch::Preview {
+    let mut preview = batch::preview(listing, form);
+    preview.max_upload_mb = state.art_limits.max_upload_mb;
+    preview.folder_cover = existing_folder_cover_in(state, listing);
+    preview
+}
+
+/// Wat er als losse hoes in deze map staat, met zijn omvang.
+fn existing_folder_cover_in(state: &AppState, listing: &browse::Listing) -> Option<String> {
+    let track = listing.tracks.first()?;
+    let absolute = state.library.resolve(&track.path).ok()?;
+    let cover = state.library.sibling(&absolute, cover::FOLDER_COVER).ok()?;
+    let bytes = std::fs::metadata(&cover).ok()?.len();
+
+    Some(format!("{} ({bytes} bytes)", cover::FOLDER_COVER))
 }
 
 /// Leest de map in met de tags van elk bestand.
@@ -314,22 +417,57 @@ async fn save_batch(
     state: &AppState,
     listing: &browse::Listing,
     form: &batch::Form,
+    cover: Option<&art::Prepared>,
 ) -> Result<batch::SaveReport, WebError> {
-    let plan = batch::intents(listing, form);
+    // Met een hoes erbij wordt élk aangevinkt bestand aangeraakt, ook een
+    // waarvan de tags al kloppen; zonder hoes blijft het plan wat het was.
+    let plan = if cover.is_some() {
+        batch::intents_with_selection(listing, form)
+    } else {
+        batch::intents(listing, form)
+    };
     let library = Arc::clone(&state.library);
     let options = state.write_options;
+    let embed = cover.map(|prepared| (prepared.mime.clone(), prepared.data.clone()));
 
-    let results = tokio::task::spawn_blocking(move || {
+    let results: Vec<batch::SaveResult> = tokio::task::spawn_blocking(move || {
         plan.into_iter()
             .map(|file| batch::SaveResult {
-                outcome: save_one(&library, options, &file),
+                outcome: save_one(&library, options, &file, embed.as_ref()),
                 name: file.name,
             })
             .collect()
     })
     .await?;
 
-    Ok(batch::SaveReport { results })
+    let mut report = batch::SaveReport { results };
+
+    // De losse hoes komt ná de bestanden en met een eigen regel: gaat dat mis,
+    // dan blijft staan wat er wél geschreven is (FR-14).
+    if let Some(prepared) = cover
+        && form.folder_cover
+    {
+        let anchor = first_track_path(listing);
+        if !anchor.is_empty() {
+            let result =
+                write_folder_cover(state, &anchor, prepared, form.overwrite_folder_cover).await?;
+            report.results.push(result);
+        }
+    }
+
+    Ok(report)
+}
+
+/// Het pad van een track in deze map, als anker voor de losse hoes.
+///
+/// `atomic::place` neemt eigenaar, groep en rechten over van een bestand dat er
+/// al staat; daar is één track voor nodig.
+fn first_track_path(listing: &browse::Listing) -> String {
+    listing
+        .tracks
+        .first()
+        .map(|track| track.path.clone())
+        .unwrap_or_default()
 }
 
 /// Werkt één bestand uit het plan bij.
@@ -337,6 +475,7 @@ fn save_one(
     library: &crate::fs::Library,
     options: crate::atomic::Options,
     file: &batch::FileIntent,
+    cover: Option<&(String, Vec<u8>)>,
 ) -> batch::Outcome {
     let outcome = || -> Result<batch::Outcome, String> {
         let absolute = library
@@ -347,17 +486,34 @@ fn save_one(
         let wanted = file.wanted(&current.tags)?;
         let changes = batch::changes_between(&current.tags, &wanted);
 
-        if changes.is_empty() {
-            return Ok(batch::Outcome::Unchanged);
+        let mut labels: Vec<String> = Vec::new();
+
+        if !changes.is_empty() {
+            let written =
+                tags::write(&absolute, &wanted, options).map_err(|error| error.to_string())?;
+
+            // Wat er is opgeruimd hoort in het rapport, achter de velden die de
+            // gebruiker zelf heeft gewijzigd.
+            labels.extend(changes.into_iter().map(|change| change.label));
+            labels.extend(written.removal_labels());
         }
 
-        let written =
-            tags::write(&absolute, &wanted, options).map_err(|error| error.to_string())?;
+        // De hoes gaat als tweede, in dezelfde ronde: zo staat er per bestand
+        // één regel met alles wat het gekregen heeft. Zit dezelfde hoes er al
+        // in, dan raakt `write_art` het bestand niet aan.
+        if let Some((mime, data)) = cover {
+            let written = tags::write_art(&absolute, Some((mime, data)), options)
+                .map_err(|error| error.to_string())?;
 
-        // Wat er is opgeruimd hoort in het rapport, achter de velden die de
-        // gebruiker zelf heeft gewijzigd.
-        let mut labels: Vec<String> = changes.into_iter().map(|change| change.label).collect();
-        labels.extend(written.removal_labels());
+            if written.changed {
+                labels.push("Hoes".to_string());
+                labels.extend(written.removal_labels());
+            }
+        }
+
+        if labels.is_empty() {
+            return Ok(batch::Outcome::Unchanged);
+        }
 
         Ok(batch::Outcome::Saved(labels))
     };
@@ -1037,6 +1193,13 @@ pub enum WebError {
 
     #[error("het formulier kon niet gelezen worden: {0}")]
     Upload(#[from] axum::extract::multipart::MultipartError),
+
+    /// De body van een gewoon formulier was niet te lezen.
+    ///
+    /// In de praktijk: een afgebroken verbinding of een body die de grens
+    /// overschrijdt. Er is dan niets gebeurd.
+    #[error("het formulier kon niet gelezen worden")]
+    Unreadable,
 }
 
 impl IntoResponse for WebError {
@@ -1089,6 +1252,16 @@ impl IntoResponse for WebError {
                 (
                     error.status(),
                     "De upload kon niet gelezen worden. Is de afbeelding misschien te groot?"
+                        .to_string(),
+                )
+                    .into_response()
+            }
+
+            WebError::Unreadable => {
+                tracing::warn!("het formulier kon niet gelezen worden");
+                (
+                    StatusCode::PAYLOAD_TOO_LARGE,
+                    "Het formulier kon niet gelezen worden. Is er iets te groots meegestuurd?"
                         .to_string(),
                 )
                     .into_response()

@@ -664,3 +664,175 @@ fn a_directory_outside_the_library_is_refused() {
         response.lines().next().unwrap_or_default()
     );
 }
+
+/// De bytes van een fixture-afbeelding.
+fn cover_bytes(name: &str) -> Vec<u8> {
+    std::fs::read(common::fixture_path(name)).expect("fixture moet leesbaar zijn")
+}
+
+/// Of dit bestand een embedded hoes heeft, gevraagd via de app zelf.
+fn has_cover(server: &Server, file: &str) -> bool {
+    let response = server.get_bytes(&format!("/art/Album/{file}"));
+    String::from_utf8_lossy(&response[..response.len().min(20)]).contains("200 OK")
+}
+
+#[test]
+fn the_preview_offers_a_cover_for_the_selection() {
+    // AC #1 en #2: de hoes hoort bij de selectie, en per bestand staat er wat
+    // hij zou doen — toevoegen of vervangen.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "voorbeeld"),
+            ("bestand", "een.mp3"),
+            ("album", "Een heel ander album"),
+        ],
+    );
+
+    assert_ok(&page);
+
+    // Het vak hoort er te staan, met het aantal erbij en de uploadgrens.
+    assert!(page.contains("Hoes voor deze 1 bestanden"), "{page}");
+    assert!(page.contains("data-neerzetvak"), "{page}");
+    assert!(page.contains(r#"name="afbeelding""#), "{page}");
+
+    // een.mp3 heeft geen hoes, dus toevoegen. twee.mp3 staat niet aangevinkt en
+    // hoort dus ook geen hoesregel te krijgen.
+    assert!(page.contains("hoes wordt toegevoegd"), "{page}");
+
+    let na_twee = page
+        .find("twee.mp3")
+        .map(|positie| page[positie..].to_string())
+        .expect("twee.mp3 hoort in het voorbeeld te staan");
+    assert!(
+        !na_twee.contains("hoes wordt"),
+        "een niet-aangevinkt bestand hoort geen hoesregel te krijgen:\n{na_twee}"
+    );
+
+    // De multipart-vorm is nodig om de afbeelding mee te kunnen sturen.
+    assert!(page.contains(r#"enctype="multipart/form-data""#), "{page}");
+}
+
+#[test]
+fn a_cover_lands_in_the_selected_files_only() {
+    // AC #4 en #5: de aangevinkte bestanden krijgen de hoes, de rest blijft
+    // onaangeraakt — ook al staan ze in dezelfde map.
+    let root = library_with_a_mixed_album();
+    let untouched = root.path().join("Album").join("twee.mp3");
+    let before = std::fs::read(&untouched).expect("fixture moet leesbaar zijn");
+
+    let server = Server::start_in(root, &[]);
+
+    let page = server.post_multipart(
+        "/album/Album",
+        &[("actie", "opslaan"), ("bestand", "een.mp3")],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    assert_ok(&page);
+    assert!(
+        page.contains("Hoes"),
+        "het rapport noemt de hoes niet:\n{page}"
+    );
+
+    assert!(
+        has_cover(&server, "een.mp3"),
+        "het aangevinkte bestand heeft geen hoes gekregen"
+    );
+    assert_eq!(
+        std::fs::read(&untouched).expect("lezen"),
+        before,
+        "een bestand dat niet aangevinkt stond, is toch aangeraakt"
+    );
+}
+
+#[test]
+fn a_cover_can_go_with_the_tag_changes_in_one_go() {
+    // Eén ronde, één rapport: de tags en de hoes staan samen bij het bestand.
+    let server = server();
+
+    let page = server.post_multipart(
+        "/album/Album",
+        &[
+            ("actie", "opslaan"),
+            ("bestand", "een.mp3"),
+            ("album", "Een heel ander album"),
+        ],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    assert_ok(&page);
+    assert!(page.contains("Album"), "{page}");
+    assert!(page.contains("Hoes"), "{page}");
+    assert!(has_cover(&server, "een.mp3"));
+}
+
+#[test]
+fn the_folder_cover_can_be_written_along() {
+    // AC #6: dezelfde keuze als op de hoespagina, met dezelfde standaard.
+    let root = library_with_a_mixed_album();
+    let album = root.path().join("Album");
+    let server = Server::start_in(root, &[]);
+
+    // Zonder het vinkje komt er niets in de map.
+    server.post_multipart(
+        "/album/Album",
+        &[("actie", "opslaan"), ("bestand", "een.mp3")],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+    assert!(
+        !album.join("cover.jpg").exists(),
+        "er is een bestand aangemaakt dat niemand vroeg"
+    );
+
+    // Met het vinkje wel.
+    let page = server.post_multipart(
+        "/album/Album",
+        &[
+            ("actie", "opslaan"),
+            ("bestand", "twee.mp3"),
+            ("mapbestand", "ja"),
+        ],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    assert_ok(&page);
+    assert!(
+        album.join("cover.jpg").exists(),
+        "de losse hoes ontbreekt:\n{page}"
+    );
+}
+
+#[test]
+fn a_batch_without_a_cover_behaves_exactly_as_before() {
+    // De hoes is een toevoeging: laat je het veld leeg, dan gebeurt er precies
+    // wat er in het voorbeeld stond en niets meer.
+    let root = library_with_a_mixed_album();
+    let track = root.path().join("Album").join("een.mp3");
+    let server = Server::start_in(root, &[]);
+
+    let page = server.post_multipart(
+        "/album/Album",
+        &[
+            ("actie", "opslaan"),
+            ("bestand", "een.mp3"),
+            ("album", "Een heel ander album"),
+        ],
+        None,
+    );
+
+    assert_ok(&page);
+    assert!(
+        !has_cover(&server, "een.mp3"),
+        "er is een hoes verschenen die niemand heeft meegestuurd"
+    );
+
+    // En de tagwijziging is er wel gewoon doorheen gekomen.
+    let bytes = std::fs::read(&track).expect("lezen");
+    let inhoud = String::from_utf8_lossy(&bytes);
+    assert!(
+        inhoud.contains("Een heel ander album"),
+        "de tagwijziging ontbreekt"
+    );
+}

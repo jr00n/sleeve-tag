@@ -7,7 +7,13 @@
 
    Annuleren is een gewone knop die het formulier terugbrengt; er is op dat
    moment nog niets geschreven. #}
+{# `multipart/form-data` omdat hier een hoes bij kan. Dat is met opzet alleen
+   hier: de albumweergave post zichzelf bij elk vinkje opnieuw, en een
+   afbeelding van megabytes hoort niet bij iedere klik mee te reizen. Deze stap
+   leidt rechtstreeks naar het schrijven, dus de afbeelding gaat precies één
+   keer over de lijn. #}
 <form class="batch" id="album" method="post" action="{{ preview.url }}"
+      enctype="multipart/form-data"
       hx-post="{{ preview.url }}" hx-target="#album" hx-swap="outerHTML">
 
   {% for field in preview.hidden %}
@@ -62,14 +68,69 @@
         {% endfor %}
       </ul>
       {% else %}
-      <p class="voorbeeld__geen">Blijft ongewijzigd; dit bestand wordt niet aangeraakt.</p>
+      {# "Wordt niet aangeraakt" mag alleen staan als dat ook waar is. Bij een
+         aangevinkt bestand hangt dat af van de hoes hieronder. #}
+      <p class="voorbeeld__geen">
+        {%- if file.selected -%}
+          Blijft ongewijzigd op de tags; wordt alleen aangeraakt als je hieronder een hoes kiest.
+        {%- else -%}
+          Blijft ongewijzigd; dit bestand wordt niet aangeraakt.
+        {%- endif -%}
+      </p>
+      {% endif %}
+
+      {# Wat een hoes hieronder met dit bestand zou doen. Alleen voor de
+         aangevinkte bestanden, en alleen als je er een kiest. #}
+      {% if let Some(effect) = file.art_effect() %}
+      <p class="voorbeeld__hoes">Kies je hieronder een hoes: {{ effect }}.</p>
       {% endif %}
     </li>
     {% endfor %}
   </ul>
 
+  {# De hoes voor de aangevinkte bestanden. Optioneel: laat je dit leeg, dan
+     gebeurt er precies wat er hierboven staat en niets meer. #}
+  {% if preview.selected() > 0 %}
+  <fieldset class="hoesbatch" data-neerzetvak data-max-mb="{{ preview.max_upload_mb }}">
+    <legend class="hoesbatch__kop">Hoes voor deze {{ preview.selected() }} bestanden</legend>
+
+    <p class="veld__hulp">
+      Optioneel. Kies je er een, dan komt dezelfde hoes in elk aangevinkt
+      bestand; per bestand staat hierboven of dat toevoegen of vervangen is.
+      Het bestand mag hoogstens {{ preview.max_upload_mb }} MB zijn.
+    </p>
+
+    <p class="neerzetvak__hint" data-neerzetvak-hint hidden>
+      Sleep een afbeelding hierheen, of kies er een:
+    </p>
+
+    <input class="veld__invoer" name="afbeelding" type="file"
+           accept="image/jpeg,image/png" />
+
+    <p class="neerzetvak__melding" data-neerzetvak-melding role="status" hidden></p>
+    <figure class="neerzetvak__gekozen" data-neerzetvak-gekozen hidden></figure>
+
+    <div class="veld">
+      <label class="vinkje">
+        <input class="vinkje__vakje" type="checkbox" name="mapbestand" value="ja" />
+        <span class="vinkje__tekst">Ook als cover.jpg in de albummap zetten</span>
+      </label>
+
+      {% if let Some(bestaand) = preview.folder_cover %}
+      {# Wat er al staat, gaat er niet ongevraagd overheen (FR-14). #}
+      <label class="vinkje">
+        <input class="vinkje__vakje" type="checkbox" name="overschrijf" value="ja" />
+        <span class="vinkje__tekst">De bestaande {{ bestaand }} vervangen</span>
+      </label>
+      {% endif %}
+    </div>
+  </fieldset>
+  {% endif %}
+
   <div class="knoppen">
-    {% if preview.problems.is_empty() && preview.changes_anything() %}
+    {# Ook zonder tagwijziging kan er iets te doen zijn: een hoes voor de
+       selectie. Vandaar dat de knop er staat zodra er iets is aangevinkt. #}
+    {% if preview.problems.is_empty() && (preview.changes_anything() || preview.selected() > 0) %}
     {# Alleen deze knop schrijft; "Annuleren" brengt het formulier terug en is
        meteen klaar, dus die krijgt geen bezig-weergave. #}
     <button class="knop knop--primair" type="submit" name="actie" value="opslaan"

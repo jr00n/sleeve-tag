@@ -59,6 +59,14 @@ de conventies vast waar code zich aan houdt.
   zijn geen gedeeld veld maar een override per bestand; die wint van wat de
   gedeelde velden voor datzelfde bestand zouden doen, en een fout in één rij
   houdt alleen die rij tegen.
+- **Een hoes reist alleen mee in de laatste stap.** De albumweergave post
+  zichzelf bij elk vinkje opnieuw; een bestandsveld daar zou de afbeelding bij
+  iedere klik opnieuw over de lijn sturen, en de server kan zo'n veld daarna
+  niet terugvullen. De hoes hoort daarom bij de voorbeeldweergave, de enige stap
+  die rechtstreeks naar het schrijven leidt. Dat de weergave dan toch kan zeggen
+  wat er per bestand gebeurt — toevoegen of vervangen — komt doordat dat uit de
+  huidige inhoud volgt en niet uit de nieuwe afbeelding. Alleen dat ene
+  formulier is `multipart`; al het andere blijft urlencoded en klein.
 - **Een hulpactie vult alleen invoervelden.** Hernummeren, artiest → albumartiest
   en hoofdletters normaliseren zetten een voorstel in het formulier en verder
   niets: geen bestand gaat open, geen tag wordt geschreven. Wat een actie

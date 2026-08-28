@@ -309,20 +309,45 @@ pub struct Form {
     /// Een bestand dat niets gekregen heeft, staat er niet in; wat er niet
     /// (meer) in de map staat, valt bij het opbouwen vanzelf af.
     overrides: BTreeMap<String, Override>,
+
+    /// Of de meegestuurde hoes ook als los bestand in de map moet komen.
+    ///
+    /// Dezelfde keuze als op de hoespagina, met dezelfde standaard: nee. De
+    /// afbeelding zelf zit niet in dit formulier — die reist apart mee, want
+    /// alleen de laatste stap draagt hem.
+    pub folder_cover: bool,
+
+    /// Of een bestaande losse hoes overschreven mag worden.
+    pub overwrite_folder_cover: bool,
 }
 
 impl Form {
     /// Leest een `application/x-www-form-urlencoded`-body.
     pub fn parse(body: &str) -> Form {
-        let mut form = Form::default();
-
-        for pair in body.split('&').filter(|pair| !pair.is_empty()) {
-            let (key, raw) = match pair.split_once('=') {
+        let pairs: Vec<(String, String)> = body
+            .split('&')
+            .filter(|pair| !pair.is_empty())
+            .map(|pair| match pair.split_once('=') {
                 Some((key, value)) => (decode(key), decode(value)),
                 None => (decode(pair), String::new()),
-            };
+            })
+            .collect();
 
+        Form::from_pairs(pairs)
+    }
+
+    /// Bouwt het formulier uit al gedecodeerde sleutel-waardeparen.
+    ///
+    /// Apart van [`Form::parse`] omdat dezelfde velden ook uit een
+    /// `multipart/form-data`-body kunnen komen: dat is de vorm die de
+    /// voorbeeldweergave gebruikt zodra er een hoes meegaat.
+    pub fn from_pairs(pairs: Vec<(String, String)>) -> Form {
+        let mut form = Form::default();
+
+        for (key, raw) in pairs {
             match key.as_str() {
+                "mapbestand" => form.folder_cover = true,
+                "overschrijf" => form.overwrite_folder_cover = true,
                 "actie" => form.action = Action::parse(&raw),
                 "bestand" => {
                     form.selected.insert(raw);
@@ -923,6 +948,35 @@ pub fn intents(listing: &Listing, form: &Form) -> Vec<FileIntent> {
         .collect()
 }
 
+/// Het plan, aangevuld met de aangevinkte bestanden die geen tagwijziging
+/// krijgen.
+///
+/// [`intents`] laat een bestand vallen zodra er niets aan zijn velden verandert
+/// — terecht, want dan valt er niets te schrijven. Gaat er een hoes mee, dan
+/// ligt dat anders: die geldt voor de hele selectie, ook voor een bestand
+/// waarvan de tags al kloppen. De volgorde van de map blijft behouden, zodat
+/// het rapport leest als de lijst op het scherm.
+pub fn intents_with_selection(listing: &Listing, form: &Form) -> Vec<FileIntent> {
+    let plan = intents(listing, form);
+    let selected = resolve_selection(listing, form);
+
+    listing
+        .tracks
+        .iter()
+        .filter(|track| selected.contains(&track.name))
+        .map(
+            |track| match plan.iter().find(|file| file.name == track.name) {
+                Some(intent) => intent.clone(),
+                None => FileIntent {
+                    name: track.name.clone(),
+                    path: track.path.clone(),
+                    fields: BTreeMap::new(),
+                },
+            },
+        )
+        .collect()
+}
+
 /// De velden die een batch kan aanraken, in de volgorde van de tabel.
 ///
 /// Afgeleid uit [`RowField`] en [`SharedField`], zodat er geen tweede lijst
@@ -1005,12 +1059,40 @@ pub struct FileDiff {
 
     /// Waarom dit bestand niet opgeslagen kan worden; leeg wanneer alles klopt.
     pub problem: Option<String>,
+
+    /// Of dit bestand aangevinkt stond.
+    ///
+    /// Bij de tags is dat af te leiden uit `changes`, maar een hoes geldt voor
+    /// de hele selectie — ook voor een bestand waaraan verder niets verandert.
+    pub selected: bool,
+
+    /// Wat er nu aan hoes in het bestand zit, kort beschreven; `None` als er
+    /// geen is.
+    ///
+    /// Genoeg om te weten of een meegestuurde hoes iets toevoegt of iets
+    /// vervangt, en wát er dan vervangen wordt.
+    pub art: Option<String>,
 }
 
 impl FileDiff {
     /// Of er aan dit bestand iets verandert.
     pub fn changes_anything(&self) -> bool {
         !self.changes.is_empty()
+    }
+
+    /// Wat een meegestuurde hoes met dit bestand zou doen.
+    ///
+    /// Alleen voor de aangevinkte bestanden, en alleen als tekst: deze module
+    /// opent geen bestanden en schrijft niets.
+    pub fn art_effect(&self) -> Option<String> {
+        if !self.selected {
+            return None;
+        }
+
+        Some(match &self.art {
+            Some(huidige) => format!("hoes wordt vervangen (nu {huidige})"),
+            None => "hoes wordt toegevoegd".to_string(),
+        })
     }
 }
 
@@ -1073,9 +1155,29 @@ pub struct Preview {
 
     /// Wat het opslaan tegenhoudt; leeg wanneer alles klopt.
     pub problems: Vec<String>,
+
+    /// De bovengrens aan een upload in megabytes, uit `MAX_UPLOAD_MB`.
+    ///
+    /// Deze pagina is de enige stap waarin een hoes meereist, dus ook de enige
+    /// die de grens nodig heeft om hem in de browser te kunnen afdwingen.
+    pub max_upload_mb: u32,
+
+    /// Wat er nu als losse hoes in de map staat; `None` als er geen is.
+    ///
+    /// Bepaalt of er om bevestiging gevraagd wordt voordat er iets overheen
+    /// gaat — dezelfde regel als op de hoespagina (FR-14).
+    pub folder_cover: Option<String>,
 }
 
 impl Preview {
+    /// Hoeveel bestanden er aangevinkt staan.
+    ///
+    /// Bepaalt of er iets te doen valt: ook zonder tagwijziging kan er een hoes
+    /// in die bestanden gezet worden, en dan hoort de opslaanknop er te staan.
+    pub fn selected(&self) -> usize {
+        self.files.iter().filter(|file| file.selected).count()
+    }
+
     /// Hoeveel bestanden er veranderen.
     pub fn changing(&self) -> usize {
         self.files
@@ -1119,6 +1221,7 @@ pub struct HiddenField {
 pub fn preview(listing: &Listing, form: &Form) -> Preview {
     let plan = intents(listing, form);
     let page = album(listing, form);
+    let chosen = resolve_selection(listing, form);
 
     let files: Vec<FileDiff> = listing
         .tracks
@@ -1139,6 +1242,14 @@ pub fn preview(listing: &Listing, form: &Form) -> Preview {
                 path: track.path.clone(),
                 changes,
                 problem,
+                selected: chosen.contains(&track.name),
+                // De beschrijving komt van `cover::`, want dat is de module die
+                // van een `ArtInfo` tekst maakt. Deze module opent zelf geen
+                // bestand en rekent niets aan pixels uit.
+                art: track.art.as_ref().map(|art| {
+                    let details = crate::cover::CoverDetails::of(art);
+                    format!("{} {}×{}", details.format, details.width, details.height)
+                }),
             }
         })
         .collect();
@@ -1163,6 +1274,10 @@ pub fn preview(listing: &Listing, form: &Form) -> Preview {
         files,
         hidden: hidden_fields(listing, form),
         problems,
+        // Worden door de webhandler ingevuld: die kent de configuratie en weet
+        // wat er in de map staat. Deze module opent geen bestanden.
+        max_upload_mb: 0,
+        folder_cover: None,
     }
 }
 
