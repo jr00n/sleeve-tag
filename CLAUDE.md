@@ -76,6 +76,17 @@ de conventies vast waar code zich aan houdt.
   schrijfactie die er zelf omheen gaat, heeft geen van die garanties. Eigenaar,
   groep en rechten van het origineel gaan mee; lukt dat niet, dan gaat de
   schrijfactie niet door.
+- **Een nieuw bestand aanmaken gaat via `atomic::place`.** Dat gebeurt op één
+  plek: de losse `cover.jpg` in de albummap. Dezelfde volgorde als bij
+  `replace` — tijdelijk bestand in dezelfde map, eigenaar, groep en rechten van
+  een track uit die map overnemen, en pas dan hernoemen. Over een bestand dat er
+  al staat gaat er niets heen zonder dat de aanroeper dat expliciet toestaat, en
+  identieke inhoud raakt het bestand niet aan. Het schrijven van die `cover.jpg`
+  gebeurt ná het embedden en met een eigen regel in het rapport: gaat het mis,
+  dan blijft wat er wél geschreven is gewoon staan. Het bestand heet altijd
+  `cover.jpg` en is altijd JPEG — één vaste naam vraagt om één vast formaat, dus
+  een PNG wordt daarvoor door `art::as_jpeg` gehaald terwijl het embedded
+  origineel PNG blijft.
 - **De signalering (`checks::`) constateert alleen.** Ze krijgt het
   genormaliseerde tagmodel binnen, opent geen bestanden en stelt geen correcties
   voor. Wat er met een gesignaleerd probleem gebeurt, beslist de gebruiker.

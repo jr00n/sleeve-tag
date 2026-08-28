@@ -166,7 +166,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
 | `art` | Album art decoderen, verkleinen en encoderen (de enige plek die pixels aanraakt) |
 | `checks` | Signalering van ontbrekende en onderling afwijkende tags; leest en schrijft niets |
-| `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken |
+| `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken, en als enige uitzondering een nieuw bestand neerzetten (`cover.jpg`) |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
 | `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand en de hulpacties |
@@ -461,6 +461,32 @@ bestand.
 Zit dezelfde hoes er al in, of valt er niets te verwijderen, dan wordt het
 bestand niet aangeraakt: een herschrijving die niets verandert is een
 ongevraagde wijziging.
+
+#### Ook als `cover.jpg` in de albummap
+
+Onder het uploadveld staat een vinkje **ook als `cover.jpg` in de albummap
+zetten**. Navidrome en vrijwel elke andere speler pakken dat bestand op, ook
+wanneer de embedded hoes ontbreekt of afwijkt. Dit is de enige plek waar Sleeve
+een nieuw bestand in de bibliotheek aanmaakt, en dus ook de enige plek met een
+vinkje: zonder dat vinkje komt er niets in de map bij.
+
+Wat de map in gaat is altijd JPEG en heet altijd `cover.jpg`. Eén vaste naam
+vraagt om één vast formaat, dus een geüploade PNG wordt hiervoor omgezet — het
+embedded origineel blijft ongewijzigd PNG. Een JPEG gaat ongewijzigd de map in.
+
+Staat er al een `cover.jpg`, dan zegt de pagina dat, met de omvang erbij, en
+komt er een tweede vinkje om hem te **vervangen**. Zonder dat tweede vinkje
+blijft het bestaande bestand staan en meldt het rapport waarom er niets gebeurd
+is. Die bevestiging moet vóór het versturen gegeven worden: na een POST is de
+bestandsinvoer van de browser leeg, dus een "weet je het zeker?"-scherm achteraf
+zou betekenen dat je de afbeelding opnieuw moet kiezen.
+
+Het schrijven loopt via `atomic::place`: naar een tijdelijk bestand in dezelfde
+map, met eigenaar, groep en rechten van de track ernaast, en pas dan hernoemen.
+Een afgebroken actie laat dus nooit een half bestand achter, en het resultaat
+past bij de rest van de share. Het gebeurt ná het embedden en krijgt een eigen
+regel in het rapport: gaat het schrijven van `cover.jpg` mis, dan blijft de hoes
+die al in de tracks staat gewoon staan.
 
 De feiten komen uit dezelfde leesronde als de tags: er wordt alleen de header van
 de afbeelding gelezen, niet de pixels. Dat is ook wat de maplijst gebruikt om te

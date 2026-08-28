@@ -92,6 +92,29 @@
       </p>
     </div>
 
+    {# FR-14: de losse hoes waar Navidrome en de meeste spelers naar kijken.
+       Een bestaande cover.jpg wordt alleen vervangen als dat er expliciet bij
+       aangevinkt wordt; die vraag hoort vóór het versturen, want daarna is de
+       bestandsinvoer leeg. #}
+    <div class="veld">
+      <label class="vinkje">
+        <input class="vinkje__vakje" type="checkbox" name="mapbestand" value="ja" />
+        <span class="vinkje__tekst">Ook als {{ page.folder_cover_name() }} in de albummap zetten</span>
+      </label>
+      <p class="veld__hulp">
+        Navidrome en vrijwel elke speler pakken dat bestand op. Wat de map in
+        gaat is altijd JPEG, ook wanneer er een PNG geëmbed wordt.
+      </p>
+
+      {% if let Some(folder) = page.folder_cover %}
+      <label class="vinkje">
+        <input class="vinkje__vakje" type="checkbox" name="overschrijf" value="ja" />
+        <span class="vinkje__tekst">De bestaande {{ folder.name }} vervangen</span>
+      </label>
+      <p class="veld__hulp">{{ folder.line() }}</p>
+      {% endif %}
+    </div>
+
     <div class="knoppen">
       <button class="knop knop--primair" type="submit" name="actie" value="embed-dit">
         Alleen dit bestand

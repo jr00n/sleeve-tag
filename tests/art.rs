@@ -469,6 +469,149 @@ fn the_cover_page_offers_the_upload_form() {
     assert!(page.contains("name=\"afbeelding\""), "{page}");
     assert!(page.contains("value=\"embed-dit\""), "{page}");
     assert!(page.contains("value=\"embed-alle\""), "{page}");
+    assert!(page.contains("name=\"mapbestand\""), "{page}");
     // Zonder hoes valt er niets te verwijderen.
     assert!(!page.contains("value=\"verwijder-dit\""), "{page}");
+    // Er staat nog geen losse hoes, dus er valt niets te bevestigen.
+    assert!(!page.contains("name=\"overschrijf\""), "{page}");
+}
+
+#[test]
+fn a_cover_can_also_be_written_as_a_file_in_the_folder() {
+    // AC #1, #4 en #6 van task-22: de losse hoes waar spelers naar kijken.
+    let root = library_with_and_without_art();
+    let album = root.path().join("Album");
+    let server = Server::start_in(root, &[]);
+
+    let page = server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit"), ("mapbestand", "ja")],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("Nieuw in de map gezet"), "{page}");
+
+    let written = std::fs::read(album.join("cover.jpg")).expect("cover.jpg moet er staan");
+    assert_eq!(
+        written,
+        cover_bytes("cover.jpg"),
+        "een JPEG hoort ongewijzigd de map in te gaan"
+    );
+
+    // En het embedden zelf is gewoon gebeurd.
+    let (mime, _) = embedded_cover(&server, "zonder-hoes.mp3");
+    assert_eq!(mime, "image/jpeg");
+
+    // Geen tijdelijk bestand blijven liggen.
+    let names: Vec<String> = std::fs::read_dir(&album)
+        .expect("albummap moet leesbaar zijn")
+        .map(|entry| {
+            entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .into_owned()
+        })
+        .filter(|name| name.starts_with('.'))
+        .collect();
+    assert!(names.is_empty(), "er bleef iets liggen: {names:?}");
+}
+
+#[test]
+fn a_png_becomes_a_jpeg_in_the_folder_but_stays_a_png_in_the_file() {
+    let root = library_with_and_without_art();
+    let album = root.path().join("Album");
+    let server = Server::start_in(root, &[]);
+
+    let png = cover_bytes("cover.png");
+    server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit"), ("mapbestand", "ja")],
+        Some(("afbeelding", "cover.png", &png)),
+    );
+
+    let written = std::fs::read(album.join("cover.jpg")).expect("cover.jpg moet er staan");
+    assert!(
+        written.starts_with(&[0xFF, 0xD8]),
+        "de losse hoes hoort JPEG te zijn"
+    );
+    assert_eq!(dimensions(&written), (FIXTURE_SIZE, FIXTURE_SIZE));
+
+    // De embedded hoes is het origineel en blijft PNG.
+    let (mime, body) = embedded_cover(&server, "zonder-hoes.mp3");
+    assert_eq!(mime, "image/png");
+    assert_eq!(body, png);
+}
+
+#[test]
+fn an_existing_folder_cover_is_only_replaced_after_confirmation() {
+    // AC #2 en #5: zonder vinkje blijft het bestand staan, en het embedden
+    // gaat gewoon door.
+    let root = library_with_and_without_art();
+    let album = root.path().join("Album");
+    std::fs::write(album.join("cover.jpg"), b"de hoes die er al stond")
+        .expect("cover.jpg moet te schrijven zijn");
+    let server = Server::start_in(root, &[]);
+
+    // De pagina zegt dat er al een bestand staat en vraagt om bevestiging.
+    let page = server.get("/hoes/Album/zonder-hoes.mp3");
+    assert!(page.contains("name=\"overschrijf\""), "{page}");
+    assert!(page.contains("Er staat al een cover.jpg"), "{page}");
+
+    let zonder = server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit"), ("mapbestand", "ja")],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    assert!(
+        zonder.contains("overschrijven was niet aangevinkt"),
+        "{zonder}"
+    );
+    assert_eq!(
+        std::fs::read(album.join("cover.jpg")).expect("lezen"),
+        b"de hoes die er al stond",
+        "het bestaande bestand is ongevraagd overschreven"
+    );
+    // Het embedden is er niet door tegengehouden.
+    let (mime, _) = embedded_cover(&server, "zonder-hoes.mp3");
+    assert_eq!(mime, "image/jpeg");
+
+    // Mét vinkje wél.
+    let met = server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[
+            ("actie", "embed-dit"),
+            ("mapbestand", "ja"),
+            ("overschrijf", "ja"),
+        ],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    assert!(met.contains("Vervangen in de map"), "{met}");
+    assert_eq!(
+        std::fs::read(album.join("cover.jpg")).expect("lezen"),
+        cover_bytes("cover.jpg")
+    );
+}
+
+#[test]
+fn without_the_checkbox_nothing_is_written_to_the_folder() {
+    // Niets ongevraagd: wie het vinkje laat staan, krijgt geen nieuw bestand
+    // in zijn bibliotheek.
+    let root = library_with_and_without_art();
+    let album = root.path().join("Album");
+    let server = Server::start_in(root, &[]);
+
+    server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit")],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    assert!(
+        !album.join("cover.jpg").exists(),
+        "er is een bestand aangemaakt dat niemand vroeg"
+    );
 }

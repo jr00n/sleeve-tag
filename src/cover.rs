@@ -17,6 +17,13 @@ use crate::batch::SaveReport;
 use crate::browse::Crumb;
 use crate::tags::ArtInfo;
 
+/// De naam van de losse hoes in de albummap (PRD FR-14).
+///
+/// Eén vaste naam, en dus ook één vast formaat: wat de map in gaat wordt JPEG,
+/// ook wanneer de embedded hoes een PNG is. Navidrome en vrijwel elke andere
+/// speler zoeken hierop.
+pub const FOLDER_COVER: &str = "cover.jpg";
+
 /// Alles wat de hoespagina van één bestand nodig heeft.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CoverPage {
@@ -48,6 +55,12 @@ pub struct CoverPage {
     /// Wat er over de hoes bekend is; `None` wanneer het bestand er geen heeft.
     pub details: Option<CoverDetails>,
 
+    /// Wat er nu als losse hoes in de map staat; `None` als er geen is.
+    ///
+    /// Bepaalt of de pagina om bevestiging vraagt: een bestand dat er al staat,
+    /// wordt niet ongevraagd overschreven (FR-14).
+    pub folder_cover: Option<FolderCover>,
+
     /// Wat er met een zojuist aangeleverde afbeelding gebeurd is; leeg zolang
     /// er niets is geüpload.
     pub notice: Option<Notice>,
@@ -67,9 +80,41 @@ impl CoverPage {
         self.tracks_in_folder > 1
     }
 
+    /// De naam die de losse hoes in de map krijgt.
+    pub fn folder_cover_name(&self) -> &'static str {
+        FOLDER_COVER
+    }
+
     /// Het opschrift van de knop die de hele map bedient.
     pub fn all_tracks_label(&self) -> String {
         format!("Alle {} tracks in deze map", self.tracks_in_folder)
+    }
+}
+
+/// De losse hoes die al in de albummap staat.
+///
+/// Alleen de feiten die de vraag "mag die eroverheen?" beantwoorden: welke naam
+/// het draagt en hoe groot het is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FolderCover {
+    pub name: String,
+    pub size: String,
+}
+
+impl FolderCover {
+    pub fn new(name: &str, bytes: usize) -> FolderCover {
+        FolderCover {
+            name: name.to_string(),
+            size: format_bytes(bytes),
+        }
+    }
+
+    /// De zin waarmee de pagina om bevestiging vraagt.
+    pub fn line(&self) -> String {
+        format!(
+            "Er staat al een {} in deze map ({}). Die wordt alleen vervangen als je dat hieronder aanvinkt.",
+            self.name, self.size
+        )
     }
 }
 

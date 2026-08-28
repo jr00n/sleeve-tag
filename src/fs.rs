@@ -121,6 +121,31 @@ impl Library {
         Ok(absolute)
     }
 
+    /// Het pad van een los bestand naast `absolute`, in dezelfde map.
+    ///
+    /// Anders dan [`Library::resolve`] mag het resultaat nog niet bestaan: dit
+    /// is het pad waar een `cover.jpg` **komt** te staan (FR-14). Daarom wordt
+    /// hier niet gecanonicaliseerd maar de map van `absolute` genomen — die is
+    /// al door `resolve` gegaan — en er een naam aan geplakt die geen
+    /// padcomponenten mag bevatten.
+    pub fn sibling(&self, absolute: &Path, name: &str) -> Result<PathBuf, PathError> {
+        // Een naam met een schuine streep of een `..` erin is geen naam maar
+        // een pad; die hoort hier niet binnen te komen.
+        let mut components = Path::new(name).components();
+        match (components.next(), components.next()) {
+            (Some(Component::Normal(_)), None) => {}
+            _ => return Err(PathError::OutsideLibrary),
+        }
+
+        let directory = absolute.parent().ok_or(PathError::OutsideLibrary)?;
+
+        if !directory.starts_with(&self.root) {
+            return Err(PathError::OutsideLibrary);
+        }
+
+        Ok(directory.join(name))
+    }
+
     /// Het pad zoals de UI het mag tonen: relatief aan de root.
     ///
     /// Voorkomt dat het absolute pad van de NAS in de interface of in een URL
@@ -284,6 +309,40 @@ mod tests {
 
         assert!(path.is_file());
         assert!(path.starts_with(library.root()));
+    }
+
+    #[test]
+    fn a_sibling_is_a_name_in_the_same_directory() {
+        // Het pad waar de losse cover.jpg komt te staan; dat bestaat nog niet,
+        // dus `resolve` kan het niet leveren.
+        let (_tempdir, library) = library_with_album();
+        let track = library
+            .resolve("Artiest/Album/tagged.mp3")
+            .expect("een bestaand bestand moet oplosbaar zijn");
+
+        let cover = library
+            .sibling(&track, "cover.jpg")
+            .expect("een naam naast het bestand moet mogen");
+
+        assert_eq!(cover, track.parent().expect("map").join("cover.jpg"));
+        assert!(!cover.exists());
+        assert!(cover.starts_with(library.root()));
+    }
+
+    #[test]
+    fn a_sibling_may_not_be_a_path() {
+        let (_tempdir, library) = library_with_album();
+        let track = library
+            .resolve("Artiest/Album/tagged.mp3")
+            .expect("een bestaand bestand moet oplosbaar zijn");
+
+        for name in ["../cover.jpg", "elders/cover.jpg", "/etc/passwd", "..", ""] {
+            assert_eq!(
+                library.sibling(&track, name),
+                Err(PathError::OutsideLibrary),
+                "{name} hoort geweigerd te worden"
+            );
+        }
     }
 
     #[test]

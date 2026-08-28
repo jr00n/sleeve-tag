@@ -195,6 +195,26 @@ pub fn prepare(data: &[u8], limits: Limits) -> Result<Prepared, ArtError> {
     })
 }
 
+/// Levert dezelfde afbeelding als JPEG (FR-14).
+///
+/// Bedoeld voor de losse `cover.jpg` naast de tracks: die heeft één vaste naam,
+/// en dan hoort er ook één vast formaat in te zitten. Staat er al JPEG in de
+/// bytes, dan komen ze **ongewijzigd** terug — hercoderen wat al goed is, kost
+/// alleen kwaliteit.
+///
+/// Een PNG wordt wél omgezet. Dat de doorzichtigheid daarbij sneuvelt is hier
+/// geen bezwaar: het embedded origineel blijft PNG, en dit bestand is de kopie
+/// voor spelers die alleen naar de map kijken.
+pub fn as_jpeg(data: &[u8], quality: u8) -> Result<Vec<u8>, ArtError> {
+    let format = image::guess_format(data).map_err(|_| ArtError::UnsupportedFormat)?;
+    if format == ImageFormat::Jpeg {
+        return Ok(data.to_vec());
+    }
+
+    let image = reader(data)?.decode().map_err(|_| ArtError::Undecodable)?;
+    encode_jpeg(&image, quality)
+}
+
 /// Of er werkelijk doorzichtige pixels in de afbeelding zitten.
 ///
 /// Zonder alfakanaal is het antwoord meteen nee; anders wordt er gekeken, want
@@ -466,6 +486,38 @@ mod tests {
             source.len(),
             prepared.data.len()
         );
+    }
+
+    #[test]
+    fn a_jpeg_comes_back_untouched_as_a_jpeg() {
+        // De losse cover.jpg heeft één vast formaat, maar hercoderen wat al
+        // JPEG is, kost alleen kwaliteit.
+        let source = image_of(300, 300, ImageFormat::Jpeg, false);
+
+        let jpeg = as_jpeg(&source, 85).expect("dit hoort te lukken");
+
+        assert_eq!(jpeg, source);
+    }
+
+    #[test]
+    fn a_png_is_converted_for_the_folder_cover() {
+        let source = image_of(300, 300, ImageFormat::Png, true);
+
+        let jpeg = as_jpeg(&source, 85).expect("dit hoort te lukken");
+
+        assert_eq!(
+            image::guess_format(&jpeg).expect("formaat moet te raden zijn"),
+            ImageFormat::Jpeg
+        );
+        assert_eq!(dimensions(&jpeg).expect("afmetingen"), (300, 300));
+    }
+
+    #[test]
+    fn something_that_is_not_an_image_gives_no_folder_cover() {
+        assert!(matches!(
+            as_jpeg(b"dit is gewoon tekst", 85),
+            Err(ArtError::UnsupportedFormat)
+        ));
     }
 
     #[test]

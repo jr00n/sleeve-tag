@@ -126,6 +126,110 @@ pub fn replace<E>(
     Ok(())
 }
 
+/// Of een bestaand bestand vervangen mag worden.
+///
+/// Er is bewust geen standaardwaarde: dit is de enige plek in Sleeve die een
+/// bestand overschrijft dat niet zelf is aangemaakt, en dan hoort de aanroeper
+/// die keuze uit te spreken.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Overwrite {
+    /// Staat er al iets, dan gebeurt er niets.
+    Refuse,
+
+    /// Vervang wat er staat; de gebruiker heeft dat bevestigd.
+    Allow,
+}
+
+/// Wat [`place`] met het bestand gedaan heeft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Placement {
+    /// Het bestand bestond nog niet en is aangemaakt.
+    Created,
+
+    /// Er stond al een bestand; dat is vervangen.
+    Replaced,
+
+    /// De inhoud stond er al precies zo in; het bestand is niet aangeraakt.
+    Unchanged,
+}
+
+/// Wat er mis kan gaan bij het neerzetten van een los bestand.
+#[derive(Debug, thiserror::Error)]
+pub enum PlaceError {
+    #[error("er staat al een bestand met deze naam")]
+    Exists,
+
+    #[error("het bestand kon niet weggeschreven worden")]
+    Filesystem(#[source] std::io::Error),
+
+    #[error("eigenaar en groep van de map konden niet overgenomen worden")]
+    Ownership(#[source] std::io::Error),
+}
+
+/// Zet `contents` als los bestand op `path`, atomisch.
+///
+/// De tegenhanger van [`replace`]: die verandert de inhoud van een bestand dat
+/// er al is, deze maakt er een. Het is de enige plek waar Sleeve een nieuw
+/// bestand in de bibliotheek aanmaakt (PRD FR-14, de losse `cover.jpg`), en de
+/// volgorde is dezelfde: eerst een tijdelijk bestand in dezelfde map, dan
+/// eigenaar, groep en rechten zetten, en pas dan hernoemen. Wordt het proces
+/// halverwege afgebroken, dan staat er nooit een half bestand op `path`.
+///
+/// `model` is een bestand uit dezelfde map waarvan eigenaar, groep en rechten
+/// worden overgenomen — in de praktijk een van de tracks. Zonder die stap zou
+/// het nieuwe bestand de uid van het proces dragen en niet die van de share.
+/// Lukt het overnemen niet, dan wordt er niets neergezet.
+///
+/// Staat de gevraagde inhoud er al byte-voor-byte in, dan gebeurt er niets:
+/// dezelfde regel als bij het schrijven van tags.
+pub fn place(
+    path: &Path,
+    contents: &[u8],
+    model: &Path,
+    overwrite: Overwrite,
+) -> Result<Placement, PlaceError> {
+    let existing = match std::fs::read(path) {
+        Ok(existing) => Some(existing),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(PlaceError::Filesystem(error)),
+    };
+
+    if let Some(existing) = &existing {
+        if overwrite == Overwrite::Refuse {
+            return Err(PlaceError::Exists);
+        }
+
+        if existing == contents {
+            return Ok(Placement::Unchanged);
+        }
+    }
+
+    let reference = std::fs::metadata(model).map_err(PlaceError::Filesystem)?;
+
+    let temp = TempFile::beside(path).map_err(PlaceError::Filesystem)?;
+    std::fs::write(temp.path(), contents).map_err(PlaceError::Filesystem)?;
+
+    inherit_metadata::<std::io::Error>(&reference, temp.path()).map_err(|error| match error {
+        WriteError::Ownership(error) => PlaceError::Ownership(error),
+        WriteError::Filesystem(error) => PlaceError::Filesystem(error),
+        // `inherit_metadata` geeft alleen deze twee; de varianten van de
+        // aanroeper kunnen hier niet uit komen.
+        other => PlaceError::Filesystem(std::io::Error::other(other.to_string())),
+    })?;
+
+    std::fs::rename(temp.path(), path).map_err(PlaceError::Filesystem)?;
+    temp.keep();
+
+    let placement = if existing.is_some() {
+        Placement::Replaced
+    } else {
+        Placement::Created
+    };
+
+    tracing::info!(path = %path.display(), ?placement, "los bestand neergezet");
+    Ok(placement)
+}
+
 /// Zet eigenaar, groep en rechten van het origineel op het nieuwe bestand.
 ///
 /// Het tijdelijke bestand is door dit proces gemaakt en draagt dus de uid en gid
@@ -665,6 +769,120 @@ mod tests {
             log.contains("origineel is niet aangeraakt"),
             "de log zegt niet dat het origineel heel is:\n{log}"
         );
+    }
+
+    /// Het beeldbestand zoals `place` het neerzet.
+    const COVER: &[u8] = b"dit stelt een JPEG voor";
+
+    #[test]
+    fn a_new_file_is_created_next_to_the_model() {
+        let (tempdir, model) = file_in_a_directory();
+        let target = tempdir.path().join("cover.jpg");
+
+        let placement =
+            place(&target, COVER, &model, Overwrite::Refuse).expect("neerzetten moet lukken");
+
+        assert_eq!(placement, Placement::Created);
+        assert_eq!(std::fs::read(&target).expect("lezen"), COVER);
+        assert_eq!(
+            names_in(tempdir.path()),
+            vec!["cover.jpg", "track.mp3"],
+            "er hoort geen tijdelijk bestand te blijven liggen"
+        );
+    }
+
+    #[test]
+    fn an_existing_file_is_left_alone_without_permission() {
+        // De kern van FR-14: overschrijven is een bewuste keuze van de
+        // gebruiker en nooit een bijwerking.
+        let (tempdir, model) = file_in_a_directory();
+        let target = tempdir.path().join("cover.jpg");
+        std::fs::write(&target, b"de hoes die er al stond").expect("schrijven");
+
+        let error = place(&target, COVER, &model, Overwrite::Refuse)
+            .expect_err("zonder toestemming hoort dit te weigeren");
+
+        assert!(matches!(error, PlaceError::Exists));
+        assert_eq!(
+            std::fs::read(&target).expect("lezen"),
+            b"de hoes die er al stond"
+        );
+    }
+
+    #[test]
+    fn an_existing_file_is_replaced_with_permission() {
+        let (tempdir, model) = file_in_a_directory();
+        let target = tempdir.path().join("cover.jpg");
+        std::fs::write(&target, b"de hoes die er al stond").expect("schrijven");
+
+        let placement =
+            place(&target, COVER, &model, Overwrite::Allow).expect("neerzetten moet lukken");
+
+        assert_eq!(placement, Placement::Replaced);
+        assert_eq!(std::fs::read(&target).expect("lezen"), COVER);
+        assert_eq!(names_in(tempdir.path()), vec!["cover.jpg", "track.mp3"]);
+    }
+
+    #[test]
+    fn the_same_content_does_not_touch_the_file() {
+        let (tempdir, model) = file_in_a_directory();
+        let target = tempdir.path().join("cover.jpg");
+        std::fs::write(&target, COVER).expect("schrijven");
+
+        let before = std::fs::metadata(&target)
+            .expect("metadata")
+            .modified()
+            .ok();
+
+        let placement =
+            place(&target, COVER, &model, Overwrite::Allow).expect("neerzetten moet lukken");
+
+        assert_eq!(placement, Placement::Unchanged);
+        assert_eq!(
+            std::fs::metadata(&target)
+                .expect("metadata")
+                .modified()
+                .ok(),
+            before,
+            "het bestand is aangeraakt terwijl er niets veranderde"
+        );
+    }
+
+    #[test]
+    fn the_new_file_inherits_the_permissions_of_the_model() {
+        // AC #3: de losse hoes hoort bij de rest van de map te passen.
+        let (tempdir, model) = file_in_a_directory();
+        std::fs::set_permissions(&model, std::fs::Permissions::from_mode(0o640))
+            .expect("rechten moeten te zetten zijn");
+
+        let target = tempdir.path().join("cover.jpg");
+        place(&target, COVER, &model, Overwrite::Refuse).expect("neerzetten moet lukken");
+
+        assert_eq!(
+            std::fs::metadata(&target)
+                .expect("metadata")
+                .permissions()
+                .mode()
+                & 0o777,
+            0o640
+        );
+    }
+
+    #[test]
+    fn a_model_that_is_gone_stops_the_write() {
+        let (tempdir, _model) = file_in_a_directory();
+        let target = tempdir.path().join("cover.jpg");
+
+        let error = place(
+            &target,
+            COVER,
+            &tempdir.path().join("bestaat-niet.mp3"),
+            Overwrite::Refuse,
+        )
+        .expect_err("zonder voorbeeld hoort er niets geschreven te worden");
+
+        assert!(matches!(error, PlaceError::Filesystem(_)));
+        assert!(!target.exists(), "er staat een bestand dat er niet hoort");
     }
 
     #[test]

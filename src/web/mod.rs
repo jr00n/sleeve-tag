@@ -446,7 +446,7 @@ async fn load_cover(
     let library = Arc::clone(&state.library);
     let wanted = path.to_string();
 
-    let (track, tracks_in_folder) = tokio::task::spawn_blocking(move || {
+    let (track, tracks_in_folder, folder_cover) = tokio::task::spawn_blocking(move || {
         let absolute = library.resolve(&wanted)?;
         let track = tags::read(&absolute).map_err(WebError::from)?;
 
@@ -455,7 +455,7 @@ async fn load_cover(
             .map(|contents| contents.files.len())
             .unwrap_or(1);
 
-        Ok::<_, WebError>((track, siblings))
+        Ok::<_, WebError>((track, siblings, existing_folder_cover(&library, &absolute)))
     })
     .await??;
 
@@ -468,9 +468,27 @@ async fn load_cover(
         back_url: browse::url_for(browse::parent_of(path)),
         tracks_in_folder,
         details: track.art.as_ref().map(CoverDetails::of),
+        folder_cover,
         notice,
         report,
     })
+}
+
+/// De losse hoes die al naast dit bestand staat, als die er is.
+///
+/// Alleen om de gebruiker te laten zien waar hij ja tegen zegt; het bestand
+/// wordt niet geopend voor zijn inhoud, alleen voor zijn omvang.
+fn existing_folder_cover(
+    library: &Library,
+    absolute: &std::path::Path,
+) -> Option<cover::FolderCover> {
+    let path = library.sibling(absolute, cover::FOLDER_COVER).ok()?;
+    let size = std::fs::metadata(&path)
+        .ok()
+        .filter(|meta| meta.is_file())?
+        .len();
+
+    Some(cover::FolderCover::new(cover::FOLDER_COVER, size as usize))
 }
 
 /// Wat er met de hoes moet gebeuren, en waar.
@@ -481,6 +499,16 @@ struct CoverForm {
 
     /// De aangeleverde bytes; leeg bij een verwijderactie.
     upload: Vec<u8>,
+
+    /// Of de hoes ook als los bestand in de map moet komen (FR-14).
+    as_file: bool,
+
+    /// Of een bestaande `cover.jpg` vervangen mag worden.
+    ///
+    /// Die bevestiging moet vóór het versturen gegeven worden: na een POST is
+    /// de bestandsinvoer van de browser leeg, dus een tweede ronde waarin de
+    /// gebruiker alsnog ja zegt bestaat hier niet.
+    overwrite: bool,
 }
 
 impl CoverForm {
@@ -534,7 +562,17 @@ async fn save_cover(
         }
     };
 
-    let report = write_cover(&state, &path, form.whole_folder(), prepared.as_ref()).await?;
+    let mut report = write_cover(&state, &path, form.whole_folder(), prepared.as_ref()).await?;
+
+    // Pas ná het embedden, en met een eigen regel in hetzelfde rapport: gaat
+    // dit mis, dan blijft wat er wél geschreven is gewoon staan (FR-14).
+    if let Some(prepared) = prepared.as_ref()
+        && form.as_file
+    {
+        let result = write_folder_cover(&state, &path, prepared, form.overwrite).await?;
+        report.results.push(result);
+    }
+
     let notice = prepared.as_ref().map(cover::Notice::accepted);
 
     let page = load_cover(&state, &path, notice, Some(report)).await?;
@@ -549,6 +587,16 @@ async fn read_cover_form(mut multipart: Multipart) -> Result<CoverForm, WebError
         match field.name() {
             Some("actie") => form.action = field.text().await?,
             Some("afbeelding") => form.upload = field.bytes().await?.to_vec(),
+            // Een vinkje komt alleen mee wanneer het aan staat; de waarde zelf
+            // doet er niet toe.
+            Some("mapbestand") => {
+                let _ = field.bytes().await?;
+                form.as_file = true;
+            }
+            Some("overschrijf") => {
+                let _ = field.bytes().await?;
+                form.overwrite = true;
+            }
             // Een onbekend veld hoort de rest niet tegen te houden, maar moet
             // wel uitgelezen worden om bij het volgende te komen.
             _ => {
@@ -636,6 +684,68 @@ fn write_one_cover(
             batch::Outcome::Failed(error.to_string())
         }
     }
+}
+
+/// Zet de hoes ook als `cover.jpg` in de albummap (FR-14).
+///
+/// Dit is de enige plek waar Sleeve een nieuw bestand in de bibliotheek
+/// aanmaakt. Het loopt daarom langs [`atomic::place`]: atomisch, met eigenaar,
+/// groep en rechten van de track ernaast, en alleen over een bestaand bestand
+/// heen wanneer de gebruiker dat heeft aangevinkt.
+///
+/// De uitkomst komt als gewone regel in het rapport terug; een fout hier laat
+/// het geslaagde embedden onaangetast.
+async fn write_folder_cover(
+    state: &AppState,
+    path: &str,
+    prepared: &art::Prepared,
+    overwrite: bool,
+) -> Result<batch::SaveResult, WebError> {
+    let library = Arc::clone(&state.library);
+    let quality = state.art_limits.quality;
+    let data = prepared.data.clone();
+    let wanted = path.to_string();
+
+    let outcome = tokio::task::spawn_blocking(move || {
+        let track = library.resolve(&wanted)?;
+        let target = library.sibling(&track, cover::FOLDER_COVER)?;
+
+        // Eén vaste naam, dus ook één vast formaat; een PNG wordt hier JPEG.
+        let jpeg = match art::as_jpeg(&data, quality) {
+            Ok(jpeg) => jpeg,
+            Err(error) => return Ok(batch::Outcome::Failed(format!("{error}."))),
+        };
+
+        let permission = if overwrite {
+            atomic::Overwrite::Allow
+        } else {
+            atomic::Overwrite::Refuse
+        };
+
+        Ok::<_, PathError>(match atomic::place(&target, &jpeg, &track, permission) {
+            Ok(atomic::Placement::Created) => {
+                batch::Outcome::Saved(vec!["Nieuw in de map gezet".to_string()])
+            }
+            Ok(atomic::Placement::Replaced) => {
+                batch::Outcome::Saved(vec!["Vervangen in de map".to_string()])
+            }
+            Ok(atomic::Placement::Unchanged) => batch::Outcome::Unchanged,
+            Err(atomic::PlaceError::Exists) => batch::Outcome::Failed(
+                "er stond al een cover.jpg in de map en overschrijven was niet aangevinkt."
+                    .to_string(),
+            ),
+            Err(error) => {
+                tracing::error!(path = %target.display(), %error, "cover.jpg kon niet weggeschreven worden");
+                batch::Outcome::Failed(format!("{error}."))
+            }
+        })
+    })
+    .await??;
+
+    Ok(batch::SaveResult {
+        name: cover::FOLDER_COVER.to_string(),
+        outcome,
+    })
 }
 
 /// Het bewerkformulier van één bestand (FR-5 en FR-6).
