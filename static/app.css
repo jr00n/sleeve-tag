@@ -602,6 +602,49 @@ a.bestandskop__hoes {
   outline-offset: 2px;
 }
 
+/* ── Bezig met schrijven ───────────────────────────────────────────────────
+   Een tagwijziging in een FLAC van enkele gigabytes duurt minuten: het hele
+   bestand wordt eerst gekopieerd. Zolang dat loopt hoort de knop te laten zien
+   dat er gewerkt wordt, en geen tweede klik meer aan te nemen. */
+
+.knop[disabled] {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.knop__spinner {
+  display: inline-block;
+  width: 0.85em;
+  height: 0.85em;
+  margin-right: 0.5em;
+  vertical-align: -0.1em;
+  border: 2px solid currentColor;
+  /* Eén doorzichtige rand maakt van de ring een draaiend boogje. */
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: draai 0.7s linear infinite;
+}
+
+@keyframes draai {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Wie beweging heeft uitgezet, krijgt een stilstaand boogje: nog steeds
+   zichtbaar anders dan een gewone knop, maar zonder de animatie. */
+@media (prefers-reduced-motion: reduce) {
+  .knop__spinner {
+    animation: none;
+  }
+}
+
+.bezigmelding {
+  margin: 0.8rem 0 0;
+  color: var(--tekst-zacht);
+  font-size: 0.9rem;
+}
+
 /* ── Meldingen boven het formulier ─────────────────────────────────────── */
 
 .melding {

@@ -324,6 +324,19 @@ over te laten:
 5. Bij `BACKUP_ON_WRITE=true` komt er een `<naam>.bak` naast te staan, met de
    inhoud van vóór deze schrijfactie. Standaard staat dat uit, om de share niet
    te vervuilen.
+
+### Waarom een groot bestand minuten kost
+
+Stap 1 kopieert het volledige bestand. Bij een album van 30 losse tracks merk je
+daar niets van, maar een 2LP-rip als één FLAC van enkele gigabytes is een paar
+minuten bezig — en dat is de prijs van de garantie dat het origineel nooit
+halverwege kapot is. Komt daar een FLAC zonder `PADDING`-blok bij, dan moet ook
+de tagschrijver de hele stream herschrijven; dat blok wordt daarna toegevoegd,
+dus een tweede bewerking van hetzelfde bestand is sneller.
+
+Zolang zo'n schrijfactie loopt, toont de knop een spinner en neemt het formulier
+geen tweede klik meer aan (`static/app.js`). Zonder JavaScript werkt alles
+gewoon — dan blijft alleen de bezig-weergave achterwege.
 6. Pas dan wordt het tijdelijke bestand over het origineel hernoemd.
 
 Gaat er onderweg iets mis — ook bij een paniek — dan blijft het origineel

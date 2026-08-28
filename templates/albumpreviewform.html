@@ -70,7 +70,10 @@
 
   <div class="knoppen">
     {% if preview.problems.is_empty() && preview.changes_anything() %}
-    <button class="knop knop--primair" type="submit" name="actie" value="opslaan">Definitief opslaan</button>
+    {# Alleen deze knop schrijft; "Annuleren" brengt het formulier terug en is
+       meteen klaar, dus die krijgt geen bezig-weergave. #}
+    <button class="knop knop--primair" type="submit" name="actie" value="opslaan"
+            data-bezig="Bezig met opslaan…">Definitief opslaan</button>
     {% endif %}
     <button class="knop" type="submit" name="actie" value="terug">Annuleren</button>
     <a class="knop" href="{{ preview.back_url }}">Terug naar de map</a>

@@ -116,11 +116,16 @@
     </div>
 
     <div class="knoppen">
-      <button class="knop knop--primair" type="submit" name="actie" value="embed-dit">
+      {# `data-bezig`: deze knoppen schrijven, en dat duurt bij een groot
+         bestand minuten. De knopwaarde gaat gewoon mee — het uitschakelen
+         gebeurt pas nadat de browser het verzoek heeft samengesteld. #}
+      <button class="knop knop--primair" type="submit" name="actie" value="embed-dit"
+              data-bezig="Bezig met embedden…">
         Alleen dit bestand
       </button>
       {% if page.has_siblings() %}
-      <button class="knop" type="submit" name="actie" value="embed-alle">
+      <button class="knop" type="submit" name="actie" value="embed-alle"
+              data-bezig="Bezig met embedden…">
         {{ page.all_tracks_label() }}
       </button>
       {% endif %}
@@ -135,11 +140,13 @@
     </p>
 
     <div class="knoppen">
-      <button class="knop" type="submit" name="actie" value="verwijder-dit">
+      <button class="knop" type="submit" name="actie" value="verwijder-dit"
+              data-bezig="Bezig met verwijderen…">
         Uit dit bestand
       </button>
       {% if page.has_siblings() %}
-      <button class="knop" type="submit" name="actie" value="verwijder-alle">
+      <button class="knop" type="submit" name="actie" value="verwijder-alle"
+              data-bezig="Bezig met verwijderen…">
         Uit {{ page.all_tracks_label().to_lowercase() }}
       </button>
       {% endif %}

@@ -130,7 +130,9 @@
   </div>
 
   <div class="knoppen">
-    <button class="knop knop--primair" type="submit">Opslaan</button>
+    {# `data-bezig` markeert de knoppen die werkelijk schrijven: die kunnen bij
+       een groot bestand minuten duren. De tekst is wat de knop dan toont. #}
+    <button class="knop knop--primair" type="submit" data-bezig="Bezig met opslaan…">Opslaan</button>
     {% if !page.crumbs.is_empty() %}
     <a class="knop" href="{{ page.crumbs[page.crumbs.len() - 1].url }}">Terug naar de map</a>
     {% endif %}
