@@ -38,6 +38,16 @@ de conventies vast waar code zich aan houdt.
   zijn geen gedeeld veld maar een override per bestand; die wint van wat de
   gedeelde velden voor datzelfde bestand zouden doen, en een fout in één rij
   houdt alleen die rij tegen.
+- **Een hulpactie vult alleen invoervelden.** Hernummeren, artiest → albumartiest
+  en hoofdletters normaliseren zetten een voorstel in het formulier en verder
+  niets: geen bestand gaat open, geen tag wordt geschreven. Wat een actie
+  voorstelt is met de hand aan te passen en met "Invoer leegmaken" in één klik
+  terug te draaien. Een voorstel dat gelijk is aan wat er al staat, wordt niet
+  ingevuld.
+- **Hoofdletterlogica staat in `casing::`.** Die module kent geen tags en geen
+  bestanden: in en uit gaat tekst. Ze raadt, en wat ze raadt hoort zichtbaar en
+  terug te draaien te zijn — vandaar dat de uitkomst een voorstel in een veld is
+  en nooit een schrijfactie.
 - **Schrijven is atomisch, en loopt via `atomic::replace`.** Naar een tijdelijk
   bestand in dezelfde map, hervalideren door opnieuw in te lezen, en pas dan
   hernoemen over het origineel. Bij een fout blijft het origineel onaangetast.

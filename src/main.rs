@@ -7,6 +7,7 @@ mod art;
 mod atomic;
 mod batch;
 mod browse;
+mod casing;
 mod checks;
 mod config;
 mod edit;

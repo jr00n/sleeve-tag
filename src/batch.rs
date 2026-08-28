@@ -8,6 +8,10 @@
 //! één bestand en zijn daarom in de tabel zelf in te tikken; zo'n override wint
 //! van een gedeelde waarde voor datzelfde bestand.
 //!
+//! De hulpacties uit FR-10 horen hier ook: hernummeren, artiest → albumartiest
+//! en hoofdletters normaliseren vullen invoervelden van datzelfde formulier en
+//! doen verder niets.
+//!
 //! Er wordt hier niets geschreven en er gaat geen bestand open: in en uit gaan
 //! een [`Listing`] en een [`Form`]. Het daadwerkelijk wegschrijven hoort bij de
 //! diff-preview, zodat een batch-wijziging nooit zonder voorbeeld plaatsvindt.
@@ -17,6 +21,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use percent_encoding::percent_decode_str;
 
 use crate::browse::{self, Crumb, Listing, TrackSummary};
+use crate::casing;
 use crate::edit;
 use crate::tags::Tags;
 
@@ -108,21 +113,27 @@ impl SharedField {
 ///
 /// De tegenhanger van [`SharedField`]: waar dat veld één waarde voor de hele
 /// selectie zet, hoort hier per rij iets anders te kunnen staan.
+/// Albumartiest staat in beide lijstjes, en dat is geen vergissing: hij is
+/// meestal voor het hele album gelijk, maar de hulpactie "artiest →
+/// albumartiest" (FR-10) zet er per bestand een eigen waarde in. Waar ze elkaar
+/// raken wint de rij; [`intents`] legt die volgorde vast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowField {
     Track,
     Title,
+    AlbumArtist,
 }
 
 impl RowField {
-    /// Beide velden, in de volgorde waarin ze in de tabel staan.
-    pub const ALL: [RowField; 2] = [RowField::Track, RowField::Title];
+    /// Alle drie de velden, in de volgorde waarin ze in de tabel staan.
+    pub const ALL: [RowField; 3] = [RowField::Track, RowField::Title, RowField::AlbumArtist];
 
     /// De naam van het veld in het tagmodel; ook de sleutel in een [`FileIntent`].
     pub fn field_name(self) -> &'static str {
         match self {
             RowField::Track => "track",
             RowField::Title => "title",
+            RowField::AlbumArtist => "album_artist",
         }
     }
 
@@ -140,6 +151,7 @@ impl RowField {
         match self {
             RowField::Track => "nummer",
             RowField::Title => "titel",
+            RowField::AlbumArtist => "albumartiest",
         }
     }
 
@@ -148,6 +160,7 @@ impl RowField {
         match self {
             RowField::Track => "Tracknummer",
             RowField::Title => "Titel",
+            RowField::AlbumArtist => "Albumartiest",
         }
     }
 
@@ -156,11 +169,21 @@ impl RowField {
         matches!(self, RowField::Track)
     }
 
+    /// Wat er voor dit veld in één bestand staat.
+    fn value_of(self, tags: &Tags) -> Option<String> {
+        match self {
+            RowField::Track => tags.track.map(|number| number.to_string()),
+            RowField::Title => tags.title.clone(),
+            RowField::AlbumArtist => tags.album_artist.clone(),
+        }
+    }
+
     /// De plek van dit veld in de vaste arrays van [`Override`].
     fn index(self) -> usize {
         match self {
             RowField::Track => 0,
             RowField::Title => 1,
+            RowField::AlbumArtist => 2,
         }
     }
 }
@@ -172,7 +195,7 @@ impl RowField {
 /// tekst in het veld.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Override {
-    values: [String; 2],
+    values: [String; 3],
 }
 
 /// Wat er met de selectie moet gebeuren voordat de pagina wordt opgebouwd.
@@ -187,6 +210,18 @@ pub enum Action {
 
     /// De selectie leegmaken.
     None,
+
+    /// De selectie opeenvolgend nummeren, in de volgorde van de tabel.
+    Renumber,
+
+    /// Per bestand de artiest als albumartiest voorstellen.
+    CopyArtist,
+
+    /// Het hoofdlettergebruik van de tekstvelden normaliseren.
+    Capitalize,
+
+    /// Alle ingevulde velden weer leegmaken.
+    Reset,
 }
 
 impl Action {
@@ -194,6 +229,10 @@ impl Action {
         match raw {
             "alles" => Action::All,
             "niets" => Action::None,
+            "hernummer" => Action::Renumber,
+            "artiest" => Action::CopyArtist,
+            "hoofdletters" => Action::Capitalize,
+            "herstel" => Action::Reset,
             _ => Action::Keep,
         }
     }
@@ -381,6 +420,153 @@ impl Form {
 
         Ok(Intent::Set(value.to_string()))
     }
+
+    /// Zet een voorstel in een invoerveld van de tabel.
+    ///
+    /// Een lege waarde haalt het voorstel weer weg; dat is wat een hulpactie
+    /// doet met een veld waar niets aan te verbeteren valt.
+    fn set_override(&mut self, file: &str, field: RowField, value: String) {
+        self.overrides.entry(file.to_string()).or_default().values[field.index()] = value;
+    }
+
+    /// Het formulier zoals het is ná de aangeklikte hulpactie (FR-10).
+    ///
+    /// Een hulpactie vult uitsluitend invoervelden. Er gaat geen bestand open
+    /// en er wordt niets geschreven: wat de actie voorstelt staat daarna gewoon
+    /// in de velden, is met de hand aan te passen, en gaat met "Invoer
+    /// leegmaken" in één klik weer weg.
+    ///
+    /// De zin die terugkomt vertelt wat de actie gedaan heeft; zonder
+    /// hulpactie is er niets te melden.
+    fn applied(&self, chosen: &[&TrackSummary]) -> (Form, Option<String>) {
+        let mut form = self.clone();
+
+        let notice = match self.action {
+            Action::Renumber => Some(form.renumber(chosen)),
+            Action::CopyArtist => Some(form.copy_artist(chosen)),
+            Action::Capitalize => Some(form.capitalize(chosen)),
+            Action::Reset => {
+                // De selectie is geen invoer en blijft dus staan; alleen wat er
+                // ingetikt of voorgesteld is, gaat weg (AC #5).
+                form = Form {
+                    selected: self.selected.clone(),
+                    ..Form::default()
+                };
+                Some("De ingevulde velden zijn leeggemaakt; de selectie staat nog.".to_string())
+            }
+            Action::Keep | Action::All | Action::None => None,
+        };
+
+        (form, notice)
+    }
+
+    /// Nummert de selectie opeenvolgend in de volgorde van de tabel.
+    ///
+    /// De volgorde is die van de listing en niet die van de bestaande
+    /// tracknummers: juist wanneer die nummers niet kloppen, is deze actie
+    /// nodig.
+    fn renumber(&mut self, chosen: &[&TrackSummary]) -> String {
+        for (position, track) in chosen.iter().enumerate() {
+            self.set_override(&track.name, RowField::Track, (position + 1).to_string());
+        }
+
+        match chosen.len() {
+            0 => "Er is niets geselecteerd om te hernummeren.".to_string(),
+            count => format!(
+                "De selectie is genummerd van 1 tot en met {count}; de nummers staan als voorstel in de tabel."
+            ),
+        }
+    }
+
+    /// Zet per bestand de artiest als albumartiest klaar.
+    ///
+    /// Per bestand, want de artiesten hoeven niet gelijk te zijn; de rij wint
+    /// daarom van het gedeelde veld.
+    fn copy_artist(&mut self, chosen: &[&TrackSummary]) -> String {
+        let mut copied = 0;
+        let mut skipped = 0;
+
+        for track in chosen {
+            match &track.tags.artist {
+                Some(artist) => {
+                    self.set_override(&track.name, RowField::AlbumArtist, artist.clone());
+                    copied += 1;
+                }
+                // Zonder artiest valt er niets te kopiëren, en een lege
+                // albumartiest voorstellen zou een verwijdering zijn.
+                None => skipped += 1,
+            }
+        }
+
+        let mut notice = match copied {
+            0 => "Geen enkel geselecteerd bestand heeft een artiest om te kopiëren.".to_string(),
+            1 => "Bij 1 bestand staat de artiest nu als albumartiest in de tabel.".to_string(),
+            count => {
+                format!("Bij {count} bestanden staat de artiest nu als albumartiest in de tabel.")
+            }
+        };
+
+        if copied > 0 && skipped > 0 {
+            notice.push_str(&format!(" {skipped} zonder artiest zijn overgeslagen."));
+        }
+
+        notice
+    }
+
+    /// Normaliseert het hoofdlettergebruik van de tekstvelden (FR-10).
+    ///
+    /// Titel en albumartiest gaan per bestand; album en genre alleen wanneer de
+    /// hele selectie er dezelfde waarde heeft, want één gedeeld veld kan geen
+    /// twee verschillende voorstellen bevatten.
+    ///
+    /// Er wordt genormaliseerd over wat er al in het veld staat wanneer de
+    /// gebruiker er zelf iets heeft ingetikt, en anders over wat er in het
+    /// bestand staat. Levert dat niets nieuws op, dan blijft het veld leeg:
+    /// een voorstel dat gelijk is aan de bestaande waarde is geen voorstel.
+    fn capitalize(&mut self, chosen: &[&TrackSummary]) -> String {
+        let mut proposals = 0;
+
+        for track in chosen {
+            for field in [RowField::Title, RowField::AlbumArtist] {
+                let current = field.value_of(&track.tags).unwrap_or_default();
+                let typed = self.override_value(&track.name, field).trim().to_string();
+                let source = if typed.is_empty() { &current } else { &typed };
+
+                let proposal = casing::normalize(source);
+                let keep = proposal != current && !proposal.is_empty();
+
+                self.set_override(
+                    &track.name,
+                    field,
+                    if keep { proposal } else { String::new() },
+                );
+                proposals += usize::from(keep);
+            }
+        }
+
+        for field in [SharedField::Album, SharedField::Genre] {
+            let Current::Same(current) = Current::of(field, chosen) else {
+                continue;
+            };
+
+            let typed = self.value(field).trim().to_string();
+            let source = if typed.is_empty() { &current } else { &typed };
+
+            let proposal = casing::normalize(source);
+            let keep = proposal != current && !proposal.is_empty();
+
+            self.values[field.index()] = if keep { proposal } else { String::new() };
+            proposals += usize::from(keep);
+        }
+
+        match proposals {
+            0 => "Aan het hoofdlettergebruik van de selectie valt niets te verbeteren.".to_string(),
+            1 => "Eén veld heeft een voorstel gekregen; controleer het en sla het pas op als het klopt.".to_string(),
+            count => format!(
+                "{count} velden hebben een voorstel gekregen; controleer ze en sla ze pas op als ze kloppen."
+            ),
+        }
+    }
 }
 
 /// Leest de sleutel van een override: welk veld, en van welk bestand.
@@ -536,9 +722,13 @@ pub struct Row {
     /// De naam van het titelveld van deze rij in het formulier.
     pub title_name: String,
 
+    /// De naam van het albumartiestveld van deze rij in het formulier.
+    pub album_artist_name: String,
+
     /// Wat er voor deze rij is ingetikt; leeg bij het openen van de pagina.
     pub track_input: String,
     pub title_input: String,
+    pub album_artist_input: String,
 
     /// Wat er aan de invoer van déze rij mankeert.
     ///
@@ -550,7 +740,13 @@ pub struct Row {
 impl Row {
     /// Of er iets in deze rij is ingetikt.
     pub fn is_overridden(&self) -> bool {
-        !self.track_input.trim().is_empty() || !self.title_input.trim().is_empty()
+        [
+            &self.track_input,
+            &self.title_input,
+            &self.album_artist_input,
+        ]
+        .iter()
+        .any(|value| !value.trim().is_empty())
     }
 
     /// Of deze rij zo niet opgeslagen kan worden.
@@ -591,6 +787,10 @@ pub struct FileIntent {
 /// waaraan niets verandert, blijven weg uit de uitkomst.
 pub fn intents(listing: &Listing, form: &Form) -> Vec<FileIntent> {
     let selected = resolve_selection(listing, form);
+
+    // Een hulpactie vult velden, en die gevulde velden horen bij het plan; de
+    // pagina en het plan komen zo van hetzelfde formulier.
+    let (form, _) = form.applied(&chosen_tracks(listing, &selected));
 
     let shared: BTreeMap<&'static str, Intent> = SharedField::ALL
         .into_iter()
@@ -675,6 +875,10 @@ pub struct AlbumPage {
     /// Komt uit [`intents`], zodat het getal onder het formulier van dezelfde
     /// berekening komt als het plan dat de voorbeeldweergave straks toont.
     pub changed_files: usize,
+
+    /// Wat de zojuist aangeklikte hulpactie gedaan heeft (FR-10); leeg wanneer
+    /// er geen hulpactie is gebruikt.
+    pub helper_notice: Option<String>,
 }
 
 impl AlbumPage {
@@ -709,9 +913,9 @@ impl AlbumPage {
     /// Wat er bij het opslaan met de per-bestand overrides gebeurt, in één zin.
     pub fn overrides_effect(&self) -> String {
         match self.overridden {
-            0 => "Titel en tracknummer blijven ongemoeid.".to_string(),
-            1 => "1 bestand krijgt een eigen titel of tracknummer.".to_string(),
-            count => format!("{count} bestanden krijgen een eigen titel of tracknummer."),
+            0 => "Wat er per bestand verschilt, blijft ongemoeid.".to_string(),
+            1 => "1 bestand krijgt een eigen waarde uit de tabel.".to_string(),
+            count => format!("{count} bestanden krijgen een eigen waarde uit de tabel."),
         }
     }
 }
@@ -723,6 +927,15 @@ impl AlbumPage {
 /// zitten al in de listing.
 pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
     let selected = resolve_selection(listing, form);
+
+    // De signalering, de sortering en de tags komen allemaal uit de listing;
+    // hier wordt alleen nog gekozen waar de gedeelde velden naar kijken.
+    let chosen = chosen_tracks(listing, &selected);
+
+    // Een hulpactie vult invoervelden en verandert verder niets: vanaf hier
+    // wordt de pagina met het aangevulde formulier opgebouwd (FR-10).
+    let (form, helper_notice) = form.applied(&chosen);
+    let form = &form;
 
     let rows: Vec<Row> = listing
         .tracks
@@ -736,6 +949,10 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
                 .to_string(),
             title_input: form
                 .override_value(&track.name, RowField::Title)
+                .to_string(),
+            album_artist_name: RowField::AlbumArtist.input_name(&track.name),
+            album_artist_input: form
+                .override_value(&track.name, RowField::AlbumArtist)
                 .to_string(),
             problems: RowField::ALL
                 .into_iter()
@@ -756,14 +973,6 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
                 .unwrap_or_else(|| EMPTY.to_string()),
             edit_url: track.edit_url.clone(),
         })
-        .collect();
-
-    // De signalering, de sortering en de tags komen allemaal uit de listing;
-    // hier wordt alleen nog gekozen waar de gedeelde velden naar kijken.
-    let chosen: Vec<&TrackSummary> = listing
-        .tracks
-        .iter()
-        .filter(|track| selected.contains(&track.name))
         .collect();
 
     let mut problems = Vec::new();
@@ -808,6 +1017,7 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         problems,
         overridden,
         changed_files: intents(listing, form).len(),
+        helper_notice,
     }
 }
 
@@ -823,8 +1033,18 @@ fn resolve_selection(listing: &Listing, form: &Form) -> BTreeSet<String> {
             .map(|track| track.name.clone())
             .collect(),
         Action::None => BTreeSet::new(),
-        Action::Keep => form.selected.clone(),
+        // Een hulpactie laat de selectie met rust: die vult alleen velden.
+        _ => form.selected.clone(),
     }
+}
+
+/// De geselecteerde bestanden, in de volgorde van de tabel.
+fn chosen_tracks<'a>(listing: &'a Listing, selected: &BTreeSet<String>) -> Vec<&'a TrackSummary> {
+    listing
+        .tracks
+        .iter()
+        .filter(|track| selected.contains(&track.name))
+        .collect()
 }
 
 /// Een tagwaarde als tabelcel, met een streepje waar niets staat.
@@ -941,14 +1161,22 @@ mod tests {
 
     /// Bouwt een track met alleen de velden die deze tests gebruiken.
     fn track(name: &str, album: Option<&str>, disc: Option<u32>) -> TrackSummary {
-        TrackSummary {
-            name: name.to_string(),
-            path: format!("Album/{name}"),
-            tags: Tags {
+        track_with(
+            name,
+            Tags {
                 album: album.map(str::to_string),
                 disc,
                 ..Tags::default()
             },
+        )
+    }
+
+    /// Bouwt een track met een volledig zelf bepaalde tagset.
+    fn track_with(name: &str, tags: Tags) -> TrackSummary {
+        TrackSummary {
+            name: name.to_string(),
+            path: format!("Album/{name}"),
+            tags,
             issues: Vec::new(),
             duration: "0:00".to_string(),
             format: "MP3".to_string(),
@@ -1301,7 +1529,7 @@ mod tests {
     fn overrides_count_towards_what_would_happen() {
         let untouched = album(&album_with_two_albums(), &Form::select_all());
         assert!(!untouched.changes_anything());
-        assert!(untouched.overrides_effect().contains("blijven ongemoeid"));
+        assert!(untouched.overrides_effect().contains("blijft ongemoeid"));
 
         let form = Form::parse("actie=alles&titel:een.mp3=Eén&titel:twee.mp3=Twee");
         let page = album(&album_with_two_albums(), &form);
@@ -1316,8 +1544,228 @@ mod tests {
         );
         assert_eq!(
             page.overrides_effect(),
-            "2 bestanden krijgen een eigen titel of tracknummer."
+            "2 bestanden krijgen een eigen waarde uit de tabel."
         );
+    }
+
+    /// Een album waarin elk bestand zijn eigen artiest en titel heeft, en de
+    /// tracknummers niet kloppen: precies waar de hulpacties voor zijn.
+    fn album_that_needs_help() -> Listing {
+        listing_of(vec![
+            track_with(
+                "een.mp3",
+                Tags {
+                    title: Some("STILTE IN D".to_string()),
+                    artist: Some("de testartiest".to_string()),
+                    album: Some("fixtures voor sleeve".to_string()),
+                    track: Some(7),
+                    ..Tags::default()
+                },
+            ),
+            track_with(
+                "twee.mp3",
+                Tags {
+                    title: Some("ruis in b".to_string()),
+                    artist: Some("Een Ander".to_string()),
+                    album: Some("fixtures voor sleeve".to_string()),
+                    ..Tags::default()
+                },
+            ),
+            track_with(
+                "drie.mp3",
+                Tags {
+                    title: Some("Al Goed".to_string()),
+                    album: Some("fixtures voor sleeve".to_string()),
+                    ..Tags::default()
+                },
+            ),
+        ])
+    }
+
+    #[test]
+    fn renumbering_follows_the_order_of_the_table() {
+        // AC #1: opeenvolgend nummeren volgens de huidige sortering, en niet
+        // volgens de nummers die er nu in staan — die kloppen juist niet.
+        let page = album(
+            &album_that_needs_help(),
+            &Form::parse("actie=hernummer&bestand=een.mp3&bestand=twee.mp3&bestand=drie.mp3"),
+        );
+
+        assert_eq!(row_of(&page, "een.mp3").track_input, "1");
+        assert_eq!(row_of(&page, "twee.mp3").track_input, "2");
+        assert_eq!(row_of(&page, "drie.mp3").track_input, "3");
+
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("1 tot en met 3"), "{notice}");
+    }
+
+    #[test]
+    fn renumbering_leaves_what_is_not_selected_alone() {
+        let form = Form::parse("actie=hernummer&bestand=een.mp3&bestand=drie.mp3");
+        let page = album(&album_that_needs_help(), &form);
+
+        assert_eq!(row_of(&page, "een.mp3").track_input, "1");
+        assert_eq!(row_of(&page, "drie.mp3").track_input, "2");
+        assert_eq!(row_of(&page, "twee.mp3").track_input, "");
+    }
+
+    #[test]
+    fn copying_the_artist_fills_the_album_artist_per_file() {
+        // AC #2: per bestand, want de artiesten hoeven niet gelijk te zijn.
+        let page = album(
+            &album_that_needs_help(),
+            &Form::parse("actie=artiest&bestand=een.mp3&bestand=twee.mp3&bestand=drie.mp3"),
+        );
+
+        assert_eq!(
+            row_of(&page, "een.mp3").album_artist_input,
+            "de testartiest"
+        );
+        assert_eq!(row_of(&page, "twee.mp3").album_artist_input, "Een Ander");
+        // Zonder artiest valt er niets te kopiëren; een lege albumartiest
+        // voorstellen zou een verwijdering zijn.
+        assert_eq!(row_of(&page, "drie.mp3").album_artist_input, "");
+
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("2 bestanden"), "{notice}");
+        assert!(notice.contains("1 zonder artiest"), "{notice}");
+    }
+
+    #[test]
+    fn a_row_wins_from_the_shared_album_artist() {
+        // De keerzijde van FR-9: het gedeelde veld geldt voor de selectie, maar
+        // waar de rij iets zegt, wint de rij.
+        let form = Form::parse(
+            "actie=artiest&bestand=een.mp3&bestand=drie.mp3&album_artist=Voor+iedereen",
+        );
+        let plan = intents(&album_that_needs_help(), &form);
+
+        let first = plan
+            .iter()
+            .find(|file| file.name == "een.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(
+            first.fields.get("album_artist"),
+            Some(&Intent::Set("de testartiest".to_string()))
+        );
+
+        // Het bestand zonder artiest houdt de gedeelde waarde.
+        let third = plan
+            .iter()
+            .find(|file| file.name == "drie.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(
+            third.fields.get("album_artist"),
+            Some(&Intent::Set("Voor iedereen".to_string()))
+        );
+    }
+
+    #[test]
+    fn normalising_capitals_proposes_a_title_per_file() {
+        // AC #3: het resultaat komt als voorstel in de invoervelden te staan.
+        let page = album(
+            &album_that_needs_help(),
+            &Form::parse("actie=hoofdletters&bestand=een.mp3&bestand=twee.mp3&bestand=drie.mp3"),
+        );
+
+        assert_eq!(row_of(&page, "een.mp3").title_input, "Stilte in D");
+        assert_eq!(row_of(&page, "twee.mp3").title_input, "Ruis in B");
+        // Wat al klopt, krijgt geen voorstel: dat zou geen voorstel zijn.
+        assert_eq!(row_of(&page, "drie.mp3").title_input, "");
+    }
+
+    #[test]
+    fn normalising_capitals_fills_a_shared_field_when_the_selection_agrees() {
+        let page = album(
+            &album_that_needs_help(),
+            &Form::parse("actie=hoofdletters&bestand=een.mp3&bestand=twee.mp3&bestand=drie.mp3"),
+        );
+
+        assert_eq!(
+            field_of(&page, SharedField::Album).value,
+            "Fixtures voor Sleeve"
+        );
+        // Genre staat nergens ingevuld, dus valt er niets voor te stellen.
+        assert_eq!(field_of(&page, SharedField::Genre).value, "");
+    }
+
+    #[test]
+    fn normalising_capitals_leaves_a_shared_field_alone_when_it_differs() {
+        // Eén gedeeld veld kan geen twee voorstellen bevatten; dan maar niets.
+        let listing = listing_of(vec![
+            track("een.mp3", Some("eerste album"), None),
+            track("twee.mp3", Some("tweede album"), None),
+        ]);
+        let page = album(&listing, &Form::parse("actie=hoofdletters&actie=alles"));
+
+        assert_eq!(field_of(&page, SharedField::Album).value, "");
+    }
+
+    #[test]
+    fn normalising_capitals_works_on_what_was_typed_by_hand() {
+        let form = Form::parse("actie=hoofdletters&bestand=een.mp3&titel:een.mp3=EEN+ANDERE+TITEL");
+        let page = album(&album_that_needs_help(), &form);
+
+        assert_eq!(row_of(&page, "een.mp3").title_input, "Een Andere Titel");
+    }
+
+    #[test]
+    fn nothing_to_normalise_says_so() {
+        let listing = listing_of(vec![track_with(
+            "een.mp3",
+            Tags {
+                title: Some("Al Goed".to_string()),
+                ..Tags::default()
+            },
+        )]);
+        let page = album(&listing, &Form::parse("actie=hoofdletters&bestand=een.mp3"));
+
+        let notice = page
+            .helper_notice
+            .clone()
+            .expect("de actie hoort iets te melden");
+        assert!(notice.contains("niets te verbeteren"), "{notice}");
+        assert!(!page.changes_anything());
+    }
+
+    #[test]
+    fn a_helper_action_is_undone_by_emptying_the_input() {
+        // AC #5: terugdraaien gebeurt door de invoer weg te halen, en dat kan
+        // zolang er niet is opgeslagen.
+        let filled = album(
+            &album_that_needs_help(),
+            &Form::parse("actie=hernummer&bestand=een.mp3&bestand=twee.mp3"),
+        );
+        assert!(filled.changes_anything());
+        assert_eq!(filled.overridden, 2);
+
+        // Hetzelfde formulier, maar nu met de herstelknop: de velden zijn leeg
+        // en de selectie staat er nog.
+        let restored = album(
+            &album_that_needs_help(),
+            &Form::parse(
+                "actie=herstel&bestand=een.mp3&bestand=twee.mp3&nummer:een.mp3=1&album=Nieuw",
+            ),
+        );
+
+        assert_eq!(restored.selected, 2);
+        assert_eq!(restored.overridden, 0);
+        assert_eq!(restored.changed_files, 0);
+        assert!(!restored.changes_anything());
+        assert_eq!(field_of(&restored, SharedField::Album).value, "");
+    }
+
+    #[test]
+    fn a_helper_action_only_fills_fields_and_keeps_the_selection() {
+        // AC #4: er komt alleen invoer bij. Wat er geselecteerd was, blijft
+        // geselecteerd, en het plan komt van diezelfde ingevulde velden.
+        let form = Form::parse("actie=hernummer&bestand=twee.mp3");
+        let page = album(&album_that_needs_help(), &form);
+
+        assert_eq!(page.selected, 1);
+        assert!(row_of(&page, "twee.mp3").selected);
+        assert!(!row_of(&page, "een.mp3").selected);
+        assert_eq!(page.changed_files, 1);
     }
 
     #[test]

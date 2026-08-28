@@ -645,6 +645,21 @@ a {
   background: color-mix(in srgb, var(--waarschuwing) 12%, var(--vlak));
 }
 
+/* De hulpacties (FR-10) vullen alleen invoervelden en staan daarom bij de
+   knoppen die de selectie zetten, en niet bij het opslaan. */
+.hulpacties {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1rem;
+}
+
+.hulpacties__kop {
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+}
+
 /* Titel en tracknummer worden in de tabel zelf ingetikt (FR-9). Het veld is
    even hoog als een knop, zodat het op een telefoon met een duim te raken is,
    en 16px groot omdat Safari op iOS anders inzoomt bij het focussen. */

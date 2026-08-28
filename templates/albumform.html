@@ -28,6 +28,30 @@
   </div>
 
   {% if page.total > 0 %}
+  {# Hulpacties (FR-10). Ze vullen uitsluitend de invoervelden hieronder; er
+     wordt niets geschreven, en "Invoer leegmaken" draait ze in één klik terug. #}
+  <div class="hulpacties">
+    <span class="hulpacties__kop">Hulpacties</span>
+    <span class="batch__knoppen">
+      <button class="knop" type="submit" name="actie" value="hernummer">Hernummeren</button>
+      <button class="knop" type="submit" name="actie" value="artiest">Artiest → albumartiest</button>
+      <button class="knop" type="submit" name="actie" value="hoofdletters">Hoofdletters normaliseren</button>
+      <button class="knop" type="submit" name="actie" value="herstel">Invoer leegmaken</button>
+    </span>
+  </div>
+
+  {% if let Some(notice) = page.helper_notice %}
+  <div class="melding melding--goed" role="status">
+    <p class="melding__regel">{{ notice }}</p>
+    <p class="melding__regel">
+      Een hulpactie vult alleen de velden hieronder. Er is niets opgeslagen; pas
+      ze gerust met de hand aan, of maak de invoer weer leeg.
+    </p>
+  </div>
+  {% endif %}
+  {% endif %}
+
+  {% if page.total > 0 %}
   {# De tabel is breder dan een telefoon; hij scrollt binnen dit omhulsel en
      niet met de hele pagina mee. #}
   <div class="tabelrand" tabindex="0" role="region" aria-label="Bestanden in deze map">
@@ -87,7 +111,16 @@
           </td>
           <td><a class="batchtabel__titel" href="{{ row.edit_url }}">Bewerken</a></td>
           <td>{{ row.artist }}</td>
-          <td>{{ row.album_artist }}</td>
+          {# Albumartiest is meestal voor het hele album gelijk en staat daarom
+             ook bij de gedeelde velden. Hier kan hij per bestand afwijken —
+             wat de hulpactie "artiest → albumartiest" gebruikt — en dan wint
+             deze rij van het gedeelde veld. #}
+          <td>
+            <input class="rijveld rijveld--titel" type="text"
+                   name="{{ row.album_artist_name }}" value="{{ row.album_artist_input }}"
+                   placeholder="{{ row.album_artist }}" autocomplete="off"
+                   aria-label="Albumartiest van {{ row.name }}" />
+          </td>
           <td>{{ row.album }}</td>
           <td>{{ row.year }}</td>
           <td>{{ row.genre }}</td>

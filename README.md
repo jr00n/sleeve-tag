@@ -167,7 +167,8 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
-| `batch` | De albumweergave: een selectie bestanden, de gedeelde velden en de overrides per bestand |
+| `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand en de hulpacties |
+| `casing` | Hoofdlettergebruik van een tagwaarde normaliseren; kent geen tags en geen bestanden |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
@@ -353,18 +354,46 @@ selectie staat, is als tekst onder het veld te lezen: één gedeelde waarde, lee
 of "verschillend" met de waarden die voorkomen. Onder het formulier staat per
 veld wat er bij het opslaan zou gebeuren.
 
-Titel en tracknummer horen niet bij het album maar bij het bestand, en zijn
-daarom **in de tabel zelf** in te tikken: één invoerveld per rij, met de huidige
-waarde als grijze tekst erin. Dezelfde regel geldt er: leeg laten verandert
-niets. Een override is voor dat ene bestand bedoeld en wint daarom van wat de
-gedeelde velden ervoor zouden doen. De ingetikte waarden blijven staan bij het
-wisselen van selectie; wat in een niet-geselecteerde rij staat, zegt erbij dat
-het niet wordt opgeslagen. Een onleesbaar tracknummer wordt bij die rij gemeld
-en houdt alleen die rij tegen — de andere rijen en de gedeelde velden blijven
-bruikbaar.
+Titel, tracknummer en albumartiest horen bij het bestand en zijn daarom **in de
+tabel zelf** in te tikken: één invoerveld per rij, met de huidige waarde als
+grijze tekst erin. Dezelfde regel geldt er: leeg laten verandert niets. Een
+override is voor dat ene bestand bedoeld en wint daarom van wat de gedeelde
+velden ervoor zouden doen. De ingetikte waarden blijven staan bij het wisselen
+van selectie; wat in een niet-geselecteerde rij staat, zegt erbij dat het niet
+wordt opgeslagen. Een onleesbaar tracknummer wordt bij die rij gemeld en houdt
+alleen die rij tegen — de andere rijen en de gedeelde velden blijven bruikbaar.
+
+Albumartiest staat zowel bij de gedeelde velden als in de tabel, en dat is geen
+vergissing: hij is meestal voor het hele album gelijk, maar de hulpactie hieronder
+zet er per bestand een eigen waarde in.
+
+#### Hulpacties
+
+Drie correcties die met de hand te veel werk zijn, en één om ze terug te draaien:
+
+| Knop | Wat hij doet |
+|------|--------------|
+| Hernummeren | Nummert de selectie opeenvolgend, in de volgorde van de tabel — niet in die van de bestaande tracknummers, want juist die kloppen niet |
+| Artiest → albumartiest | Zet per bestand de artiest als albumartiest klaar; een bestand zonder artiest wordt overgeslagen |
+| Hoofdletters normaliseren | Stelt een leesbare schrijfwijze voor van titel en albumartiest per bestand, en van album en genre wanneer de hele selectie er dezelfde waarde heeft |
+| Invoer leegmaken | Haalt alles wat er ingevuld of voorgesteld is weer weg; de selectie blijft staan |
+
+Een hulpactie **vult alleen invoervelden**. Er gaat geen bestand open en er wordt
+niets geschreven: wat de actie voorstelt staat daarna gewoon in de velden, is met
+de hand aan te passen, en gaat met "Invoer leegmaken" in één klik weer weg. Een
+voorstel dat gelijk is aan wat er al staat, wordt niet ingevuld — dat is geen
+voorstel.
+
+Het normaliseren zelf zit in `casing`. Elk woord krijgt een hoofdletter, behalve
+de kleine woorden (`de`, `van`, `the`, `at`, …) middenin. Wat er níét gebeurt is
+minstens zo belangrijk: een korte reeks kapitalen blijft een afkorting (`DJ`,
+`BBC`, `R.E.M.`, `AC/DC`), en een woord dat zijn eigen hoofdletters draagt blijft
+staan (`McCartney`, `iPhone`, `d'Angelo`). Vijf letters of meer in kapitalen is
+geen afkorting maar geschreeuw, en wordt wél omgezet.
 
 Er wordt op deze pagina **niets geschreven**, ook niet door de POST die de
-selectie bijwerkt: die bouwt de pagina alleen opnieuw op. Het wegschrijven gaat
+selectie bijwerkt of een hulpactie uitvoert: die bouwt de pagina alleen opnieuw
+op. Het wegschrijven gaat
 straks via een voorbeeldweergave die per bestand toont wat er verandert, zodat
 een batch-actie nooit zonder voorbeeld plaatsvindt. Een integratietest
 controleert dat de bestanden byte voor byte onaangeroerd blijven.

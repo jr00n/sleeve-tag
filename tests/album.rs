@@ -236,7 +236,7 @@ fn shared_fields_and_overrides_go_together() {
         "{page}"
     );
     assert!(
-        page.contains("1 bestand krijgt een eigen titel of tracknummer."),
+        page.contains("1 bestand krijgt een eigen waarde uit de tabel."),
         "{page}"
     );
 }
@@ -285,9 +285,111 @@ fn a_bad_track_number_is_reported_at_the_row_it_was_typed_in() {
 
     // De goede rij telt gewoon mee.
     assert!(
-        page.contains("1 bestand krijgt een eigen titel of tracknummer."),
+        page.contains("1 bestand krijgt een eigen waarde uit de tabel."),
         "{page}"
     );
+}
+
+/// Of dit invoerveld deze waarde als voorstel draagt.
+///
+/// Naam en waarde staan in het template op dezelfde regel, juist zodat een test
+/// er iets over kan zeggen.
+fn is_proposed(page: &str, field: &str, value: &str) -> bool {
+    page.contains(&format!("name=\"{field}\" value=\"{value}\""))
+}
+
+#[test]
+fn the_helper_actions_are_offered_on_the_page() {
+    let server = server();
+    let page = server.get("/album/Album");
+
+    assert_ok(&page);
+    for action in ["hernummer", "artiest", "hoofdletters", "herstel"] {
+        assert!(
+            page.contains(&format!("name=\"actie\" value=\"{action}\"")),
+            "hulpactie '{action}' ontbreekt:\n{page}"
+        );
+    }
+}
+
+#[test]
+fn renumbering_fills_the_track_column() {
+    // AC #1: opeenvolgend nummeren volgens de sortering van de tabel.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "hernummer"),
+            ("bestand", "een.mp3"),
+            ("bestand", "twee.mp3"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(is_proposed(&page, "nummer:een.mp3", "1"), "{page}");
+    assert!(is_proposed(&page, "nummer:twee.mp3", "2"), "{page}");
+    assert!(page.contains("1 tot en met 2"), "{page}");
+}
+
+#[test]
+fn copying_the_artist_fills_the_album_artist_column() {
+    // AC #2: per bestand, en alleen waar er een artiest te kopiëren valt.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "artiest"),
+            ("bestand", "een.mp3"),
+            ("bestand", "twee.mp3"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(
+        is_proposed(&page, "albumartiest:een.mp3", "De Testartiest"),
+        "{page}"
+    );
+    assert!(is_proposed(&page, "albumartiest:twee.mp3", ""), "{page}");
+    assert!(page.contains("1 zonder artiest"), "{page}");
+}
+
+#[test]
+fn normalising_capitals_is_a_proposal_and_can_be_emptied_again() {
+    // AC #3 en #5: het voorstel staat in de velden, en de herstelknop haalt het
+    // er weer uit zonder de selectie kwijt te raken.
+    let server = server();
+    let proposed = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "hoofdletters"),
+            ("bestand", "een.mp3"),
+            ("titel:een.mp3", "STILTE IN D MAJEUR"),
+        ],
+    );
+
+    assert_ok(&proposed);
+    assert!(
+        is_proposed(&proposed, "titel:een.mp3", "Stilte in D Majeur"),
+        "{proposed}"
+    );
+    assert!(proposed.contains("Er is niets opgeslagen"), "{proposed}");
+
+    let restored = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "herstel"),
+            ("bestand", "een.mp3"),
+            ("titel:een.mp3", "Stilte in D Majeur"),
+        ],
+    );
+
+    assert_ok(&restored);
+    assert!(is_proposed(&restored, "titel:een.mp3", ""), "{restored}");
+    assert!(
+        restored.contains("1 van 2 bestanden geselecteerd"),
+        "{restored}"
+    );
+    assert!(restored.contains("Er is nog niets ingevuld"), "{restored}");
 }
 
 #[test]
@@ -313,6 +415,19 @@ fn nothing_is_written_yet() {
         ],
     );
     assert_ok(&page);
+
+    // AC #4: ook een hulpactie vult alleen de invoervelden.
+    for action in ["hernummer", "artiest", "hoofdletters", "herstel"] {
+        let page = server.post_form(
+            "/album/Album",
+            &[
+                ("actie", action),
+                ("bestand", "een.mp3"),
+                ("bestand", "twee.mp3"),
+            ],
+        );
+        assert_ok(&page);
+    }
 
     for (name, original) in ["een.mp3", "twee.mp3"].iter().zip(before) {
         let now = std::fs::read(album.join(name)).expect("bestand moet leesbaar zijn");
