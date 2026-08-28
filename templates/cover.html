@@ -82,10 +82,32 @@
   <fieldset class="hoesform__blok">
     <legend class="hoesform__kop">Nieuwe hoes</legend>
 
+    {# Het neerzetvak is een toevoeging: `app.js` maakt er een sleepdoel van en
+       haalt de hint tevoorschijn. Zonder JavaScript blijft dit een gewone
+       bestandsinvoer, en dan staat er ook geen uitnodiging om te slepen die
+       nergens toe leidt. Slepen vult alleen dit veld; opslaan gebeurt pas met
+       een van de knoppen hieronder. #}
     <div class="veld">
       <label class="veld__label" for="afbeelding">JPEG of PNG</label>
-      <input class="veld__invoer" id="afbeelding" name="afbeelding" type="file"
-             accept="image/jpeg,image/png" required />
+
+      <div class="neerzetvak" data-neerzetvak>
+        <p class="neerzetvak__hint" data-neerzetvak-hint hidden>
+          Sleep een afbeelding hierheen, of kies er een:
+        </p>
+
+        <input class="veld__invoer" id="afbeelding" name="afbeelding" type="file"
+               accept="image/jpeg,image/png" required />
+
+        {# Wat er gekozen is, en wat er mis is met wat er neergezet werd. Beide
+           worden door `app.js` gevuld. #}
+        <p class="neerzetvak__melding" data-neerzetvak-melding role="status" hidden></p>
+
+        {# Leeg: de voorbeeldweergave wordt door `app.js` gemaakt zodra er een
+           afbeelding gekozen is. Een lege `<img>` meesturen zou een bestand
+           zonder hoes een afbeelding geven die er nooit komt. #}
+        <figure class="neerzetvak__gekozen" data-neerzetvak-gekozen hidden></figure>
+      </div>
+
       <p class="veld__hulp">
         Wat groter is dan de ingestelde maximumresolutie wordt verkleind; wat er
         al binnen past, gaat ongewijzigd het bestand in.

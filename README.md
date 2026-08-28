@@ -367,6 +367,26 @@ dus een tweede bewerking van hetzelfde bestand is sneller.
 Zolang zo'n schrijfactie loopt, toont de knop een spinner en neemt het formulier
 geen tweede klik meer aan (`static/app.js`). Zonder JavaScript werkt alles
 gewoon — dan blijft alleen de bezig-weergave achterwege.
+
+## Wat de browser er nog bij doet
+
+`static/app.js` is de enige JavaScript in het project, en alles erin is een
+toevoeging: valt het weg, dan werkt elk formulier zoals het altijd deed.
+
+| | |
+|---|---|
+| **Bezig-weergave** | een knop die schrijft toont een spinner en neemt geen tweede klik meer aan |
+| **Een hoes neerslepen** | een JPEG of PNG op het uploadvak slepen vult het bestandsveld, met een miniatuur erbij |
+
+Slepen verandert niets aan wat er daarna gebeurt: de vinkjes en de knoppen
+bepalen nog steeds wat er met de afbeelding wordt gedaan, en er wordt niets
+geschreven voordat je op een knop drukt. Meerdere bestanden tegelijk of iets
+anders dan een JPEG of PNG levert meteen een melding op, in plaats van een
+mislukte upload.
+
+Om die reden staat de uitnodiging om te slepen `hidden` in de template en haalt
+het script hem tevoorschijn: een hint die nergens toe leidt is erger dan geen
+hint.
 6. Pas dan wordt het tijdelijke bestand over het origineel hernoemd.
 
 Gaat er onderweg iets mis — ook bij een paniek — dan blijft het origineel

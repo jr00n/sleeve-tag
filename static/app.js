@@ -1,4 +1,5 @@
-// Laat zien dat een schrijfactie bezig is, en houdt een tweede klik tegen.
+// De twee toevoegingen die de UI in de browser krijgt: laten zien dat een
+// schrijfactie bezig is, en een hoes kunnen neerslepen.
 //
 // Waarom dit nodig is: een tagwijziging in een FLAC van enkele gigabytes duurt
 // minuten. `atomic::replace` kopieert eerst het hele bestand, en dat is geen
@@ -133,5 +134,184 @@
     var doos = document.createElement("span");
     doos.textContent = tekst;
     return doos.innerHTML;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Een hoes neerslepen
+  //
+  // Het slepen vult het bestandsveld dat er al staat, en verder niets: de
+  // vinkjes en de knoppen bepalen nog steeds wat er met de afbeelding gebeurt.
+  // Er wordt dus niets geüpload voordat er op een knop is gedrukt.
+  //
+  // Zonder JavaScript blijft de bestandsinvoer gewoon werken. De uitnodiging om
+  // te slepen staat daarom `hidden` in de template en komt hier tevoorschijn:
+  // een hint die nergens toe leidt is erger dan geen hint.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Wat er ingebed mag worden; dezelfde twee die `art::prepare` accepteert. */
+  var TOEGESTAAN = ["image/jpeg", "image/png"];
+
+  /** Markering op het vak zolang er iets boven zweeft. */
+  var SLEEP_KLASSE = "is-sleepdoel";
+
+  document.addEventListener("DOMContentLoaded", function () {
+    var vakken = document.querySelectorAll("[data-neerzetvak]");
+    for (var i = 0; i < vakken.length; i++) {
+      maakNeerzetvak(vakken[i]);
+    }
+
+    // Een bestand dat naast het vak belandt, zou de browser openen — en dan is
+    // de pagina met het half ingevulde formulier weg. Alleen voorkomen wanneer
+    // er ook werkelijk een neerzetvak op deze pagina staat.
+    if (vakken.length > 0) {
+      window.addEventListener("dragover", weiger);
+      window.addEventListener("drop", weiger);
+    }
+  });
+
+  /** Laat de browser een gesleept bestand niet zelf openen. */
+  function weiger(event) {
+    event.preventDefault();
+  }
+
+  /** Maakt van één vak een sleepdoel. */
+  function maakNeerzetvak(vak) {
+    var invoer = vak.querySelector("input[type=file]");
+    if (!invoer) {
+      return;
+    }
+
+    var hint = vak.querySelector("[data-neerzetvak-hint]");
+    if (hint) {
+      hint.hidden = false;
+    }
+
+    vak.addEventListener("dragenter", function (event) {
+      event.preventDefault();
+      vak.classList.add(SLEEP_KLASSE);
+    });
+
+    vak.addEventListener("dragover", function (event) {
+      // Zonder dit weigert de browser de drop: de standaardactie van dragover
+      // is "hier mag niets neergezet worden".
+      event.preventDefault();
+      vak.classList.add(SLEEP_KLASSE);
+    });
+
+    vak.addEventListener("dragleave", function (event) {
+      // `dragleave` vuurt ook bij het oversteken naar een kindelement; alleen
+      // opruimen wanneer de muis het vak zelf verlaat.
+      if (!vak.contains(event.relatedTarget)) {
+        vak.classList.remove(SLEEP_KLASSE);
+      }
+    });
+
+    vak.addEventListener("drop", function (event) {
+      event.preventDefault();
+      vak.classList.remove(SLEEP_KLASSE);
+      neerzetten(vak, invoer, event.dataTransfer);
+    });
+
+    // Ook wie via de bestandskiezer kiest, hoort te zien wát hij gekozen heeft.
+    invoer.addEventListener("change", function () {
+      if (invoer.files && invoer.files.length === 1) {
+        toon(vak, invoer.files[0]);
+      }
+    });
+  }
+
+  /** Verwerkt wat er is neergezet. */
+  function neerzetten(vak, invoer, overdracht) {
+    if (!overdracht || !overdracht.files || overdracht.files.length === 0) {
+      // Een sleepactie zonder bestand: tekst uit een ander venster, een link.
+      meld(vak, "Dat is geen bestand. Sleep een JPEG of PNG hierheen.");
+      return;
+    }
+
+    if (overdracht.files.length > 1) {
+      // Er gaat één hoes tegelijk in een bestand. Stilzwijgend de eerste pakken
+      // zou betekenen dat de gebruiker een andere afbeelding krijgt dan hij
+      // dacht neer te zetten.
+      meld(vak, "Er gaat één hoes tegelijk. Sleep er één, niet meerdere.");
+      return;
+    }
+
+    var bestand = overdracht.files[0];
+    if (TOEGESTAAN.indexOf(bestand.type) === -1) {
+      meld(
+        vak,
+        "Alleen JPEG en PNG kunnen als hoes worden ingebed; dit is " +
+          (bestand.type || "een onbekend bestandstype") +
+          "."
+      );
+      return;
+    }
+
+    // Hier komt het bestand in het veld terecht dat het formulier tóch al
+    // verstuurt. Vanaf dat moment is er geen verschil meer met een bestand dat
+    // via de bestandskiezer is gekozen.
+    invoer.files = overdracht.files;
+    toon(vak, bestand);
+  }
+
+  /** Toont welk bestand er klaarstaat, met een voorbeeldweergave. */
+  function toon(vak, bestand) {
+    meld(vak, null);
+
+    var gekozen = vak.querySelector("[data-neerzetvak-gekozen]");
+    if (!gekozen) {
+      return;
+    }
+
+    // De voorbeeldweergave bestaat pas zodra er iets te tonen valt: een lege
+    // `<img>` in de pagina zou een bestand zonder hoes een afbeelding geven
+    // die er nooit komt.
+    var voorbeeld = gekozen.querySelector("img");
+    var naam = gekozen.querySelector("figcaption");
+    if (!voorbeeld) {
+      voorbeeld = document.createElement("img");
+      voorbeeld.className = "neerzetvak__voorbeeld";
+      voorbeeld.width = 96;
+      voorbeeld.height = 96;
+
+      naam = document.createElement("figcaption");
+      naam.className = "neerzetvak__naam";
+
+      gekozen.appendChild(voorbeeld);
+      gekozen.appendChild(naam);
+    }
+
+    // De vorige URL vrijgeven; anders houdt de browser elke gekozen afbeelding
+    // vast tot de pagina weg is.
+    if (voorbeeld.src && voorbeeld.src.indexOf("blob:") === 0) {
+      URL.revokeObjectURL(voorbeeld.src);
+    }
+
+    voorbeeld.src = URL.createObjectURL(bestand);
+    voorbeeld.alt = "Voorbeeld van " + bestand.name;
+    naam.textContent = bestand.name + " · " + leesbareOmvang(bestand.size);
+    gekozen.hidden = false;
+  }
+
+  /** Zet een melding in het vak, of haalt hem weg met `null`. */
+  function meld(vak, tekst) {
+    var melding = vak.querySelector("[data-neerzetvak-melding]");
+    if (!melding) {
+      return;
+    }
+
+    melding.textContent = tekst || "";
+    melding.hidden = !tekst;
+  }
+
+  /** Een bestandsomvang zoals een mens hem leest. */
+  function leesbareOmvang(bytes) {
+    if (bytes < 1024) {
+      return bytes + " B";
+    }
+    if (bytes < 1024 * 1024) {
+      return Math.round(bytes / 1024) + " kB";
+    }
+    return (bytes / (1024 * 1024)).toFixed(1).replace(".", ",") + " MB";
   }
 })();

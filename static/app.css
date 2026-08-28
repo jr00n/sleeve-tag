@@ -645,6 +645,74 @@ a.bestandskop__hoes {
   font-size: 0.9rem;
 }
 
+/* ── Een hoes neerslepen ───────────────────────────────────────────────────
+   Het vak is er ook zonder JavaScript, maar dan zonder hint en zonder rand:
+   het is dan niet meer dan een omhulsel om de bestandsinvoer. `app.js` haalt
+   de hint tevoorschijn, en pas dan valt er iets te slepen. */
+
+.neerzetvak {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+}
+
+/* De stippellijn hoort bij de hint: samen zeggen ze "hier mag iets heen".
+   Zonder hint (dus zonder JavaScript) blijft het vak onzichtbaar. */
+.neerzetvak:has(.neerzetvak__hint:not([hidden]))  {
+  padding: 0.9rem;
+  border: 2px dashed var(--rand);
+  border-radius: 10px;
+  transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+.neerzetvak.is-sleepdoel {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.neerzetvak__hint {
+  margin: 0;
+  color: var(--tekst-zacht);
+  font-size: 0.9rem;
+}
+
+.neerzetvak__melding {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--waarschuwing);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--waarschuwing) 12%, transparent);
+  font-size: 0.9rem;
+}
+
+.neerzetvak__gekozen {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin: 0;
+}
+
+.neerzetvak__voorbeeld {
+  width: 96px;
+  height: 96px;
+  object-fit: cover;
+  border: 1px solid var(--rand);
+  border-radius: 6px;
+  background: var(--vlak);
+}
+
+.neerzetvak__naam {
+  color: var(--tekst-zacht);
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .neerzetvak:has(.neerzetvak__hint:not([hidden])) {
+    transition: none;
+  }
+}
+
 /* ── Meldingen boven het formulier ─────────────────────────────────────── */
 
 .melding {

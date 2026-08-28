@@ -615,3 +615,45 @@ fn without_the_checkbox_nothing_is_written_to_the_folder() {
         "er is een bestand aangemaakt dat niemand vroeg"
     );
 }
+
+#[test]
+fn the_upload_field_is_a_drop_target() {
+    // Slepen is een toevoeging bovenop het bestandsveld dat er al stond: het
+    // vak markeert zichzelf zodat `app.js` er een sleepdoel van kan maken, en
+    // de uitnodiging staat `hidden` tot dat script er is. Zonder JavaScript
+    // hoort er geen hint te staan die nergens toe leidt.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+    let page = server.get("/hoes/Album/zonder-hoes.mp3");
+
+    assert!(
+        page.starts_with("HTTP/1.1 200 OK"),
+        "antwoord begon met: {}",
+        page.lines().next().unwrap_or_default()
+    );
+
+    assert!(page.contains("data-neerzetvak"), "pagina was:\n{page}");
+    assert!(
+        page.contains("Sleep een afbeelding hierheen"),
+        "de hint ontbreekt:\n{page}"
+    );
+    let hint = page
+        .lines()
+        .find(|line| line.contains("data-neerzetvak-hint"))
+        .expect("de hint hoort in de pagina te staan");
+    assert!(
+        hint.contains("hidden"),
+        "de hint hoort verborgen te beginnen; `app.js` haalt hem tevoorschijn: {hint}"
+    );
+
+    // Het veld zelf is niet veranderd: dezelfde naam, hetzelfde type, dezelfde
+    // beperking. Slepen vult dít veld, en het formulier verstuurt zich verder
+    // precies zoals het altijd deed.
+    assert!(
+        page.contains(r#"name="afbeelding" type="file""#),
+        "het bestandsveld is veranderd:\n{page}"
+    );
+    assert!(
+        page.contains(r#"accept="image/jpeg,image/png""#),
+        "pagina was:\n{page}"
+    );
+}
