@@ -159,6 +159,14 @@ pub struct EditPage {
 
     /// Bevestiging of foutmelding; leeg bij het openen van de pagina.
     pub notice: Option<Notice>,
+
+    /// De bovengrens aan een upload in megabytes, uit `MAX_UPLOAD_MB`.
+    ///
+    /// Nodig omdat er ook op deze pagina een hoes neergezet kan worden. De
+    /// controle op omvang gebeurt in de browser: een upload boven de grens
+    /// wordt door de server afgekapt terwijl de browser nog verstuurt, en dan
+    /// komt de uitleg die hij meestuurt nooit aan.
+    pub max_upload_mb: u32,
 }
 
 /// Een tekstveld uit het model, of lege tekst.

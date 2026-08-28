@@ -222,14 +222,25 @@
       var bestand = invoer.files[0];
       var bezwaar = bezwaarTegen(vak, bestand);
       if (bezwaar) {
-        invoer.value = "";
-        verbergGekozen(vak);
-        meld(vak, bezwaar);
+        wijsAf(vak, invoer, bezwaar);
         return;
       }
 
       toon(vak, bestand);
     });
+  }
+
+  /**
+   * Wijst af wat er is aangeboden, en laat niets halfs achter.
+   *
+   * Ook het veld wordt geleegd: stond er al een geldige afbeelding klaar, dan
+   * zou een knop blijven staan terwijl de melding zegt dat er iets mis is. Eén
+   * duidelijke toestand is beter dan twee die elkaar tegenspreken.
+   */
+  function wijsAf(vak, invoer, reden) {
+    invoer.value = "";
+    verbergGekozen(vak);
+    meld(vak, reden);
   }
 
   /**
@@ -264,11 +275,16 @@
     return null;
   }
 
-  /** Haalt de voorbeeldweergave weg. */
+  /** Haalt de voorbeeldweergave en alles wat erbij hoorde weer weg. */
   function verbergGekozen(vak) {
     var gekozen = vak.querySelector("[data-neerzetvak-gekozen]");
     if (gekozen) {
       gekozen.hidden = true;
+    }
+
+    var klaar = vak.querySelectorAll("[data-neerzetvak-klaar]");
+    for (var i = 0; i < klaar.length; i++) {
+      klaar[i].hidden = true;
     }
   }
 
@@ -276,7 +292,7 @@
   function neerzetten(vak, invoer, overdracht) {
     if (!overdracht || !overdracht.files || overdracht.files.length === 0) {
       // Een sleepactie zonder bestand: tekst uit een ander venster, een link.
-      meld(vak, "Dat is geen bestand. Sleep een JPEG of PNG hierheen.");
+      wijsAf(vak, invoer, "Dat is geen bestand. Sleep een JPEG of PNG hierheen.");
       return;
     }
 
@@ -284,14 +300,14 @@
       // Er gaat één hoes tegelijk in een bestand. Stilzwijgend de eerste pakken
       // zou betekenen dat de gebruiker een andere afbeelding krijgt dan hij
       // dacht neer te zetten.
-      meld(vak, "Er gaat één hoes tegelijk. Sleep er één, niet meerdere.");
+      wijsAf(vak, invoer, "Er gaat één hoes tegelijk. Sleep er één, niet meerdere.");
       return;
     }
 
     var bestand = overdracht.files[0];
     var bezwaar = bezwaarTegen(vak, bestand);
     if (bezwaar) {
-      meld(vak, bezwaar);
+      wijsAf(vak, invoer, bezwaar);
       return;
     }
 
@@ -305,6 +321,14 @@
   /** Toont welk bestand er klaarstaat, met een voorbeeldweergave. */
   function toon(vak, bestand) {
     meld(vak, null);
+
+    // Wat er zichtbaar wordt zodra er iets klaarstaat, bepaalt de template.
+    // Op de hoespagina staat de knop er al; op de bewerkpagina verschijnt hij
+    // pas hier, want daar is het hoesje in rust gewoon een plaatje.
+    var klaar = vak.querySelectorAll("[data-neerzetvak-klaar]");
+    for (var i = 0; i < klaar.length; i++) {
+      klaar[i].hidden = false;
+    }
 
     var gekozen = vak.querySelector("[data-neerzetvak-gekozen]");
     if (!gekozen) {

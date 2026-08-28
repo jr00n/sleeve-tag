@@ -12,17 +12,50 @@
 </nav>
 
 <div class="bestandskop">
-  {# De hoes leidt naar zijn eigen pagina en niet naar de kale afbeelding: daar
-     staat wat je op een vakje van 96 pixels niet kunt zien (FR-12). #}
-  {% if page.has_art %}
-  <a href="{{ page.cover_url }}">
-    <img class="bestandskop__hoes" src="{{ page.art_url }}" alt="Album art van dit bestand"
-         width="96" height="96" decoding="async" />
-  </a>
-  {% else %}
-  <a class="bestandskop__hoes bestandskop__hoes--leeg" href="{{ page.cover_url }}"
-     role="img" aria-label="Geen album art"></a>
-  {% endif %}
+  {# Het hoesje is ook een neerzetvak: een afbeelding erop slepen zet hem klaar
+     voor dit ene bestand. Het formulier eromheen post naar dezelfde route als
+     de hoespagina en staat bewust náást het tagformulier hieronder — geneste
+     formulieren bestaan niet in HTML, en een hoesactie hoort geen tags mee te
+     sturen. Zonder JavaScript blijft er precies één ding over: de link naar de
+     hoespagina, zoals het altijd was. #}
+  <form class="hoesdoel" method="post" action="{{ page.cover_url }}"
+        enctype="multipart/form-data"
+        data-neerzetvak data-max-mb="{{ page.max_upload_mb }}">
+    {# De hoes leidt naar zijn eigen pagina en niet naar de kale afbeelding: daar
+       staat wat je op een vakje van 96 pixels niet kunt zien (FR-12). #}
+    {% if page.has_art %}
+    <a href="{{ page.cover_url }}">
+      <img class="bestandskop__hoes" src="{{ page.art_url }}" alt="Album art van dit bestand"
+           width="96" height="96" decoding="async" />
+    </a>
+    {% else %}
+    <a class="bestandskop__hoes bestandskop__hoes--leeg" href="{{ page.cover_url }}"
+       role="img" aria-label="Geen album art"></a>
+    {% endif %}
+
+    {# Het bestandsveld hoort bij de hoespagina; hier is het alleen de plek waar
+       een gesleept bestand terechtkomt. Vandaar `hidden`: wie wil bladeren,
+       doet dat daar, waar ook de andere keuzes staan. #}
+    <input class="hoesdoel__veld" name="afbeelding" type="file"
+           accept="image/jpeg,image/png" hidden />
+
+    <p class="hoesdoel__hint" data-neerzetvak-hint hidden>Sleep hier een hoes op</p>
+    <p class="neerzetvak__melding" data-neerzetvak-melding role="status" hidden></p>
+
+    {# Verschijnt pas als er werkelijk een afbeelding klaarstaat: neerzetten zet
+       klaar, de knop schrijft. #}
+    <div class="hoesdoel__klaar" data-neerzetvak-klaar hidden>
+      <figure class="neerzetvak__gekozen" data-neerzetvak-gekozen hidden></figure>
+      <button class="knop knop--primair" type="submit" name="actie" value="embed-dit"
+              data-bezig="Bezig met embedden…">
+        In dit bestand zetten
+      </button>
+      <p class="hoesdoel__meer">
+        Voor de hele map of een losse <code>cover.jpg</code>:
+        <a href="{{ page.cover_url }}">de hoespagina</a>.
+      </p>
+    </div>
+  </form>
 
   <div class="bestandskop__tekst">
     <h1 class="maptitel">{{ page.name }}</h1>

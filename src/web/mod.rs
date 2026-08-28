@@ -879,6 +879,7 @@ async fn load_page(
         duration: browse::format_duration(track.duration),
         fields: fields.unwrap_or_else(|| edit::Form::from_tags(&track.tags)),
         notice,
+        max_upload_mb: state.art_limits.max_upload_mb,
     })
 }
 

@@ -256,3 +256,80 @@ fn editing_outside_the_library_is_refused() {
         "een POST buiten de bibliotheek werd geaccepteerd:\n{posted}"
     );
 }
+
+#[test]
+fn the_cover_on_the_edit_page_is_a_drop_target() {
+    // Een hoes hoort neergezet te kunnen worden waar hij te zien is. Het
+    // formulier eromheen post naar dezelfde route als de hoespagina — er komt
+    // geen tweede manier bij om een hoes te schrijven.
+    let server = Server::start_in(library_with_a_track(), &[]);
+    let page = server.get("/bewerk/Album/track.mp3");
+
+    assert!(page.contains("data-neerzetvak"), "pagina was:\n{page}");
+    assert!(
+        page.contains(r#"action="/hoes/Album/track.mp3""#),
+        "het hoesformulier post niet naar de hoespagina:\n{page}"
+    );
+    assert!(
+        page.contains(r#"value="embed-dit""#),
+        "de knop ontbreekt:\n{page}"
+    );
+
+    // Neerzetten schrijft niets: de knop staat verborgen tot er werkelijk een
+    // afbeelding klaarstaat.
+    let klaar = page
+        .lines()
+        .find(|line| line.contains("data-neerzetvak-klaar"))
+        .expect("het blok met de knop hoort in de pagina te staan");
+    assert!(
+        klaar.contains("hidden"),
+        "de knop hoort verborgen te beginnen: {klaar}"
+    );
+
+    // En de hoespagina blijft bereikbaar voor wat daar meer kan.
+    assert!(
+        page.contains("de hoespagina"),
+        "de verwijzing naar de hoespagina ontbreekt:\n{page}"
+    );
+}
+
+#[test]
+fn a_file_without_art_is_a_drop_target_too() {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+    common::place_fixture(&album, "kaal.mp3", "untagged.mp3");
+
+    let server = Server::start_in(root, &[]);
+    let page = server.get("/bewerk/Album/kaal.mp3");
+
+    assert!(
+        page.contains("data-neerzetvak"),
+        "juist een bestand zonder hoes wil je er een op kunnen slepen:\n{page}"
+    );
+}
+
+#[test]
+fn the_cover_form_does_not_carry_the_tag_fields() {
+    // Geneste formulieren bestaan niet in HTML, en een hoesactie hoort geen
+    // tags mee te sturen. Het hoesformulier hoort dus dicht te zijn vóór het
+    // tagformulier begint.
+    let server = Server::start_in(library_with_a_track(), &[]);
+    let page = server.get("/bewerk/Album/track.mp3");
+
+    let hoesform = page
+        .find(r#"action="/hoes/Album/track.mp3""#)
+        .expect("het hoesformulier hoort er te zijn");
+    let einde_hoesform = page[hoesform..]
+        .find("</form>")
+        .expect("het hoesformulier hoort afgesloten te worden")
+        + hoesform;
+    let tagform = page
+        .find(r#"action="/bewerk/Album/track.mp3""#)
+        .expect("het tagformulier hoort er te zijn");
+
+    assert!(
+        einde_hoesform < tagform,
+        "het hoesformulier omsluit het tagformulier; dan zouden de tags meegaan"
+    );
+}

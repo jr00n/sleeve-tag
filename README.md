@@ -377,6 +377,7 @@ toevoeging: valt het weg, dan werkt elk formulier zoals het altijd deed.
 |---|---|
 | **Bezig-weergave** | een knop die schrijft toont een spinner en neemt geen tweede klik meer aan |
 | **Een hoes neerslepen** | een JPEG of PNG op het uploadvak slepen vult het bestandsveld, met een miniatuur erbij |
+| **Idem op het hoesje** | op de bewerkpagina is het hoesje zelf ook een doel; daar verschijnt dan één knop, "In dit bestand zetten" |
 
 Slepen verandert niets aan wat er daarna gebeurt: de vinkjes en de knoppen
 bepalen nog steeds wat er met de afbeelding wordt gedaan, en er wordt niets
@@ -387,6 +388,13 @@ mislukte upload.
 Om die reden staat de uitnodiging om te slepen `hidden` in de template en haalt
 het script hem tevoorschijn: een hint die nergens toe leidt is erger dan geen
 hint.
+
+Het hoesje op de bewerkpagina is een snelkoppeling naar de gewone route en geen
+tweede manier om te schrijven: het formulier eromheen post naar dezelfde
+`/hoes/{pad}` als de hoespagina. Het staat náást het tagformulier en niet erin —
+geneste formulieren bestaan niet in HTML, en een hoesactie hoort geen tags mee
+te sturen. Voor de hele map of een losse `cover.jpg` blijft de hoespagina de
+plek; die keuzes horen niet in een snelkoppeling thuis.
 6. Pas dan wordt het tijdelijke bestand over het origineel hernoemd.
 
 Gaat er onderweg iets mis — ook bij een paniek — dan blijft het origineel

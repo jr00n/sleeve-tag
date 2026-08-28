@@ -713,6 +713,45 @@ a.bestandskop__hoes {
   }
 }
 
+/* ── Het hoesje op de bewerkpagina als sleepdoel ───────────────────────────
+   In rust is dit gewoon het plaatje dat er altijd stond. Pas als er iets boven
+   zweeft of klaarstaat, laat het van zich horen. */
+
+.hoesdoel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 4px;
+  border: 2px dashed transparent;
+  border-radius: 10px;
+}
+
+.hoesdoel.is-sleepdoel {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.hoesdoel__hint {
+  max-width: 104px;
+  margin: 0;
+  color: var(--tekst-zacht);
+  font-size: 0.75rem;
+  line-height: 1.25;
+}
+
+.hoesdoel__klaar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.hoesdoel__meer {
+  margin: 0;
+  color: var(--tekst-zacht);
+  font-size: 0.8rem;
+}
+
 /* ── Meldingen boven het formulier ─────────────────────────────────────── */
 
 .melding {
