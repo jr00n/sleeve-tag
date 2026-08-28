@@ -6,6 +6,19 @@
  * zodat de pagina zelf nooit horizontaal scrollt.
  */
 
+/*
+ * `hidden` moet ook echt verbergen.
+ *
+ * Het attribuut is niet meer dan `display: none` uit de standaardstijl van de
+ * browser, en élke `display`-regel hieronder wint daarvan. Een blok dat
+ * `display: flex` krijgt en `hidden` draagt, staat dus gewoon in beeld — zo
+ * verscheen de knop "In dit bestand zetten" zonder dat er iets was neergezet.
+ * Deze regel is de gangbare remedie en hoort vóór al het andere te staan.
+ */
+[hidden] {
+  display: none !important;
+}
+
 :root {
   --achtergrond: #14161a;
   --vlak: #1d2026;

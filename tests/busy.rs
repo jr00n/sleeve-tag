@@ -157,3 +157,29 @@ fn helper_actions_are_not_marked() {
         );
     }
 }
+
+#[test]
+fn hidden_really_hides() {
+    // Het attribuut `hidden` is niet meer dan `display: none` uit de
+    // standaardstijl van de browser, en élke eigen `display`-regel wint
+    // daarvan. Zonder deze regel stond de knop "In dit bestand zetten" op de
+    // bewerkpagina in beeld zonder dat er iets was neergezet — het blok eromheen
+    // had `display: flex`.
+    //
+    // Dit is niet in een test zonder browser te zien, en juist daarom staat hij
+    // hier: wie de regel weghaalt, laat elk `hidden` in de templates stukgaan.
+    let server = server();
+    let css = server.get("/static/app.css");
+
+    assert_ok(&css);
+
+    let regel = css
+        .split("[hidden]")
+        .nth(1)
+        .expect("app.css hoort `hidden` af te dwingen");
+    assert!(
+        regel.trim_start().starts_with('{') && regel.contains("display: none !important"),
+        "de regel voor `hidden` klopt niet: {}",
+        &regel[..regel.len().min(120)]
+    );
+}
