@@ -173,5 +173,8 @@ Elke fase eindigt met werkende tests en een korte handmatige check op de NAS. Fa
 ## 12. Open vragen
 
 - Exacte pad van de muziekshare op de UGREEN (nodig voor de volume-mount in de `docker-compose.yml`). UID/GID zijn bekend: 1000/10.
-- Is er een voorkeur voor JPEG-only bij het embedden van art (kleiner) of moet PNG behouden blijven?
-- Gewenste standaardsortering in de mapweergave: op bestandsnaam of op tracknummer uit de tags?
+
+### Beantwoord
+
+- **JPEG-only of PNG behouden bij het embedden van art?** Het bronformaat blijft behouden zolang de afbeelding binnen `MAX_ART_SIZE` past: dan gaan de bytes ongewijzigd het bestand in. Moet er verkleind worden, dan wordt er naar JPEG gecodeerd (kwaliteit `ART_QUALITY`), tenzij het origineel werkelijk doorzichtige pixels bevat — die zouden zwart worden. Er wordt dus alleen omgezet wanneer er toch al iets moet gebeuren.
+- **Standaardsortering in de mapweergave?** Op tracknummer uit de tags, want dat is de volgorde waarin het album bedoeld is; bestanden zonder tracknummer komen erachter, onderling op naam.

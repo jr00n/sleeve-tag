@@ -54,6 +54,8 @@ ontwikkelen; `sleeve-tag --help` toont ze.
 | `PUID` | `1000` | UID waaronder bestanden worden weggeschreven. |
 | `PGID` | `10` | GID waaronder bestanden worden weggeschreven. |
 | `MAX_ART_SIZE` | `1000x1000` | Maximale resolutie van embedded album art. Ook `1000` is geldig; verkleinen behoudt de beeldverhouding. |
+| `ART_QUALITY` | `85` | JPEG-kwaliteit (1–100) waarmee een verkleinde hoes wordt gecodeerd. Daarboven lopen de bytes hard op zonder zichtbaar verschil, daaronder worden vlakken korrelig. |
+| `MAX_UPLOAD_MB` | `10` | Bovengrens aan een geüploade afbeelding, in megabytes. Ruim boven wat een hoes nodig heeft, ruim onder wat een NAS met weinig geheugen plat legt. |
 | `LOG_LEVEL` | `info` | Logniveau voor `tracing`. Een lege waarde valt terug op `info`. |
 | `BACKUP_ON_WRITE` | `false` | Plaatst bij elke schrijfactie een `.bak` naast het bestand. Accepteert `true`/`false`, `1`/`0`, `yes`/`no`, `on`/`off`. |
 
@@ -445,6 +447,33 @@ signaleren dat de tracks in een map **verschillende hoezen** hebben — vergelek
 op type, afmetingen en omvang, want twee hoezen die daarin gelijk zijn, zijn in
 de praktijk dezelfde afbeelding. Bestanden zonder hoes tellen daarbij niet mee;
 die hebben hun eigen melding.
+
+### Wat er met een nieuwe hoes gebeurt
+
+Een aangeleverde afbeelding gaat door `art::prepare`, en daar gebeuren drie
+dingen — niet meer:
+
+1. **Valideren.** Het formaat wordt uit de bytes zelf geraden, niet uit een
+   bestandsnaam of een `Content-Type`: een `.jpg` die in werkelijkheid een zip
+   is, hoort niet in iemands muziekbibliotheek te belanden. Alleen JPEG en PNG
+   komen erdoor, en alleen tot `MAX_UPLOAD_MB` — die grens geldt op de ruwe
+   bytes, dus vóór er iets wordt uitgepakt.
+2. **Verkleinen**, maar alleen wat boven `MAX_ART_SIZE` uitkomt. Een 3000×3000
+   scan in elk van de twaalf tracks blaast een album op. De beeldverhouding
+   blijft behouden en er wordt nooit vergroot.
+3. **Hercoderen**, en alleen wanneer er verkleind is — naar JPEG met kwaliteit
+   `ART_QUALITY`, tenzij het origineel werkelijk doorzichtige pixels bevat: die
+   zouden zwart worden.
+
+Past de afbeelding al binnen de grenzen, dan komen de bytes **ongewijzigd** het
+bestand in: geen hercodering, geen kwaliteitsverlies, en een PNG blijft een PNG.
+Dat is het antwoord op de open vraag uit PRD §12 — er wordt alleen omgezet
+wanneer er toch al iets moet gebeuren.
+
+Een decoder krijgt daarbij een geheugengrens mee. Een afbeelding van 20000×20000
+past in een paar honderd kilobyte gecomprimeerde data maar vraagt bij het
+uitpakken meer dan een gigabyte; op een NAS met weinig geheugen is dat het
+verschil tussen een foutmelding en een gestorven container.
 
 ### Geavanceerde weergave: alle ruwe tags
 

@@ -30,6 +30,8 @@ fn logs_given_values_instead_of_defaults() {
         ("PUID", "1001"),
         ("PGID", "20"),
         ("MAX_ART_SIZE", "800x600"),
+        ("ART_QUALITY", "70"),
+        ("MAX_UPLOAD_MB", "4"),
         ("LOG_LEVEL", "debug"),
         ("BACKUP_ON_WRITE", "true"),
     ]);
@@ -38,6 +40,8 @@ fn logs_given_values_instead_of_defaults() {
     assert!(log.contains("puid=1001"), "log was: {log}");
     assert!(log.contains("pgid=20"), "log was: {log}");
     assert!(log.contains("max_art_size=800x600"), "log was: {log}");
+    assert!(log.contains("art_quality=70"), "log was: {log}");
+    assert!(log.contains("max_upload_mb=4"), "log was: {log}");
     assert!(log.contains("backup_on_write=true"), "log was: {log}");
 }
 
@@ -87,6 +91,8 @@ fn names_the_variable_on_an_invalid_value() {
     for (variable, value) in [
         ("PORT", "geen-getal"),
         ("MAX_ART_SIZE", "groot"),
+        ("ART_QUALITY", "200"),
+        ("MAX_UPLOAD_MB", "0"),
         ("BACKUP_ON_WRITE", "misschien"),
         ("PUID", "jeroen"),
     ] {

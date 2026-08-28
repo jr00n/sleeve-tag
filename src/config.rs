@@ -1,8 +1,8 @@
 //! Configuratie van de applicatie, uitsluitend gelezen uit omgevingsvariabelen.
 //!
 //! Sleeve draait als container zonder configuratiebestand: `MUSIC_ROOT`, `PORT`,
-//! `PUID`/`PGID`, `MAX_ART_SIZE`, `LOG_LEVEL` en `BACKUP_ON_WRITE` bepalen samen
-//! het volledige gedrag. In de container is `MUSIC_ROOT` altijd `/music`; het
+//! `PUID`/`PGID`, `MAX_ART_SIZE`, `ART_QUALITY`, `MAX_UPLOAD_MB`, `LOG_LEVEL` en
+//! `BACKUP_ON_WRITE` bepalen samen het volledige gedrag. In de container is `MUSIC_ROOT` altijd `/music`; het
 //! pad van de muziekshare op de host is puur een volume-mount en is de app
 //! onbekend.
 //!
@@ -24,6 +24,17 @@ const DEFAULT_PUID: &str = "1000";
 const DEFAULT_PGID: &str = "10";
 /// Standaard maximale resolutie voor embedded album art.
 const DEFAULT_MAX_ART_SIZE: &str = "1000x1000";
+/// Standaard JPEG-kwaliteit waarmee verkleinde album art wordt gecodeerd.
+///
+/// 85 is de gangbare bovenkant van "je ziet het verschil niet": daarboven lopen
+/// de bytes hard op zonder dat het op een hoes zichtbaar is, daaronder worden
+/// vlakken en kleurovergangen korrelig.
+const DEFAULT_ART_QUALITY: &str = "85";
+/// Standaard bovengrens aan een geüploade afbeelding, in megabytes.
+///
+/// Ruim boven wat een hoes ooit nodig heeft, en ruim onder wat een NAS met
+/// weinig geheugen in de problemen brengt.
+const DEFAULT_MAX_UPLOAD_MB: &str = "10";
 /// Standaard logniveau.
 const DEFAULT_LOG_LEVEL: &str = "info";
 
@@ -59,6 +70,14 @@ pub struct Config {
     #[arg(long, env = "MAX_ART_SIZE", default_value = DEFAULT_MAX_ART_SIZE, value_parser = parse_max_art_size)]
     pub max_art_size: MaxArtSize,
 
+    /// JPEG-kwaliteit waarmee verkleinde album art wordt gecodeerd (1–100).
+    #[arg(long, env = "ART_QUALITY", default_value = DEFAULT_ART_QUALITY, value_parser = parse_art_quality)]
+    pub art_quality: u8,
+
+    /// Bovengrens aan een geüploade afbeelding, in megabytes.
+    #[arg(long, env = "MAX_UPLOAD_MB", default_value = DEFAULT_MAX_UPLOAD_MB, value_parser = parse_max_upload_mb)]
+    pub max_upload_mb: u32,
+
     /// Logniveau voor `tracing`.
     #[arg(long, env = "LOG_LEVEL", default_value = DEFAULT_LOG_LEVEL, value_parser = parse_log_level)]
     pub log_level: String,
@@ -90,6 +109,8 @@ impl Config {
             puid = self.puid,
             pgid = self.pgid,
             max_art_size = %self.max_art_size,
+            art_quality = self.art_quality,
+            max_upload_mb = self.max_upload_mb,
             log_level = %self.log_level,
             backup_on_write = self.backup_on_write,
             "Configuratie geladen"
@@ -188,6 +209,42 @@ fn parse_max_art_size(raw: &str) -> Result<MaxArtSize, String> {
         width: breedte,
         height: hoogte,
     })
+}
+
+/// Parseert `ART_QUALITY` als een JPEG-kwaliteit van 1 tot en met 100.
+///
+/// 0 bestaat niet als kwaliteit en boven 100 kent de encoder geen betekenis;
+/// allebei worden ze geweigerd in plaats van stilzwijgend bijgeknipt, want een
+/// verkeerd ingestelde container hoort dat te zeggen.
+fn parse_art_quality(raw: &str) -> Result<u8, String> {
+    const UITLEG: &str = "verwacht een getal van 1 tot en met 100";
+
+    let value = raw
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| format!("ART_QUALITY: ongeldige waarde '{raw}'; {UITLEG}"))?;
+
+    if !(1..=100).contains(&value) {
+        return Err(format!("ART_QUALITY: '{raw}' valt buiten 1–100"));
+    }
+
+    Ok(value as u8)
+}
+
+/// Parseert `MAX_UPLOAD_MB` als een bovengrens in megabytes.
+fn parse_max_upload_mb(raw: &str) -> Result<u32, String> {
+    const UITLEG: &str = "verwacht een aantal megabytes, bijvoorbeeld 10";
+
+    let value = raw
+        .trim()
+        .parse::<u32>()
+        .map_err(|_| format!("MAX_UPLOAD_MB: ongeldige waarde '{raw}'; {UITLEG}"))?;
+
+    if value == 0 {
+        return Err("MAX_UPLOAD_MB: 0 zou elke upload weigeren".to_string());
+    }
+
+    Ok(value)
 }
 
 /// Neemt het logniveau over; een lege waarde valt terug op `info`.
@@ -329,6 +386,30 @@ mod tests {
 
         assert!(parse_max_art_size("0x1000").is_err());
         assert!(parse_max_art_size("1000x").is_err());
+    }
+
+    #[test]
+    fn art_quality_accepts_the_whole_range_and_nothing_else() {
+        assert_eq!(parse_art_quality("1"), Ok(1));
+        assert_eq!(parse_art_quality("85"), Ok(85));
+        assert_eq!(parse_art_quality(" 100 "), Ok(100));
+
+        // 0 bestaat niet als kwaliteit en boven 100 kent de encoder geen
+        // betekenis; allebei geweigerd in plaats van stil bijgeknipt.
+        let error = parse_art_quality("0").expect_err("0 is geen kwaliteit");
+        assert!(error.contains("ART_QUALITY"), "melding was: {error}");
+        assert!(parse_art_quality("101").is_err());
+        assert!(parse_art_quality("hoog").is_err());
+        assert!(parse_art_quality("-1").is_err());
+    }
+
+    #[test]
+    fn max_upload_mb_refuses_zero_and_nonsense() {
+        assert_eq!(parse_max_upload_mb("10"), Ok(10));
+
+        let error = parse_max_upload_mb("0").expect_err("0 zou alles weigeren");
+        assert!(error.contains("MAX_UPLOAD_MB"), "melding was: {error}");
+        assert!(parse_max_upload_mb("veel").is_err());
     }
 
     #[test]

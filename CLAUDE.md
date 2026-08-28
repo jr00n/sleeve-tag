@@ -26,6 +26,12 @@ de conventies vast waar code zich aan houdt.
   het bestand en raakt de afbeelding verder niet aan — ook het uitlezen van de
   afmetingen gaat langs `art::`. `art::` opent zelf geen bestanden: in en uit
   gaan bytes. Deze regel wordt afgedwongen door `tests/architecture.rs`.
+- **Een aangeleverde hoes gaat door `art::prepare`.** Die valideert op de bytes
+  zelf (alleen JPEG en PNG), verkleint alleen wat boven `MAX_ART_SIZE` uitkomt,
+  en hercodeert alleen wat verkleind is. Past de afbeelding al, dan gaan de
+  bytes ongewijzigd het bestand in — geen kwaliteitsverlies, en een PNG blijft
+  een PNG. Bij verkleinen wordt het JPEG, tenzij er werkelijk doorzichtige
+  pixels in zitten.
 - **De hoesweergave (`cover::`) beschrijft alleen.** Ze krijgt de `ArtInfo` die
   `tags::` uit het bestand las en maakt daar tekst van; ze opent geen bestanden
   en raakt geen pixels aan.
