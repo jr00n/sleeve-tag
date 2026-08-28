@@ -205,12 +205,69 @@ omhoog:
 docker buildx build --platform linux/amd64 --build-arg BUILD_JOBS=8 -t sleeve-tag:dev .
 ```
 
+### Draaien op de NAS
+
+De meegeleverde `docker-compose.yml` is bedoeld om zonder aanpassingen te
+werken; alles wat per NAS verschilt staat in een `.env` ernaast, die niet in
+Git zit.
+
+```sh
+cp .env.example .env       # en zet MUSIC_HOST_PATH op het pad van de share
+docker compose up -d
+docker compose logs -f sleeve-tag
+```
+
+De UI staat daarna op `http://<nas>:8080`, op het LAN en via Tailscale. Sleeve
+heeft zelf geen login: de afscherming gebeurt op netwerkniveau, dus deze poort
+hoort nooit naar internet open te staan.
+
+`MUSIC_HOST_PATH` is de enige verplichte waarde. Het is ook het enige
+NAS-specifieke gegeven in de opstelling: het staat links van de dubbele punt in
+de volume-mount, en in de container heet de map altijd `/music`. Wat de rest
+van de variabelen doet, staat in [Configuratie](#configuratie) en als
+commentaar in `.env.example`.
+
+De container draait als `${PUID}:${PGID}` — zie
+[Rechten en eigenaarschap](#rechten-en-eigenaarschap) voor waarom dat via
+`user:` gaat en niet via een entrypoint.
+
+### De healthcheck
+
+Compose bevraagt `/healthz`, maar er zit geen `curl` in een distroless-image.
+De container roept daarom dezelfde binary nog eens aan, in een tweede
+bedrijfsmodus:
+
+```sh
+sleeve-tag --health    # exitcode 0 = gezond, 1 = niet gezond
+```
+
+Die doet één verzoek aan `127.0.0.1:$PORT/healthz` en zegt verder niets; alleen
+de exitcode telt, en dat is precies wat Docker nodig heeft. De modus draait
+vóór de configuratie wordt ingelezen en heeft alleen `PORT` nodig — een
+healthcheck hoort niet te struikelen over iets anders dan de vraag die hij
+stelt. Samen met `restart: unless-stopped` komt een vastgelopen container zo
+vanzelf weer terug.
+
 ### Naar de NAS brengen
 
 Zolang er nog geen image in een registry staat, gaat het handmatig:
 
 ```sh
 docker save sleeve-tag:dev | ssh <nas> docker load
+```
+
+Met Podman als bouwer moet de volledige naam mee, anders vindt `save` het image
+niet:
+
+```sh
+podman save localhost/sleeve-tag:dev | ssh <nas> docker load
+```
+
+Het image komt aan de andere kant binnen als `localhost/sleeve-tag:dev`. De
+compose-file verwacht `sleeve-tag:dev`, dus hernoem het één keer op de NAS:
+
+```sh
+ssh <nas> docker tag localhost/sleeve-tag:dev sleeve-tag:dev
 ```
 
 Vanaf de release-workflow haalt de NAS het image op met `docker compose pull`.
@@ -230,6 +287,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 |--------|----------------------|
 | `config` | Configuratie uit omgevingsvariabelen |
 | `startup` | De startcontrole: is `MUSIC_ROOT` schrijfbaar, en met welke eigenaar en groep |
+| `health` | De healthcheck-modus (`--health`): één verzoek aan `/healthz`, alleen een exitcode terug |
 | `fs` | Padvalidatie en containment binnen `MUSIC_ROOT`; de enige plek die een gebruikerspad naar een filesystem-pad vertaalt |
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
 | `art` | Album art decoderen, verkleinen en encoderen (de enige plek die pixels aanraakt) |

@@ -98,6 +98,13 @@ de conventies vast waar code zich aan houdt.
   dezelfde functie weer opgeruimd. Een verkeerde uitkomst wordt gemeld, niet
   gerepareerd, en laat de app niet stoppen — bladeren werkt op een read-only
   share gewoon. Een fout in de configuratie zelf blijft wél fataal.
+- **De healthcheck (`health::`) is een tweede bedrijfsmodus van dezelfde
+  binary.** `sleeve-tag --health` doet één verzoek aan `/healthz` op de loopback
+  en eindigt met een exitcode; meer heeft Docker niet nodig, en meer hoort die
+  modus ook niet te doen. Hij draait vóór `Config::parse` en kent alleen `PORT`:
+  een healthcheck die over een andere instelling struikelt, meet iets anders dan
+  hij beweert. Deze modus bestaat omdat de distroless-runtime geen shell en geen
+  `curl` heeft.
 - **Niets ongevraagd wijzigen.** Geen achtergrondjobs, geen opschoonacties, geen
   velden aanraken die de gebruiker niet zelf heeft ingevuld.
 

@@ -1,16 +1,26 @@
 ---
 id: TASK-24
 title: 'docker-compose.yml voor UGOS met volumes, env en healthcheck'
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - claude
 created_date: '2026-08-26 22:26'
-updated_date: '2026-08-26 23:44'
+updated_date: '2026-08-28 19:00'
 labels: []
 milestone: m-5
 dependencies:
   - TASK-23
 documentation:
   - PRD.md
+modified_files:
+  - docker-compose.yml
+  - .env.example
+  - src/health.rs
+  - src/main.rs
+  - src/config.rs
+  - tests/health.rs
+  - README.md
+  - CLAUDE.md
 priority: high
 type: chore
 ordinal: 24000
@@ -30,20 +40,98 @@ Het pad is inmiddels bekend en tijdens de Dockerfile-taak in de praktijk gebruik
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Het project bevat een docker-compose.yml waarmee de container op de NAS met `docker compose up -d` start
-- [ ] #2 De muziekshare wordt read-write gemount als `${MUSIC_HOST_PATH}:/music` en de container draait met MUSIC_ROOT=/music
-- [ ] #3 Er is een ingecheckte .env.example met MUSIC_HOST_PATH en toelichting; de echte .env staat in .gitignore
-- [ ] #4 Alle omgevingsvariabelen uit het PRD staan in het bestand met de NAS-standaardwaarden, inclusief PUID=1000 en PGID=10
-- [ ] #5 Er is een healthcheck gedefinieerd die /healthz gebruikt, zodat Docker een vastgelopen container herstart
-- [ ] #6 Het bestand bevat commentaar dat uitlegt wat een UGOS-gebruiker moet aanpassen
+- [x] #1 Het project bevat een docker-compose.yml waarmee de container op de NAS met `docker compose up -d` start
+- [x] #2 De muziekshare wordt read-write gemount als `${MUSIC_HOST_PATH}:/music` en de container draait met MUSIC_ROOT=/music
+- [x] #3 Er is een ingecheckte .env.example met MUSIC_HOST_PATH en toelichting; de echte .env staat in .gitignore
+- [x] #4 Alle omgevingsvariabelen uit het PRD staan in het bestand met de NAS-standaardwaarden, inclusief PUID=1000 en PGID=10
+- [x] #5 Er is een healthcheck gedefinieerd die /healthz gebruikt, zodat Docker een vastgelopen container herstart
+- [x] #6 Het bestand bevat commentaar dat uitlegt wat een UGOS-gebruiker moet aanpassen
 - [ ] #7 De UI is na het starten bereikbaar via http://<nas>:<port> en via Tailscale
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 cargo fmt --check slaagt
-- [ ] #2 cargo clippy -- -D warnings slaagt
-- [ ] #3 cargo test slaagt zonder toegang tot de echte muziekbibliotheek
-- [ ] #4 Nieuwe of gewijzigde functionaliteit is gedekt door unit- of integratietests
-- [ ] #5 Relevante documentatie (README / CLAUDE.md) is bijgewerkt
+- [x] #1 cargo fmt --check slaagt
+- [x] #2 cargo clippy -- -D warnings slaagt
+- [x] #3 cargo test slaagt zonder toegang tot de echte muziekbibliotheek
+- [x] #4 Nieuwe of gewijzigde functionaliteit is gedekt door unit- of integratietests
+- [x] #5 Relevante documentatie (README / CLAUDE.md) is bijgewerkt
 <!-- DOD:END -->
+
+## Implementation Plan
+
+<!-- SECTION:PLAN:BEGIN -->
+## Aanpak
+
+**De healthcheck vraagt om code, niet alleen om YAML.**
+De runtime is distroless: geen shell, geen `curl`, geen `wget`. Een
+`healthcheck:` in compose kan dus alleen een binary aanroepen die al in het
+image zit — en dat is er precies één. De binary krijgt daarom een tweede
+bedrijfsmodus: `sleeve-tag --health` doet één HTTP-verzoek naar
+`127.0.0.1:$PORT/healthz` en eindigt met 0 of 1. Dat is het gangbare patroon
+voor distroless-images, kost geen extra dependency (een `GET` over een
+`TcpStream` is een handvol regels, net als in de integratietests) en houdt de
+healthcheck bij de app in plaats van bij de compose-file.
+
+De vlag wordt vóór clap afgehandeld: de probe heeft alleen `PORT` nodig en mag
+niet struikelen over een `MUSIC_ROOT` die op dat moment niet gezet is.
+
+## Stappen
+
+1. `src/health.rs` (nieuw): `probe(port)` opent een TCP-verbinding naar de
+   loopback, stuurt `GET /healthz`, en kijkt of het antwoord met `200` begint.
+   Korte timeouts — een healthcheck die blijft hangen is geen healthcheck.
+2. `src/config.rs`: `port_from_env()` zodat de probe dezelfde parser en dezelfde
+   standaardwaarde gebruikt als de server. Eén bron voor `PORT`.
+3. `src/main.rs`: `--health` afvangen vóór `Config::parse()` en met de
+   exitcode van de probe eindigen.
+4. `docker-compose.yml`: `${MUSIC_HOST_PATH}:/music` read-write,
+   `user: "${PUID:-1000}:${PGID:-10}"`, alle env-variabelen uit PRD §8.3 met de
+   NAS-standaarden, poortmapping, `healthcheck` op de binary, `restart:
+   unless-stopped`. Commentaar gericht op wat een UGOS-gebruiker aanpast.
+5. `.env.example`: `MUSIC_HOST_PATH=/volume1/Multimedia/music` plus toelichting.
+   `.env` staat al in `.gitignore`.
+6. `tests/health.rs`: `--health` tegen een draaiende server geeft exitcode 0,
+   tegen een vrije poort een exitcode ongelijk aan 0.
+7. README: sectie over draaien met compose, en de healthcheck-modus benoemen.
+
+## Niet in deze taak
+
+- AC #7 (bereikbaar op de NAS en via Tailscale) vergt de NAS zelf; dat doet de
+  gebruiker met het image dat nu gebouwd wordt.
+- Een `/config`-volume: het PRD noemt het optioneel en de app schrijft nergens
+  buiten de bibliotheek. Een leeg volume aanbieden dat niets doet, is
+  misleidender dan het weglaten; wel als commentaar benoemd.
+<!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+De healthcheck bleek geen YAML-kwestie maar een codekwestie: distroless heeft geen shell, geen curl en geen wget, dus `healthcheck:` kan alleen de enige binary in het image aanroepen. Vandaar `sleeve-tag --health` als tweede bedrijfsmodus — één GET naar 127.0.0.1:$PORT/healthz, alleen een exitcode terug, en geen extra dependency (het verzoek past in een handvol regels over een TcpStream).
+
+De modus draait bewust vóór `Config::parse` en leest alleen `PORT` via `config::port_from_env`. Zou hij de volledige configuratie inlezen, dan zou een verkeerd gezette MUSIC_ROOT de container ook ongezond laten *lijken* — om de verkeerde reden.
+
+Geen /config-volume opgenomen, wel als commentaar benoemd: Sleeve houdt geen state bij en logt naar stdout. Een leeg volume aanbieden dat niets doet, is misleidender dan het weglaten.
+
+Lokaal geverifieerd met het amd64-image onder podman: `podman compose up -d` start de container, `docker inspect` meldt na de start_period `healthy`, de UI antwoordt met 200, en `podman exec sleeve-tag /usr/local/bin/sleeve-tag --health` geeft exitcode 0. De startcontrole uit TASK-23 logde daarbij `MUSIC_ROOT is schrijfbaar uid=1000 gid=10`.
+
+AC #7 (bereikbaar op de NAS en via Tailscale) staat nog open: dat vraagt de UGREEN zelf. Het image is gebouwd en klaar om over te zetten.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+`docker compose up -d` start Sleeve op de NAS, met alleen `MUSIC_HOST_PATH` in een `.env` als NAS-specifiek gegeven.
+
+**`docker-compose.yml`** — `${MUSIC_HOST_PATH}:/music` read-write, `user: "${PUID:-1000}:${PGID:-10}"`, alle omgevingsvariabelen uit PRD §8.3 met de NAS-standaarden, poortmapping via `${HOST_PORT:-8080}`, `restart: unless-stopped` en een healthcheck. Het commentaar is op een UGOS-gebruiker gericht: wat hij moet aanpassen, hoe hij de juiste uid/gid vindt (`ls -n`), en waarom `MUSIC_ROOT` in de container altijd `/music` blijft. Een ontbrekende `MUSIC_HOST_PATH` geeft via `${VAR:?…}` meteen een leesbare fout in plaats van een mount van niets.
+
+**`.env.example`** — met het pad van deze NAS als voorbeeld en toelichting per waarde; `.env` stond al in `.gitignore`.
+
+**Nieuw: `health::`.** De healthcheck kon geen `curl` gebruiken — distroless heeft geen shell. `sleeve-tag --health` doet daarom zelf één verzoek aan `127.0.0.1:$PORT/healthz` en eindigt met exitcode 0 of 1. De modus draait vóór `Config::parse` en kent alleen `PORT`: een healthcheck die over een andere instelling struikelt, meet iets anders dan hij beweert. Geen extra dependency.
+
+**Gedekt door tests:** `tests/health.rs` draait de binary echt met `--health` — tegen een draaiende server (0), tegen een vrije poort (≠0), en zonder `MUSIC_ROOT` in de omgeving. Plus een unit-test op een gesloten poort.
+
+**Lokaal geverifieerd** met het amd64-image onder podman: `podman compose up -d` → status `healthy`, UI antwoordt 200, `--health` in de container geeft 0.
+
+**Open:** AC #7 — bereikbaar op de NAS en via Tailscale. Dat vraagt de UGREEN zelf; het image staat klaar om over te zetten.
+<!-- SECTION:FINAL_SUMMARY:END -->

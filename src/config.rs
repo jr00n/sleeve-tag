@@ -118,6 +118,28 @@ impl Config {
     }
 }
 
+/// Leest `PORT` uit de omgeving voor de healthcheck-modus.
+///
+/// Die modus draait vóór clap: hij heeft alleen de poort nodig en mag niet
+/// struikelen over een `MUSIC_ROOT` die op dat moment niet gezet is. Toch komt
+/// de waarde langs dezelfde parser en dezelfde standaardwaarde als de server,
+/// zodat de probe nooit een andere poort kan aanwijzen dan waarop geluisterd
+/// wordt.
+///
+/// Een onleesbare `PORT` valt hier terug op de standaardwaarde in plaats van af
+/// te breken: de server zou met diezelfde waarde toch al niet gestart zijn, en
+/// een healthcheck hoort dat als "niet gezond" te melden en niet als een crash.
+pub fn port_from_env() -> u16 {
+    std::env::var("PORT")
+        .ok()
+        .and_then(|raw| parse_port(&raw).ok())
+        .unwrap_or_else(|| {
+            DEFAULT_PORT
+                .parse()
+                .expect("de standaardpoort moet een geldig getal zijn")
+        })
+}
+
 /// Maximale afmetingen waarnaar album art wordt verkleind.
 ///
 /// Verkleinen behoudt de beeldverhouding, dus dit zijn bovengrenzen per as en

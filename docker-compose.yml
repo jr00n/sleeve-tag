@@ -1,0 +1,86 @@
+# Sleeve (`sleeve-tag`) — draaien op een NAS met Docker.
+#
+# Aan de slag op de UGREEN:
+#
+#   1. cp .env.example .env
+#   2. zet MUSIC_HOST_PATH in .env op het pad van de muziekshare
+#   3. docker compose up -d
+#
+# De UI staat daarna op http://<nas>:8080 — op het LAN en, als de NAS in het
+# tailnet zit, ook via Tailscale. Sleeve heeft zelf geen login: de afscherming
+# gebeurt op netwerkniveau, dus zet deze poort nooit open naar internet.
+
+services:
+  sleeve-tag:
+    image: sleeve-tag:dev
+    # Zolang er nog geen image in een registry staat, komt het van
+    # `docker load` af. Vanaf de release-workflow wordt dit
+    # ghcr.io/<gebruiker>/sleeve-tag:<versie> en werkt `docker compose pull`.
+    container_name: sleeve-tag
+    hostname: sleeve-tag
+    restart: unless-stopped
+
+    # Het proces draait als niet-root. Docker zet de gebruiker hier, en niet een
+    # entrypoint-script in het image: dat zou als root moeten beginnen, en de
+    # distroless-runtime heeft er niet eens een shell voor. Deze waarden moeten
+    # gelijk zijn aan PUID en PGID hieronder — de app controleert dat bij start
+    # en zegt het in de log als ze uiteenlopen.
+    #
+    # 1000:10 is wat de share op deze UGREEN gebruikt. Klopt dat bij jou niet,
+    # kijk dan met `ls -n` in de muziekmap welke uid en gid daar staan.
+    user: "${PUID:-1000}:${PGID:-10}"
+
+    ports:
+      # Links de poort op de NAS, rechts die in de container. Is 8080 op de NAS
+      # al bezet (UGOS gebruikt hem zelf niet, andere containers soms wel),
+      # verander dan alleen het linkerdeel: 8081:8080.
+      - "${HOST_PORT:-8080}:8080"
+
+    volumes:
+      # De muziekshare, read-write want Sleeve schrijft tags terug. Het pad op
+      # de NAS staat in .env; de app kent het nooit — in de container heet het
+      # altijd /music.
+      - "${MUSIC_HOST_PATH:?zet MUSIC_HOST_PATH in .env; zie .env.example}:/music"
+      #
+      # Een /config-volume is niet nodig: Sleeve houdt geen state bij en logt
+      # naar stdout (`docker compose logs -f sleeve-tag`). Alles wat het schrijft
+      # staat in de bibliotheek zelf.
+
+    environment:
+      # In de container is MUSIC_ROOT altijd /music. Verander dit niet; het
+      # host-pad hoort links van de dubbele punt hierboven.
+      MUSIC_ROOT: /music
+      PORT: 8080
+
+      # Eigenaar en groep die geschreven bestanden horen te krijgen. Zie de
+      # toelichting bij `user:` hierboven — die twee horen gelijk te zijn.
+      PUID: ${PUID:-1000}
+      PGID: ${PGID:-10}
+
+      # Album art: bovengrens aan de resolutie van een embedded hoes, de
+      # JPEG-kwaliteit waarmee een verkleinde hoes wordt opgeslagen, en de
+      # bovengrens aan wat er geüpload mag worden.
+      MAX_ART_SIZE: ${MAX_ART_SIZE:-1000x1000}
+      ART_QUALITY: ${ART_QUALITY:-85}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+
+      # `info` volstaat; op `debug` logt elk verzoek uitgebreid mee.
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+
+      # Op `true` komt er bij elke schrijfactie een <naam>.bak naast het
+      # bestand. Standaard uit, om de share niet te vervuilen; het schrijven is
+      # sowieso atomisch, dus het origineel raakt nooit halverwege kwijt.
+      BACKUP_ON_WRITE: ${BACKUP_ON_WRITE:-false}
+
+    # De container bevraagt zichzelf op /healthz. Dat gebeurt met dezelfde
+    # binary in een tweede bedrijfsmodus: het image heeft geen shell en geen
+    # curl om het anders te doen. Met `restart: unless-stopped` erbij komt een
+    # vastgelopen container vanzelf weer terug.
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/sleeve-tag", "--health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      # Ruim genomen: de app is binnen een seconde op, maar een NAS die net
+      # opstart heeft het druk.
+      start_period: 15s

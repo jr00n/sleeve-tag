@@ -13,6 +13,7 @@ mod config;
 mod cover;
 mod edit;
 mod fs;
+mod health;
 mod startup;
 mod tags;
 mod web;
@@ -33,8 +34,20 @@ use clap::Parser;
 /// dezelfde map wordt meegekopieerd.
 const STATIC_DIR: &str = "static";
 
+/// Vlag waarmee de container zijn eigen healthcheck draait.
+const HEALTH_FLAG: &str = "--health";
+
 #[tokio::main]
 async fn main() {
+    // De healthcheck vóór alles: distroless heeft geen shell en geen curl, dus
+    // draait de container deze binary opnieuw om zichzelf te bevragen. Die
+    // modus heeft alleen PORT nodig en mag niet vastlopen op een MUSIC_ROOT die
+    // op dat moment niet gezet is — vandaar dat clap er niet aan te pas komt.
+    if std::env::args().skip(1).any(|arg| arg == HEALTH_FLAG) {
+        let port = config::port_from_env();
+        std::process::exit(if health::probe(port) { 0 } else { 1 });
+    }
+
     // Eerst de configuratie: die bepaalt het logniveau. Gaat het parsen mis, dan
     // print clap zelf een melding op stderr en stopt het proces met een
     // foutcode — precies wat je wilt als een container verkeerd is ingesteld.
