@@ -10,6 +10,24 @@
 <form class="batch" id="album" method="post" action="{{ page.url }}"
       hx-post="{{ page.url }}" hx-target="#album" hx-swap="outerHTML">
 
+  {# Hoe de zojuist uitgevoerde batch is afgelopen (FR-11): bestand voor
+     bestand, want een fout bij het ene zegt niets over het andere. De waarden
+     in de tabel hieronder komen uit een verse leesronde. #}
+  {% if let Some(report) = page.report %}
+  <div class="melding {% if report.has_failures() %}melding--fout{% else %}melding--goed{% endif %}" role="status">
+    <p class="melding__regel">{{ report.summary() }}</p>
+  </div>
+
+  <ul class="resultaat">
+    {% for result in report.results %}
+    <li class="resultaat__bestand{% if result.is_failed() %} resultaat__bestand--fout{% endif %}">
+      <span class="resultaat__naam">{{ result.name }}</span>
+      <span class="resultaat__uitkomst">{{ result.describe() }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+
   <div class="batch__selectie">
     <p class="batch__telling" role="status">
       {% if page.total == 0 %}
@@ -194,13 +212,17 @@
     {% endif %}
 
     <p class="uitleg">
-      Opslaan gaat straks via een voorbeeldweergave die per bestand toont wat er
-      verandert; die komt in een volgende stap. Er is dus nog niets geschreven.
+      Er is nog niets geschreven. Opslaan gaat via een voorbeeldweergave die per
+      bestand toont wat er verandert; dat is de enige route waarlangs een batch
+      wordt weggeschreven.
     </p>
   </div>
   {% endif %}
 
   <div class="knoppen">
+    {% if page.has_selection() && page.changes_anything() %}
+    <button class="knop knop--primair" type="submit" name="actie" value="voorbeeld">Voorbeeld en opslaan</button>
+    {% endif %}
     <a class="knop" href="{{ page.back_url }}">Terug naar de map</a>
   </div>
 </form>

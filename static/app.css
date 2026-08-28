@@ -799,3 +799,141 @@ a {
 .gevolg .uitleg {
   margin-bottom: 0;
 }
+
+/* ── Voorbeeldweergave vóór het opslaan (FR-11) ────────────────────────── */
+
+.voorbeeldkop {
+  margin-bottom: 1rem;
+}
+
+.voorbeeldkop__titel {
+  margin: 0 0 0.3rem;
+  font-size: 1.1rem;
+}
+
+.voorbeeldkop__samenvatting {
+  margin: 0 0 0.4rem;
+  font-weight: 600;
+}
+
+.voorbeeld {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--vlak);
+}
+
+.voorbeeld__bestand {
+  padding: 0.8rem 0.9rem;
+}
+
+.voorbeeld__bestand + .voorbeeld__bestand {
+  border-top: 1px solid var(--rand);
+}
+
+/* Een bestand dat niets krijgt, hoort zichtbaar te zijn maar niet op te
+   vallen: dat er niets mee gebeurt is de helft van wat een voorbeeld vertelt. */
+.voorbeeld__bestand--ongewijzigd {
+  color: var(--tekst-zacht);
+}
+
+.voorbeeld__naam {
+  margin: 0 0 0.3rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.voorbeeld__bestand--ongewijzigd .voorbeeld__naam {
+  font-weight: 400;
+}
+
+.voorbeeld__velden {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 0.9rem;
+}
+
+/* Op een telefoon breekt een regel af in plaats van de pagina te verbreden;
+   het label blijft er dan boven staan. */
+.voorbeeld__veld {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.2rem 0;
+}
+
+.voorbeeld__label {
+  min-width: 7rem;
+  color: var(--tekst-zacht);
+}
+
+.voorbeeld__oud {
+  text-decoration: line-through;
+  color: var(--tekst-zacht);
+  overflow-wrap: anywhere;
+}
+
+.voorbeeld__pijl {
+  color: var(--tekst-zacht);
+}
+
+.voorbeeld__nieuw {
+  overflow-wrap: anywhere;
+}
+
+.voorbeeld__veld--verwijderd .voorbeeld__nieuw {
+  color: var(--waarschuwing);
+  font-style: italic;
+}
+
+.voorbeeld__geen {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+/* ── Resultaat van een uitgevoerde batch ───────────────────────────────── */
+
+.resultaat {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--vlak);
+  font-size: 0.9rem;
+}
+
+.resultaat__bestand {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.6rem;
+  padding: 0.6rem 0.9rem;
+}
+
+.resultaat__bestand + .resultaat__bestand {
+  border-top: 1px solid var(--rand);
+}
+
+.resultaat__bestand--fout {
+  background: color-mix(in srgb, var(--waarschuwing) 12%, transparent);
+}
+
+.resultaat__naam {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.resultaat__uitkomst {
+  color: var(--tekst-zacht);
+  overflow-wrap: anywhere;
+}
+
+.resultaat__bestand--fout .resultaat__uitkomst {
+  color: var(--tekst);
+}

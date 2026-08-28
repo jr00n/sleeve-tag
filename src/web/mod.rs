@@ -155,6 +155,20 @@ struct AlbumFormTemplate {
     page: AlbumPage,
 }
 
+/// De voorbeeldweergave vóór het opslaan van een batch (FR-11).
+#[derive(Template)]
+#[template(path = "albumpreview.html")]
+struct AlbumPreviewTemplate {
+    preview: batch::Preview,
+}
+
+/// Alleen het voorbeeldformulier, voor HTMX.
+#[derive(Template)]
+#[template(path = "albumpreviewform.html")]
+struct AlbumPreviewFormTemplate {
+    preview: batch::Preview,
+}
+
 /// De albumweergave van de wortel.
 async fn album_root(State(state): State<AppState>) -> Result<Html<String>, WebError> {
     render_album(state, String::new(), batch::Form::select_all(), false).await
@@ -180,13 +194,13 @@ async fn album_root_selection(
     render_album(state, String::new(), form, is_htmx(&headers)).await
 }
 
-/// Neemt een gewijzigde selectie of invoer aan en toont het resultaat.
+/// Neemt een gewijzigde selectie, invoer of knop aan en toont het resultaat.
 ///
-/// Er wordt hier niets geschreven. Deze POST bestaat om de pagina opnieuw op te
-/// bouwen met de selectie die de gebruiker net maakte: welke bestanden de
-/// gedeelde velden nu beschrijven, en wat er dus zou veranderen. Het
-/// wegschrijven zelf hoort bij de diff-preview, zodat een batch-wijziging nooit
-/// zonder voorbeeld plaatsvindt.
+/// Vrijwel elke POST hierheen bouwt alleen de pagina opnieuw op: welke
+/// bestanden de gedeelde velden nu beschrijven, en wat er dus zou veranderen.
+/// Alleen `actie=opslaan` schrijft, en die knop staat uitsluitend op de
+/// voorbeeldweergave — zo vindt een batch-wijziging nooit zonder voorbeeld
+/// plaats.
 async fn album_selection(
     State(state): State<AppState>,
     Path(path): Path<String>,
@@ -203,15 +217,52 @@ async fn render_album(
     form: batch::Form,
     fragment: bool,
 ) -> Result<Html<String>, WebError> {
+    let listing = read_listing(&state, &path).await?;
+
+    match form.action {
+        // De voorbeeldweergave: wat krijgt welk bestand (FR-11). Er wordt niets
+        // geschreven; de knop om dat wél te doen staat pas op die pagina.
+        batch::Action::Preview => {
+            let preview = batch::preview(&listing, &form);
+            render_preview(preview, fragment)
+        }
+
+        batch::Action::Save => {
+            let preview = batch::preview(&listing, &form);
+
+            // Een plan met een fout erin wordt niet half uitgevoerd: dan komt
+            // het voorbeeld terug met wat eraan mankeert.
+            if !preview.problems.is_empty() {
+                return render_preview(preview, fragment);
+            }
+
+            let report = save_batch(&state, &listing, &form).await?;
+
+            // De waarden komen na afloop uit een verse leesronde: wat er nu op
+            // het scherm staat, staat werkelijk in de bestanden. De invoer is
+            // verwerkt en gaat dus weg.
+            let listing = read_listing(&state, &path).await?;
+            let mut page = batch::album(&listing, &form.without_input());
+            page.report = Some(report);
+
+            render_page(page, fragment)
+        }
+
+        _ => render_page(batch::album(&listing, &form), fragment),
+    }
+}
+
+/// Leest de map in met de tags van elk bestand.
+async fn read_listing(state: &AppState, path: &str) -> Result<browse::Listing, WebError> {
     let library = Arc::clone(&state.library);
+    let wanted = path.to_string();
 
     // Net als de maplijst: elk bestand in de map wordt geopend om zijn tags te
     // lezen, en dat hoort niet op de async-runtime.
-    let listing =
-        tokio::task::spawn_blocking(move || browse::listing(&library, &path, "")).await??;
+    Ok(tokio::task::spawn_blocking(move || browse::listing(&library, &wanted, "")).await??)
+}
 
-    let page = batch::album(&listing, &form);
-
+fn render_page(page: AlbumPage, fragment: bool) -> Result<Html<String>, WebError> {
     let html = if fragment {
         AlbumFormTemplate { page }.render()?
     } else {
@@ -219,6 +270,81 @@ async fn render_album(
     };
 
     Ok(Html(html))
+}
+
+fn render_preview(preview: batch::Preview, fragment: bool) -> Result<Html<String>, WebError> {
+    let html = if fragment {
+        AlbumPreviewFormTemplate { preview }.render()?
+    } else {
+        AlbumPreviewTemplate { preview }.render()?
+    };
+
+    Ok(Html(html))
+}
+
+/// Schrijft de batch weg, bestand voor bestand (FR-11).
+///
+/// Elk bestand wordt opnieuw ingelezen vlak voor het geschreven wordt: tussen
+/// het voorbeeld en deze klik kan er van alles gebeurd zijn, en het plan hoort
+/// op de werkelijke inhoud te worden toegepast en niet op een oude leesronde.
+///
+/// Een fout bij één bestand stopt de rest niet. Dat is de regel uit FR-11, en
+/// ze staat hier: de lus loopt door en verzamelt per bestand wat er gebeurd is.
+async fn save_batch(
+    state: &AppState,
+    listing: &browse::Listing,
+    form: &batch::Form,
+) -> Result<batch::SaveReport, WebError> {
+    let plan = batch::intents(listing, form);
+    let library = Arc::clone(&state.library);
+    let options = state.write_options;
+
+    let results = tokio::task::spawn_blocking(move || {
+        plan.into_iter()
+            .map(|file| batch::SaveResult {
+                outcome: save_one(&library, options, &file),
+                name: file.name,
+            })
+            .collect()
+    })
+    .await?;
+
+    Ok(batch::SaveReport { results })
+}
+
+/// Werkt één bestand uit het plan bij.
+fn save_one(
+    library: &crate::fs::Library,
+    options: crate::atomic::Options,
+    file: &batch::FileIntent,
+) -> batch::Outcome {
+    let outcome = || -> Result<batch::Outcome, String> {
+        let absolute = library
+            .resolve(&file.path)
+            .map_err(|error| error.to_string())?;
+        let current = tags::read(&absolute).map_err(|error| error.to_string())?;
+
+        let wanted = file.wanted(&current.tags)?;
+        let changes = batch::changes_between(&current.tags, &wanted);
+
+        if changes.is_empty() {
+            return Ok(batch::Outcome::Unchanged);
+        }
+
+        tags::write(&absolute, &wanted, options).map_err(|error| error.to_string())?;
+
+        Ok(batch::Outcome::Saved(
+            changes.into_iter().map(|change| change.label).collect(),
+        ))
+    };
+
+    match outcome() {
+        Ok(outcome) => outcome,
+        Err(reason) => {
+            tracing::error!(path = %file.path, reason, "bestand uit de batch is niet opgeslagen");
+            batch::Outcome::Failed(reason)
+        }
+    }
 }
 
 /// Of dit verzoek van HTMX komt en dus met een fragment toe kan.

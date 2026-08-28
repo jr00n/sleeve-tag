@@ -1,9 +1,10 @@
 //! De albumweergave over HTTP, tegen de echte binary (FR-8).
 //!
 //! Wat hier getest wordt is het samenspel dat de unit-tests niet zien: een map
-//! inlezen, de selectie uit de body halen, en er een pagina van maken waarop te
-//! zien is wat er zou gebeuren. Dat laatste is in deze fase het enige resultaat:
-//! er wordt nog niets geschreven, en een van de tests hieronder houdt dat vast.
+//! inlezen, de selectie uit de body halen, er een pagina van maken waarop te
+//! zien is wat er zou gebeuren, en dat daarna werkelijk wegschrijven. Alleen de
+//! route langs de voorbeeldweergave schrijft; de tests hieronder houden vast
+//! dat elke andere POST de bestanden byte voor byte met rust laat.
 //!
 //! De bibliotheek is een tempdir met kopieën van de fixtures. De echte
 //! muziekbibliotheek wordt nooit aangeraakt.
@@ -393,9 +394,10 @@ fn normalising_capitals_is_a_proposal_and_can_be_emptied_again() {
 }
 
 #[test]
-fn nothing_is_written_yet() {
-    // Het wegschrijven hoort bij de voorbeeldweergave. Zolang die er niet is,
-    // mag geen enkele POST naar deze pagina een bestand aanraken.
+fn only_the_preview_route_writes() {
+    // Het wegschrijven hoort bij de voorbeeldweergave. Elke andere POST naar
+    // deze pagina — een selectie, een hulpactie, een ingevuld veld — laat de
+    // bestanden met rust.
     let root = library_with_a_mixed_album();
     let album = root.path().join("Album");
     let before: Vec<Vec<u8>> = ["een.mp3", "twee.mp3"]
@@ -433,6 +435,191 @@ fn nothing_is_written_yet() {
         let now = std::fs::read(album.join(name)).expect("bestand moet leesbaar zijn");
         assert_eq!(now, original, "{name} is aangeraakt en dat hoort niet");
     }
+}
+
+/// De velden die samen een batch beschrijven, klaar om te posten.
+fn a_batch() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("bestand", "een.mp3"),
+        ("bestand", "twee.mp3"),
+        ("album", "Een heel ander album"),
+        ("wis_genre", "aan"),
+        ("titel:twee.mp3", "Ruis in B"),
+    ]
+}
+
+#[test]
+fn the_preview_shows_per_file_what_changes() {
+    // AC #1 en #2: oude en nieuwe waarde per veld, en verwijderingen als
+    // zodanig.
+    let server = server();
+    let mut fields = a_batch();
+    fields.push(("actie", "voorbeeld"));
+
+    let page = server.post_form("/album/Album", &fields);
+
+    assert_ok(&page);
+    assert!(page.contains("Voorbeeld"), "{page}");
+    assert!(page.contains("2 bestanden worden gewijzigd."), "{page}");
+
+    // De oude waarde staat erbij, niet alleen de nieuwe.
+    assert!(page.contains(ALBUM_IN_FIXTURE), "{page}");
+    assert!(page.contains("Een heel ander album"), "{page}");
+    assert!(page.contains("Ruis in B"), "{page}");
+
+    // AC #2: het genre verdwijnt uit het bestand dat er een had.
+    assert!(page.contains("wordt verwijderd"), "{page}");
+
+    // En de knop om het te doen staat er pas hier.
+    assert!(page.contains("value=\"opslaan\""), "{page}");
+}
+
+#[test]
+fn a_file_without_changes_is_shown_as_such() {
+    // AC #3: dat er níéts met een bestand gebeurt, is de helft van wat een
+    // voorbeeld moet vertellen.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "voorbeeld"),
+            ("bestand", "een.mp3"),
+            ("bestand", "twee.mp3"),
+            ("album", ALBUM_IN_FIXTURE),
+        ],
+    );
+
+    assert_ok(&page);
+    // een.mp3 heeft dit album al.
+    assert!(page.contains("Blijft ongewijzigd"), "{page}");
+    assert!(page.contains("1 bestand wordt gewijzigd."), "{page}");
+}
+
+#[test]
+fn the_preview_writes_nothing_and_can_be_cancelled() {
+    // AC #6: annuleren brengt het formulier terug, en er is niets geschreven.
+    let root = library_with_a_mixed_album();
+    let album = root.path().join("Album");
+    let before = std::fs::read(album.join("een.mp3")).expect("bestand moet leesbaar zijn");
+
+    let server = Server::start_in(root, &[]);
+    let mut fields = a_batch();
+    fields.push(("actie", "voorbeeld"));
+
+    let preview = server.post_form("/album/Album", &fields);
+    assert_ok(&preview);
+
+    let mut cancelled = a_batch();
+    cancelled.push(("actie", "terug"));
+    let back = server.post_form("/album/Album", &cancelled);
+
+    assert_ok(&back);
+    // Terug in het formulier: de tabel en de gedeelde velden staan er weer.
+    assert!(back.contains("Gedeelde velden"), "{back}");
+    assert!(back.contains("value=\"Een heel ander album\""), "{back}");
+    assert!(!back.contains("Definitief opslaan"), "{back}");
+
+    let after = std::fs::read(album.join("een.mp3")).expect("bestand moet leesbaar zijn");
+    assert_eq!(after, before, "er is geschreven en dat hoort niet");
+}
+
+#[test]
+fn saving_the_batch_writes_the_files_and_reports_per_file() {
+    // AC #5: na afloop staat er per bestand wat ermee gebeurd is, en de tabel
+    // toont wat er werkelijk in de bestanden staat.
+    let server = server();
+    let mut fields = a_batch();
+    fields.push(("actie", "opslaan"));
+
+    let page = server.post_form("/album/Album", &fields);
+
+    assert_ok(&page);
+    assert!(page.contains("2 bestanden bijgewerkt."), "{page}");
+    assert!(page.contains("Bijgewerkt: Album"), "{page}");
+
+    // De invoer is verwerkt en staat niet meer voorgevuld klaar.
+    assert!(!page.contains("value=\"Een heel ander album\""), "{page}");
+
+    // Een verse leesronde toont de nieuwe waarden.
+    let fresh = server.get("/album/Album");
+    assert!(fresh.contains("Een heel ander album"), "{fresh}");
+    assert!(fresh.contains("placeholder=\"Ruis in B\""), "{fresh}");
+    // Het genre is werkelijk verdwenen.
+    assert!(!fresh.contains("Ambient"), "{fresh}");
+}
+
+#[test]
+fn a_file_that_cannot_be_written_does_not_stop_the_others() {
+    // AC #4 en #7: bestand voor bestand, en een fout bij het ene bestand
+    // blokkeert het andere niet.
+    use std::os::unix::fs::PermissionsExt;
+
+    let root = library_with_a_mixed_album();
+    let album = root.path().join("Album");
+    let locked = album.join("twee.mp3");
+
+    std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o444))
+        .expect("rechten moeten te zetten zijn");
+
+    // Als dit proces als root draait, gelden bestandsrechten niet en valt de
+    // situatie niet na te bootsen; de test heeft dan niets te zeggen.
+    if std::fs::OpenOptions::new()
+        .write(true)
+        .open(&locked)
+        .is_ok()
+    {
+        eprintln!("overgeslagen: dit proces mag ook in een alleen-lezen bestand schrijven");
+        return;
+    }
+
+    let untouched = std::fs::read(&locked).expect("bestand moet leesbaar zijn");
+
+    let server = Server::start_in(root, &[]);
+    let mut fields = a_batch();
+    fields.push(("actie", "opslaan"));
+
+    let page = server.post_form("/album/Album", &fields);
+
+    assert_ok(&page);
+    assert!(
+        page.contains("1 bestand bijgewerkt; 1 bestand is niet opgeslagen."),
+        "{page}"
+    );
+    assert!(page.contains("Niet opgeslagen"), "{page}");
+    assert!(page.contains("onveranderd gebleven"), "{page}");
+
+    // Het bestand dat wél kon, is bijgewerkt ...
+    let fresh = server.get("/album/Album");
+    assert!(fresh.contains("Een heel ander album"), "{fresh}");
+
+    // ... en het bestand dat niet kon, is byte voor byte heel gebleven.
+    let after = std::fs::read(&locked).expect("bestand moet leesbaar zijn");
+    assert_eq!(after, untouched, "het onschrijfbare bestand is aangeraakt");
+}
+
+#[test]
+fn a_batch_with_a_mistake_in_it_is_not_written_at_all() {
+    let root = library_with_a_mixed_album();
+    let album = root.path().join("Album");
+    let before = std::fs::read(album.join("een.mp3")).expect("bestand moet leesbaar zijn");
+
+    let server = Server::start_in(root, &[]);
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "opslaan"),
+            ("bestand", "een.mp3"),
+            ("album", "Een heel ander album"),
+            ("disc", "twee"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(page.contains("Discnummer moet een getal"), "{page}");
+    assert!(page.contains("wordt er niets opgeslagen"), "{page}");
+
+    let after = std::fs::read(album.join("een.mp3")).expect("bestand moet leesbaar zijn");
+    assert_eq!(after, before, "er is geschreven en dat hoort niet");
 }
 
 #[test]

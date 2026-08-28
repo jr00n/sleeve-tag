@@ -1,0 +1,78 @@
+{# De voorbeeldweergave vóór het opslaan van een batch (FR-11).
+
+   Dit is de enige plek waar een batch weggeschreven kan worden. De hele
+   formulierstaat gaat als verborgen velden mee, zodat er niets anders opgeslagen
+   kan worden dan wat hier te zien is: de velden zijn hier niet te bewerken, en
+   wie iets wil wijzigen gaat eerst terug.
+
+   Annuleren is een gewone knop die het formulier terugbrengt; er is op dat
+   moment nog niets geschreven. #}
+<form class="batch" id="album" method="post" action="{{ preview.url }}"
+      hx-post="{{ preview.url }}" hx-target="#album" hx-swap="outerHTML">
+
+  {% for field in preview.hidden %}
+  <input type="hidden" name="{{ field.name }}" value="{{ field.value }}" />
+  {% endfor %}
+
+  <div class="voorbeeldkop">
+    <h2 class="voorbeeldkop__titel">Voorbeeld</h2>
+    <p class="voorbeeldkop__samenvatting" role="status">
+      {{ preview.summary() }}
+      {% if preview.unchanged() > 0 %}
+      De overige {{ preview.unchanged() }} blijven ongemoeid.
+      {% endif %}
+    </p>
+    <p class="uitleg">
+      Er is nog niets geschreven. Pas als je hieronder op “Definitief opslaan”
+      drukt, worden de bestanden een voor een bijgewerkt.
+    </p>
+  </div>
+
+  {% if !preview.problems.is_empty() %}
+  <div class="melding melding--fout" role="status">
+    {% for problem in preview.problems %}
+    <p class="melding__regel">{{ problem }}</p>
+    {% endfor %}
+    <p class="melding__regel">
+      Zolang dit niet klopt, wordt er niets opgeslagen. Ga terug en pas het aan.
+    </p>
+  </div>
+  {% endif %}
+
+  <ul class="voorbeeld">
+    {% for file in preview.files %}
+    <li class="voorbeeld__bestand{% if !file.changes_anything() %} voorbeeld__bestand--ongewijzigd{% endif %}">
+      <p class="voorbeeld__naam">{{ file.name }}</p>
+
+      {% if file.changes_anything() %}
+      <ul class="voorbeeld__velden">
+        {% for change in file.changes %}
+        <li class="voorbeeld__veld{% if change.removed %} voorbeeld__veld--verwijderd{% endif %}">
+          <span class="voorbeeld__label">{{ change.label }}</span>
+          <span class="voorbeeld__oud">{{ change.before }}</span>
+          <span class="voorbeeld__pijl" aria-hidden="true">→</span>
+          {# Een verdwijnend veld is de ingrijpendste wijziging die een batch kan
+             maken; die staat er met zoveel woorden. #}
+          {% if change.removed %}
+          <span class="voorbeeld__nieuw">wordt verwijderd</span>
+          {% else %}
+          <span class="voorbeeld__nieuw">{{ change.after }}</span>
+          {% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="voorbeeld__geen">Blijft ongewijzigd; dit bestand wordt niet aangeraakt.</p>
+      {% endif %}
+    </li>
+    {% endfor %}
+  </ul>
+
+  <div class="knoppen">
+    {% if preview.problems.is_empty() && preview.changes_anything() %}
+    <button class="knop knop--primair" type="submit" name="actie" value="opslaan">Definitief opslaan</button>
+    {% endif %}
+    <button class="knop" type="submit" name="actie" value="terug">Annuleren</button>
+    <a class="knop" href="{{ preview.back_url }}">Terug naar de map</a>
+  </div>
+</form>

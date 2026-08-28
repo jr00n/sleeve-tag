@@ -391,12 +391,35 @@ minstens zo belangrijk: een korte reeks kapitalen blijft een afkorting (`DJ`,
 staan (`McCartney`, `iPhone`, `d'Angelo`). Vijf letters of meer in kapitalen is
 geen afkorting maar geschreeuw, en wordt wél omgezet.
 
-Er wordt op deze pagina **niets geschreven**, ook niet door de POST die de
-selectie bijwerkt of een hulpactie uitvoert: die bouwt de pagina alleen opnieuw
-op. Het wegschrijven gaat
-straks via een voorbeeldweergave die per bestand toont wat er verandert, zodat
-een batch-actie nooit zonder voorbeeld plaatsvindt. Een integratietest
-controleert dat de bestanden byte voor byte onaangeroerd blijven.
+#### Voorbeeld, opslaan en het resultaat
+
+"Voorbeeld en opslaan" leidt naar de **voorbeeldweergave**: per bestand welke
+velden veranderen, met de oude waarde doorgestreept en de nieuwe ernaast. Een
+veld dat verdwijnt staat er met zoveel woorden bij als verwijdering — dat is de
+ingrijpendste wijziging die een batch kan maken. Bestanden waar niets mee gebeurt
+staan er ook in, met de mededeling dat ze niet worden aangeraakt: dát er niets
+gebeurt is de helft van wat een voorbeeld moet vertellen.
+
+Dit is de **enige route** waarlangs een batch wordt weggeschreven. De hele
+formulierstaat gaat als verborgen velden mee, dus er kan niets anders opgeslagen
+worden dan wat er te zien is; wie iets wil wijzigen, gaat eerst met "Annuleren"
+terug naar het formulier, en op dat moment is er nog niets geschreven. Klopt de
+invoer niet, dan verschijnt de opslaanknop niet: een plan met een fout erin wordt
+niet half uitgevoerd.
+
+Opslaan gaat **bestand voor bestand**. Elk bestand wordt vlak voor het schrijven
+opnieuw ingelezen, zodat het plan op de werkelijke inhoud wordt toegepast en niet
+op een leesronde van een minuut geleden. Een fout bij één bestand stopt de rest
+niet: na afloop staat er per bestand of het is bijgewerkt (met welke velden),
+ongemoeid is gebleven, of niet opgeslagen kon worden en waarom. De tabel eronder
+komt uit een verse leesronde en toont dus wat er werkelijk in de bestanden staat.
+
+Elke andere POST naar deze pagina schrijft **niets**: de selectie bijwerken, een
+hulpactie uitvoeren, een veld invullen — die bouwen de pagina alleen opnieuw op.
+Een integratietest controleert dat de bestanden daarbij byte voor byte
+onaangeroerd blijven, en een tweede voert een batch uit op een map waarin één
+bestand niet schrijfbaar is: de rest wordt bijgewerkt, dat ene blijft heel, en de
+reden staat erbij.
 
 De tabel is breder dan een telefoonscherm en scrollt daarom horizontaal binnen
 zijn eigen rand; de kolom met de bestandsnaam blijft daarbij staan, want zonder

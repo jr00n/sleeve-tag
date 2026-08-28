@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+
+{% block title %}Voorbeeld — {{ preview.name }} — Sleeve{% endblock %}
+
+{% block inhoud %}
+<nav class="kruimels" aria-label="Broodkruimelpad">
+  {% for crumb in preview.crumbs %}
+  <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
+  <span class="kruimels__scheiding" aria-hidden="true">/</span>
+  {% endfor %}
+  <span class="kruimels__huidig" aria-current="page">Voorbeeld</span>
+</nav>
+
+<h1 class="maptitel">{{ preview.name }}</h1>
+
+<p class="uitleg">
+  Hieronder staat per bestand wat er verandert: wat er nu staat, en wat ervoor
+  in de plaats komt. Wat verdwijnt, staat er als verwijdering bij. Klopt er iets
+  niet, dan breng je met “Annuleren” het formulier terug zonder dat er iets is
+  geschreven.
+</p>
+
+{% include "albumpreviewform.html" %}
+{% endblock %}

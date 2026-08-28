@@ -13,8 +13,9 @@
 //! doen verder niets.
 //!
 //! Er wordt hier niets geschreven en er gaat geen bestand open: in en uit gaan
-//! een [`Listing`] en een [`Form`]. Het daadwerkelijk wegschrijven hoort bij de
-//! diff-preview, zodat een batch-wijziging nooit zonder voorbeeld plaatsvindt.
+//! een [`Listing`] en een [`Form`]. Ook [`preview`] stelt alleen voor — het
+//! daadwerkelijk wegschrijven doet de handler, en alleen langs die
+//! voorbeeldweergave, zodat een batch-wijziging nooit ongezien plaatsvindt.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -222,6 +223,12 @@ pub enum Action {
 
     /// Alle ingevulde velden weer leegmaken.
     Reset,
+
+    /// De voorbeeldweergave tonen: wat krijgt welk bestand (FR-11).
+    Preview,
+
+    /// Wegschrijven wat het voorbeeld liet zien.
+    Save,
 }
 
 impl Action {
@@ -233,6 +240,8 @@ impl Action {
             "artiest" => Action::CopyArtist,
             "hoofdletters" => Action::Capitalize,
             "herstel" => Action::Reset,
+            "voorbeeld" => Action::Preview,
+            "opslaan" => Action::Save,
             _ => Action::Keep,
         }
     }
@@ -341,6 +350,18 @@ impl Form {
         }
 
         form
+    }
+
+    /// Hetzelfde formulier, maar zonder ingevulde velden.
+    ///
+    /// Wat er na het opslaan in de velden stond, is verwerkt; het nog eens
+    /// tonen zou dezelfde wijziging opnieuw voorstellen. De selectie blijft wel
+    /// staan: die zegt waar de gebruiker mee bezig is.
+    pub fn without_input(&self) -> Form {
+        Form {
+            selected: self.selected.clone(),
+            ..Form::default()
+        }
     }
 
     /// Het formulier zoals de albumpagina opent: alles geselecteerd, niets
@@ -454,7 +475,9 @@ impl Form {
                 };
                 Some("De ingevulde velden zijn leeggemaakt; de selectie staat nog.".to_string())
             }
-            Action::Keep | Action::All | Action::None => None,
+            // De voorbeeldweergave en het opslaan veranderen niets aan het
+            // formulier: ze werken juist met precies wat erin staat.
+            Action::Keep | Action::All | Action::None | Action::Preview | Action::Save => None,
         };
 
         (form, notice)
@@ -775,9 +798,72 @@ pub struct FileIntent {
     /// Bestandsnaam binnen de map.
     pub name: String,
 
+    /// Pad relatief aan `MUSIC_ROOT`; het handvat waarmee er straks geschreven
+    /// wordt.
+    pub path: String,
+
     /// Per veld uit het tagmodel wat ermee gebeurt. Wat ongemoeid blijft, staat
     /// er niet in.
     pub fields: BTreeMap<&'static str, Intent>,
+}
+
+impl FileIntent {
+    /// Het tagmodel zoals het na het opslaan hoort te zijn.
+    ///
+    /// Begint bij wat er nú in het bestand staat en zet daar de voornemens
+    /// overheen; velden waar de batch niets over zegt, blijven dus zoals ze
+    /// zijn. Het normaliseren doet [`Tags::normalized`], zodat leeg overal
+    /// hetzelfde betekent: die tag hoort er niet te staan.
+    pub fn wanted(&self, current: &Tags) -> Result<Tags, String> {
+        let mut wanted = current.clone();
+
+        for (field, intent) in &self.fields {
+            let value = match intent {
+                Intent::Set(value) => Some(value.as_str()),
+                Intent::Clear => None,
+                Intent::Unchanged => continue,
+            };
+
+            set_field(&mut wanted, field, value)?;
+        }
+
+        Ok(wanted.normalized())
+    }
+}
+
+/// Zet één veld van het tagmodel op een waarde uit het formulier.
+///
+/// De numerieke velden worden hier gecontroleerd, met dezelfde melding als het
+/// bewerkformulier van één bestand.
+fn set_field(tags: &mut Tags, field: &str, value: Option<&str>) -> Result<(), String> {
+    let text = || value.map(str::to_string);
+
+    match field {
+        "title" => tags.title = text(),
+        "artist" => tags.artist = text(),
+        "album_artist" => tags.album_artist = text(),
+        "album" => tags.album = text(),
+        "year" => tags.year = text(),
+        "genre" => tags.genre = text(),
+        "track" => tags.track = number(value, RowField::Track.label())?,
+        "disc" => tags.disc = number(value, SharedField::Disc.label())?,
+        other => {
+            // De sleutels komen uit `SharedField` en `RowField`; iets anders
+            // kan hier niet binnenkomen. Stil negeren zou een schrijffout
+            // onzichtbaar maken, en dat is precies wat een batch niet mag.
+            return Err(format!("Sleeve kent het veld “{other}” niet."));
+        }
+    }
+
+    Ok(())
+}
+
+/// Leest een getal uit een formulierwaarde; leeg blijft leeg.
+fn number(value: Option<&str>, label: &str) -> Result<Option<u32>, String> {
+    match value {
+        Some(raw) => edit::parse_number(raw, label),
+        None => Ok(None),
+    }
 }
 
 /// Wat er bij het opslaan per bestand zou gebeuren (FR-9, vooruit naar FR-11).
@@ -830,10 +916,392 @@ pub fn intents(listing: &Listing, form: &Form) -> Vec<FileIntent> {
 
             Some(FileIntent {
                 name: track.name.clone(),
+                path: track.path.clone(),
                 fields,
             })
         })
         .collect()
+}
+
+/// De velden die een batch kan aanraken, in de volgorde van de tabel.
+///
+/// Afgeleid uit [`RowField`] en [`SharedField`], zodat er geen tweede lijst
+/// ontstaat die uit de pas kan gaan lopen. Albumartiest staat in allebei en
+/// hoort er maar één keer in.
+fn touched_fields() -> Vec<&'static str> {
+    let mut fields: Vec<&'static str> = RowField::ALL
+        .into_iter()
+        .map(RowField::field_name)
+        .collect();
+
+    for field in SharedField::ALL {
+        if !fields.contains(&field.name()) {
+            fields.push(field.name());
+        }
+    }
+
+    fields
+}
+
+/// Het opschrift van een veld uit het tagmodel.
+fn label_of(field: &str) -> &'static str {
+    RowField::ALL
+        .into_iter()
+        .find(|row| row.field_name() == field)
+        .map(RowField::label)
+        .or_else(|| {
+            SharedField::ALL
+                .into_iter()
+                .find(|shared| shared.name() == field)
+                .map(SharedField::label)
+        })
+        .unwrap_or("Veld")
+}
+
+/// Wat er in dit veld van dit tagmodel staat.
+fn value_of(field: &str, tags: &Tags) -> Option<String> {
+    RowField::ALL
+        .into_iter()
+        .find(|row| row.field_name() == field)
+        .map(|row| row.value_of(tags))
+        .or_else(|| {
+            SharedField::ALL
+                .into_iter()
+                .find(|shared| shared.name() == field)
+                .map(|shared| shared.value_of(tags))
+        })
+        .flatten()
+}
+
+/// Eén veld dat verandert, zoals de voorbeeldweergave het toont (FR-11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldChange {
+    pub label: String,
+
+    /// Wat er nu in het bestand staat; een streepje wanneer de tag ontbreekt.
+    pub before: String,
+
+    /// Wat er komt te staan; leeg wanneer het veld verdwijnt.
+    pub after: String,
+
+    /// Of dit een verwijdering is.
+    ///
+    /// Expliciet en niet af te leiden uit een lege `after`: een veld dat
+    /// verdwijnt is de ingrijpendste wijziging die een batch kan maken, en
+    /// hoort als zodanig op het scherm te staan (AC #2).
+    pub removed: bool,
+}
+
+/// Wat er met één bestand gebeurt, zoals de voorbeeldweergave het toont.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileDiff {
+    pub name: String,
+
+    /// Pad relatief aan `MUSIC_ROOT`.
+    pub path: String,
+
+    /// De velden die veranderen; leeg wanneer dit bestand ongemoeid blijft.
+    pub changes: Vec<FieldChange>,
+
+    /// Waarom dit bestand niet opgeslagen kan worden; leeg wanneer alles klopt.
+    pub problem: Option<String>,
+}
+
+impl FileDiff {
+    /// Of er aan dit bestand iets verandert.
+    pub fn changes_anything(&self) -> bool {
+        !self.changes.is_empty()
+    }
+}
+
+/// De velden die verschillen tussen wat er staat en wat er komt te staan.
+///
+/// Zowel de voorbeeldweergave als het resultaatoverzicht kijkt hiernaar, zodat
+/// er achteraf hetzelfde over een bestand gezegd wordt als er vooraf beloofd is.
+pub fn changes_between(current: &Tags, wanted: &Tags) -> Vec<FieldChange> {
+    touched_fields()
+        .into_iter()
+        .filter_map(|field| field_change(field, current, wanted))
+        .collect()
+}
+
+/// Eén veldwijziging, of niets wanneer het veld hetzelfde blijft.
+fn field_change(field: &str, current: &Tags, wanted: &Tags) -> Option<FieldChange> {
+    let before = value_of(field, current);
+    let after = value_of(field, wanted);
+
+    if before == after {
+        return None;
+    }
+
+    Some(FieldChange {
+        label: label_of(field).to_string(),
+        before: before.unwrap_or_else(|| EMPTY.to_string()),
+        after: after.clone().unwrap_or_default(),
+        removed: after.is_none(),
+    })
+}
+
+/// Alles wat de voorbeeldweergave nodig heeft (FR-11).
+///
+/// Dit is de enige route waarlangs een batch wordt weggeschreven: wie hier niet
+/// langs is geweest, heeft niet gezien wat er gaat gebeuren.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Preview {
+    /// Naam van de map.
+    pub name: String,
+
+    /// Tot en met deze map.
+    pub crumbs: Vec<Crumb>,
+
+    /// Waar het formulier naartoe post; ook de URL van de albumpagina.
+    pub url: String,
+
+    /// Terug naar de gewone mapweergave.
+    pub back_url: String,
+
+    /// Elk bestand in de map, met wat het krijgt. Bestanden zonder wijziging
+    /// staan er ook in: dat er níéts met ze gebeurt, is de helft van wat een
+    /// voorbeeld moet vertellen (AC #3).
+    pub files: Vec<FileDiff>,
+
+    /// Het formulier waar dit voorbeeld op gebaseerd is, als verborgen velden.
+    ///
+    /// Zo gaat precies dezelfde invoer mee naar het opslaan, en kan er niets
+    /// anders geschreven worden dan wat hier te zien is.
+    pub hidden: Vec<HiddenField>,
+
+    /// Wat het opslaan tegenhoudt; leeg wanneer alles klopt.
+    pub problems: Vec<String>,
+}
+
+impl Preview {
+    /// Hoeveel bestanden er veranderen.
+    pub fn changing(&self) -> usize {
+        self.files
+            .iter()
+            .filter(|file| file.changes_anything())
+            .count()
+    }
+
+    /// Of er iets te doen valt.
+    pub fn changes_anything(&self) -> bool {
+        self.changing() > 0
+    }
+
+    /// Hoeveel bestanden er ongemoeid blijven.
+    pub fn unchanged(&self) -> usize {
+        self.files.len() - self.changing()
+    }
+
+    /// Wat er in één zin gaat gebeuren.
+    pub fn summary(&self) -> String {
+        match self.changing() {
+            0 => "Er verandert niets; er valt dus niets op te slaan.".to_string(),
+            1 => "1 bestand wordt gewijzigd.".to_string(),
+            count => format!("{count} bestanden worden gewijzigd."),
+        }
+    }
+}
+
+/// Eén verborgen veld dat de formulierstaat meedraagt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HiddenField {
+    pub name: String,
+    pub value: String,
+}
+
+/// Bouwt de voorbeeldweergave: per bestand wat er verandert (FR-11).
+///
+/// Er gaat hier geen bestand open. De huidige waarden komen uit de listing, en
+/// wat eruit komt is een voorstel: het schrijven gebeurt pas als de gebruiker
+/// het voorbeeld heeft gezien en op opslaan drukt.
+pub fn preview(listing: &Listing, form: &Form) -> Preview {
+    let plan = intents(listing, form);
+    let page = album(listing, form);
+
+    let files: Vec<FileDiff> = listing
+        .tracks
+        .iter()
+        .map(|track| {
+            let intent = plan.iter().find(|file| file.name == track.name);
+
+            let (changes, problem) = match intent {
+                Some(intent) => match intent.wanted(&track.tags) {
+                    Ok(wanted) => (changes_between(&track.tags, &wanted), None),
+                    Err(problem) => (Vec::new(), Some(problem)),
+                },
+                None => (Vec::new(), None),
+            };
+
+            FileDiff {
+                name: track.name.clone(),
+                path: track.path.clone(),
+                changes,
+                problem,
+            }
+        })
+        .collect();
+
+    // Wat de invoer tegenhoudt, staat op de albumpagina al per veld en per rij;
+    // hier wordt het herhaald zodat de knop "Definitief opslaan" nooit boven een
+    // half plan staat.
+    let mut problems = page.problems.clone();
+    problems.extend(
+        page.rows
+            .iter()
+            .filter(|row| row.selected)
+            .flat_map(|row| row.problems.clone()),
+    );
+    problems.extend(files.iter().filter_map(|file| file.problem.clone()));
+
+    Preview {
+        name: listing.name.clone(),
+        crumbs: listing.crumbs.clone(),
+        url: browse::album_url(&listing.path),
+        back_url: listing.url.clone(),
+        files,
+        hidden: hidden_fields(listing, form),
+        problems,
+    }
+}
+
+/// De formulierstaat als verborgen velden, klaar om mee te gaan naar het
+/// opslaan.
+///
+/// Het is de staat ná een eventuele hulpactie: het voorbeeld toont wat er in de
+/// velden stond, en precies dat hoort mee te gaan.
+fn hidden_fields(listing: &Listing, form: &Form) -> Vec<HiddenField> {
+    let selected = resolve_selection(listing, form);
+    let (form, _) = form.applied(&chosen_tracks(listing, &selected));
+
+    let mut fields: Vec<HiddenField> = selected
+        .iter()
+        .map(|name| HiddenField {
+            name: "bestand".to_string(),
+            value: name.clone(),
+        })
+        .collect();
+
+    for field in SharedField::ALL {
+        if form.is_cleared(field) {
+            fields.push(HiddenField {
+                name: field.clear_name(),
+                value: "aan".to_string(),
+            });
+        }
+
+        let value = form.value(field);
+        if !value.trim().is_empty() {
+            fields.push(HiddenField {
+                name: field.name().to_string(),
+                value: value.to_string(),
+            });
+        }
+    }
+
+    for track in &listing.tracks {
+        for field in RowField::ALL {
+            let value = form.override_value(&track.name, field);
+            if !value.trim().is_empty() {
+                fields.push(HiddenField {
+                    name: field.input_name(&track.name),
+                    value: value.to_string(),
+                });
+            }
+        }
+    }
+
+    fields
+}
+
+/// Hoe het opslaan van één bestand is afgelopen (FR-11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Het bestand is bijgewerkt; dit zijn de velden die veranderd zijn.
+    Saved(Vec<String>),
+
+    /// Er viel niets te wijzigen; het bestand is niet aangeraakt.
+    Unchanged,
+
+    /// Er is niets geschreven, en het bestand is onveranderd gebleven.
+    Failed(String),
+}
+
+/// Wat er met één bestand gebeurd is.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveResult {
+    pub name: String,
+    pub outcome: Outcome,
+}
+
+impl SaveResult {
+    /// Of dit bestand is bijgewerkt.
+    pub fn is_saved(&self) -> bool {
+        matches!(self.outcome, Outcome::Saved(_))
+    }
+
+    /// Of dit bestand niet opgeslagen kon worden.
+    pub fn is_failed(&self) -> bool {
+        matches!(self.outcome, Outcome::Failed(_))
+    }
+
+    /// Wat er over dit bestand te melden is.
+    pub fn describe(&self) -> String {
+        match &self.outcome {
+            Outcome::Saved(fields) => format!("Bijgewerkt: {}.", fields.join(", ")),
+            Outcome::Unchanged => "Er viel niets te wijzigen; niet aangeraakt.".to_string(),
+            Outcome::Failed(reason) => {
+                format!("Niet opgeslagen: {reason} Het bestand is onveranderd gebleven.")
+            }
+        }
+    }
+}
+
+/// Hoe de hele batch is afgelopen.
+///
+/// Bestand voor bestand, en een fout bij het ene bestand houdt het andere niet
+/// tegen — dat is de regel uit FR-11, en dit rapport is waar hij zichtbaar
+/// wordt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SaveReport {
+    pub results: Vec<SaveResult>,
+}
+
+impl SaveReport {
+    pub fn saved(&self) -> usize {
+        self.results
+            .iter()
+            .filter(|result| result.is_saved())
+            .count()
+    }
+
+    pub fn failed(&self) -> usize {
+        self.results
+            .iter()
+            .filter(|result| result.is_failed())
+            .count()
+    }
+
+    /// Of er iets misgegaan is; bepaalt de opmaak van de melding.
+    pub fn has_failures(&self) -> bool {
+        self.failed() > 0
+    }
+
+    /// De kop boven het overzicht.
+    pub fn summary(&self) -> String {
+        let saved = match self.saved() {
+            0 => "Er is geen bestand bijgewerkt".to_string(),
+            1 => "1 bestand bijgewerkt".to_string(),
+            count => format!("{count} bestanden bijgewerkt"),
+        };
+
+        match self.failed() {
+            0 => format!("{saved}."),
+            1 => format!("{saved}; 1 bestand is niet opgeslagen."),
+            count => format!("{saved}; {count} bestanden zijn niet opgeslagen."),
+        }
+    }
 }
 
 /// Alles wat de albumpagina nodig heeft.
@@ -879,6 +1347,10 @@ pub struct AlbumPage {
     /// Wat de zojuist aangeklikte hulpactie gedaan heeft (FR-10); leeg wanneer
     /// er geen hulpactie is gebruikt.
     pub helper_notice: Option<String>,
+
+    /// Hoe een zojuist uitgevoerde batch is afgelopen (FR-11); leeg zolang er
+    /// niets is opgeslagen.
+    pub report: Option<SaveReport>,
 }
 
 impl AlbumPage {
@@ -1018,6 +1490,7 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         overridden,
         changed_files: intents(listing, form).len(),
         helper_notice,
+        report: None,
     }
 }
 
@@ -1766,6 +2239,248 @@ mod tests {
         assert!(row_of(&page, "twee.mp3").selected);
         assert!(!row_of(&page, "een.mp3").selected);
         assert_eq!(page.changed_files, 1);
+    }
+
+    fn file_in<'a>(preview: &'a Preview, name: &str) -> &'a FileDiff {
+        preview
+            .files
+            .iter()
+            .find(|file| file.name == name)
+            .expect("het bestand hoort in het voorbeeld te staan")
+    }
+
+    fn change_of<'a>(file: &'a FileDiff, label: &str) -> &'a FieldChange {
+        file.changes
+            .iter()
+            .find(|change| change.label == label)
+            .unwrap_or_else(|| panic!("veld '{label}' hoort te veranderen: {:?}", file.changes))
+    }
+
+    #[test]
+    fn a_plan_is_applied_on_top_of_what_is_already_there() {
+        let form =
+            Form::parse("actie=alles&album=Nieuw+album&wis_genre=aan&titel:een.mp3=Nieuwe+titel");
+        let plan = intents(&album_that_needs_help(), &form);
+
+        let first = plan
+            .iter()
+            .find(|file| file.name == "een.mp3")
+            .expect("het bestand hoort in het plan te staan");
+
+        let current = Tags {
+            title: Some("Oud".to_string()),
+            artist: Some("Blijft staan".to_string()),
+            genre: Some("Weg hiermee".to_string()),
+            composer: Some("Ook ongemoeid".to_string()),
+            ..Tags::default()
+        };
+
+        let wanted = first.wanted(&current).expect("dit plan hoort te kloppen");
+
+        assert_eq!(wanted.title, Some("Nieuwe titel".to_string()));
+        assert_eq!(wanted.album, Some("Nieuw album".to_string()));
+        // Wissen betekent verwijderen, en niet een lege waarde opslaan.
+        assert_eq!(wanted.genre, None);
+        // Waar de batch niets over zegt, blijft staan.
+        assert_eq!(wanted.artist, Some("Blijft staan".to_string()));
+        assert_eq!(wanted.composer, Some("Ook ongemoeid".to_string()));
+    }
+
+    #[test]
+    fn a_plan_with_an_impossible_number_is_refused_before_anything_is_written() {
+        let mut fields = BTreeMap::new();
+        fields.insert("track", Intent::Set("drie".to_string()));
+
+        let intent = FileIntent {
+            name: "een.mp3".to_string(),
+            path: "Album/een.mp3".to_string(),
+            fields,
+        };
+
+        let problem = intent
+            .wanted(&Tags::default())
+            .expect_err("dit hoort een fout te zijn");
+        assert!(problem.starts_with("Tracknummer"), "{problem}");
+    }
+
+    #[test]
+    fn a_change_shows_what_was_there_and_what_comes_instead() {
+        let current = Tags {
+            album: Some("Oud album".to_string()),
+            genre: Some("Weg hiermee".to_string()),
+            ..Tags::default()
+        };
+        let wanted = Tags {
+            album: Some("Nieuw album".to_string()),
+            title: Some("Erbij".to_string()),
+            ..Tags::default()
+        };
+
+        let changes = changes_between(&current, &wanted);
+
+        let album = changes
+            .iter()
+            .find(|change| change.label == "Album")
+            .expect("het album verandert");
+        assert_eq!(album.before, "Oud album");
+        assert_eq!(album.after, "Nieuw album");
+        assert!(!album.removed);
+
+        // AC #2: een veld dat verdwijnt is expliciet een verwijdering.
+        let genre = changes
+            .iter()
+            .find(|change| change.label == "Genre")
+            .expect("het genre verdwijnt");
+        assert!(genre.removed);
+        assert_eq!(genre.before, "Weg hiermee");
+        assert_eq!(genre.after, "");
+
+        // Een veld dat er nog niet was, is geen verwijdering maar een toevoeging.
+        let title = changes
+            .iter()
+            .find(|change| change.label == "Titel")
+            .expect("de titel komt erbij");
+        assert_eq!(title.before, EMPTY);
+        assert_eq!(title.after, "Erbij");
+        assert!(!title.removed);
+    }
+
+    #[test]
+    fn the_preview_shows_every_file_including_the_ones_that_stay_as_they_are() {
+        // AC #1 en #3.
+        let form = Form::parse("actie=alles&album=Eerste");
+        let view = preview(&album_with_two_albums(), &form);
+
+        assert_eq!(view.files.len(), 3);
+        assert_eq!(view.changing(), 2);
+        assert_eq!(view.unchanged(), 1);
+
+        // Dit bestand heeft het album al; er is niets te doen.
+        assert!(!file_in(&view, "een.mp3").changes_anything());
+
+        let second = file_in(&view, "twee.mp3");
+        let change = change_of(second, "Album");
+        assert_eq!(change.before, "Tweede");
+        assert_eq!(change.after, "Eerste");
+
+        // En het bestand zonder album krijgt er een.
+        assert_eq!(change_of(file_in(&view, "drie.mp3"), "Album").before, EMPTY);
+
+        assert!(view.summary().contains("2 bestanden"), "{}", view.summary());
+    }
+
+    #[test]
+    fn a_file_outside_the_selection_stays_out_of_the_changes() {
+        let form = Form::parse("bestand=twee.mp3&album=Nieuw");
+        let view = preview(&album_with_two_albums(), &form);
+
+        assert_eq!(view.changing(), 1);
+        assert!(file_in(&view, "twee.mp3").changes_anything());
+        assert!(!file_in(&view, "een.mp3").changes_anything());
+    }
+
+    #[test]
+    fn the_preview_carries_the_whole_form_along() {
+        // Wat er opgeslagen wordt, mag niet kunnen afwijken van wat er te zien
+        // is; daarom gaat de hele formulierstaat verborgen mee.
+        let form = Form::parse("bestand=een.mp3&album=Nieuw&wis_genre=aan&titel:een.mp3=Eigen");
+        let view = preview(&album_with_two_albums(), &form);
+
+        let carried: Vec<(String, String)> = view
+            .hidden
+            .iter()
+            .map(|field| (field.name.clone(), field.value.clone()))
+            .collect();
+
+        for expected in [
+            ("bestand", "een.mp3"),
+            ("album", "Nieuw"),
+            ("wis_genre", "aan"),
+            ("titel:een.mp3", "Eigen"),
+        ] {
+            let expected = (expected.0.to_string(), expected.1.to_string());
+            assert!(carried.contains(&expected), "{expected:?} in {carried:?}");
+        }
+    }
+
+    #[test]
+    fn a_helper_action_is_carried_along_as_the_values_it_filled_in() {
+        // Het voorbeeld toont het voorstel; precies dat hoort mee te gaan, en
+        // niet de knop die het maakte.
+        let form = Form::parse("actie=hernummer&bestand=een.mp3&bestand=twee.mp3");
+        let view = preview(&album_that_needs_help(), &form);
+
+        let carried: Vec<&str> = view
+            .hidden
+            .iter()
+            .filter(|field| field.name == "nummer:een.mp3")
+            .map(|field| field.value.as_str())
+            .collect();
+        assert_eq!(carried, vec!["1"]);
+
+        assert!(
+            !view.hidden.iter().any(|field| field.name == "actie"),
+            "de hulpactie zelf hoort niet mee te gaan: {:?}",
+            view.hidden
+        );
+    }
+
+    #[test]
+    fn a_preview_with_a_broken_field_says_what_is_wrong() {
+        let form = Form::parse("actie=alles&disc=twee");
+        let view = preview(&album_with_two_albums(), &form);
+
+        assert_eq!(view.problems.len(), 1, "{:?}", view.problems);
+        assert!(view.problems[0].starts_with("Discnummer"));
+    }
+
+    #[test]
+    fn a_broken_row_blocks_the_batch_but_only_names_itself() {
+        let form = Form::parse("actie=alles&nummer:een.mp3=drie&album=Nieuw");
+        let view = preview(&album_with_two_albums(), &form);
+
+        assert_eq!(view.problems.len(), 1, "{:?}", view.problems);
+        assert!(view.problems[0].starts_with("Tracknummer"));
+
+        // De rij zelf valt uit het plan; de andere bestanden staan er nog in.
+        assert!(!file_in(&view, "een.mp3").changes_anything());
+        assert!(file_in(&view, "twee.mp3").changes_anything());
+    }
+
+    #[test]
+    fn a_report_counts_what_went_well_and_what_did_not() {
+        let report = SaveReport {
+            results: vec![
+                SaveResult {
+                    name: "een.mp3".to_string(),
+                    outcome: Outcome::Saved(vec!["Album".to_string()]),
+                },
+                SaveResult {
+                    name: "twee.mp3".to_string(),
+                    outcome: Outcome::Unchanged,
+                },
+                SaveResult {
+                    name: "drie.mp3".to_string(),
+                    outcome: Outcome::Failed("de map is alleen-lezen".to_string()),
+                },
+            ],
+        };
+
+        assert_eq!(report.saved(), 1);
+        assert_eq!(report.failed(), 1);
+        assert!(report.has_failures());
+        assert_eq!(
+            report.summary(),
+            "1 bestand bijgewerkt; 1 bestand is niet opgeslagen."
+        );
+
+        assert!(report.results[0].describe().contains("Album"));
+        assert!(report.results[1].describe().contains("niet aangeraakt"));
+        assert!(report.results[2].describe().contains("alleen-lezen"));
+        assert!(
+            report.results[2].describe().contains("onveranderd"),
+            "een mislukking hoort te zeggen dat het bestand heel is gebleven"
+        );
     }
 
     #[test]

@@ -30,9 +30,15 @@ de conventies vast waar code zich aan houdt.
   bevatten zelf geen sorteer-, filter- of opmaaklogica. Paden die naar de
   browser gaan zijn altijd relatief aan `MUSIC_ROOT`.
 - **De albumweergave (`batch::`) stelt alleen voor.** Ze krijgt een `Listing` en
-  een verstuurd formulier binnen, opent geen bestanden en schrijft niets. Wat
-  ermee gebeurt, beslist de gebruiker in de voorbeeldweergave; dat is de enige
-  route waarlangs een batch wordt weggeschreven. In een gedeeld veld betekent
+  een verstuurd formulier binnen, opent geen bestanden en schrijft niets — ook
+  `batch::preview` niet. Wat ermee gebeurt, beslist de gebruiker in de
+  voorbeeldweergave; dat is de enige route waarlangs een batch wordt
+  weggeschreven, en `actie=opslaan` is het enige verzoek dat schrijft.
+- **Een batch gaat bestand voor bestand.** Elk bestand wordt vlak voor het
+  schrijven opnieuw ingelezen en het plan wordt op die verse inhoud toegepast.
+  Een fout bij één bestand stopt de rest niet en wordt per bestand gemeld; een
+  fout in de invoer zelf houdt de hele batch tegen, want half uitvoeren van een
+  plan dat niet klopt is erger dan niets doen. In een gedeeld veld betekent
   leeg daar "ongemoeid laten" en niet "verwijderen" — het veld wordt nooit
   voorgevuld, en wissen is een aparte, expliciete keuze. Titel en tracknummer
   zijn geen gedeeld veld maar een override per bestand; die wint van wat de
