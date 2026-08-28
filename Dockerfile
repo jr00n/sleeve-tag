@@ -75,8 +75,13 @@ ENV MUSIC_ROOT=/music \
 
 EXPOSE 8080
 
-# Niet-root, met de UID en GID die op deze NAS gelden. De PUID/PGID-taak maakt
-# dit instelbaar via omgevingsvariabelen.
+# Niet-root, met de UID en GID die op deze NAS gelden. Dit is de standaard voor
+# een kale `docker run`; compose overschrijft hem met `user: "${PUID}:${PGID}"`.
+#
+# Er zit hier bewust geen entrypoint-script dat PUID/PGID toepast: distroless
+# heeft geen shell, en een script dat de UID wisselt zou als root moeten starten.
+# De runtime zet de gebruiker dus zelf, en de app controleert bij start of dat
+# klopt. Zie de sectie "Rechten en eigenaarschap" in README.md.
 USER 1000:10
 
 ENTRYPOINT ["/usr/local/bin/sleeve-tag"]

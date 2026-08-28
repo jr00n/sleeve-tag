@@ -13,6 +13,7 @@ mod config;
 mod cover;
 mod edit;
 mod fs;
+mod startup;
 mod tags;
 mod web;
 
@@ -48,6 +49,11 @@ async fn main() {
 
     tracing::info!(version = env!("CARGO_PKG_VERSION"), "Sleeve gestart");
     config.log_effective();
+
+    // Meteen na de configuratie, want dit is de plek waar een verkeerd gezette
+    // `user:` of een read-only mount zichtbaar hoort te worden — niet pas bij de
+    // eerste bewerking die de gebruiker probeert op te slaan.
+    startup::check(&config);
 
     // 0.0.0.0 omdat de app in een container draait en van buiten de
     // netwerknamespace bereikbaar moet zijn. Afscherming gebeurt op

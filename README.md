@@ -51,8 +51,8 @@ ontwikkelen; `sleeve-tag --help` toont ze.
 |---|---|---|
 | `MUSIC_ROOT` | — (verplicht) | Pad naar de muziekbibliotheek. Moet bestaan en een map zijn. In de container altijd `/music`. |
 | `PORT` | `8080` | Poort waarop de webserver luistert. |
-| `PUID` | `1000` | UID waaronder bestanden worden weggeschreven. |
-| `PGID` | `10` | GID waaronder bestanden worden weggeschreven. |
+| `PUID` | `1000` | UID waaronder bestanden worden weggeschreven. Zie [Rechten en eigenaarschap](#rechten-en-eigenaarschap). |
+| `PGID` | `10` | GID waaronder bestanden worden weggeschreven. Zie [Rechten en eigenaarschap](#rechten-en-eigenaarschap). |
 | `MAX_ART_SIZE` | `1000x1000` | Maximale resolutie van embedded album art. Ook `1000` is geldig; verkleinen behoudt de beeldverhouding. |
 | `ART_QUALITY` | `85` | JPEG-kwaliteit (1–100) waarmee een verkleinde hoes wordt gecodeerd. Daarboven lopen de bytes hard op zonder zichtbaar verschil, daaronder worden vlakken korrelig. |
 | `MAX_UPLOAD_MB` | `10` | Bovengrens aan een geüploade afbeelding, in megabytes. Ruim boven wat een hoes nodig heeft, ruim onder wat een NAS met weinig geheugen plat legt. |
@@ -63,6 +63,73 @@ Een ontbrekende of ongeldige waarde laat de app bij start stoppen met een
 melding die de variabele bij naam noemt — een verkeerd ingestelde container
 faalt dus meteen, en niet pas bij de eerste schrijfactie. De effectieve
 configuratie wordt bij start gelogd.
+
+## Rechten en eigenaarschap
+
+Sleeve schrijft in de muziekshare van de NAS. Bestanden die daar met een andere
+eigenaar of groep terechtkomen dan de rest van de share, zijn voor Navidrome of
+voor de gebruiker zelf ineens onbruikbaar. Op deze UGREEN is dat UID `1000` en
+GID `10`.
+
+### Het proces draait niet als root
+
+Het image zet `USER 1000:10`, dus ook een kale `docker run` start al als
+niet-root. In compose wordt dat overschreven met de waarden uit de omgeving:
+
+```yaml
+user: "${PUID:-1000}:${PGID:-10}"
+environment:
+  PUID: 1000
+  PGID: 10
+```
+
+`user:` en de twee omgevingsvariabelen horen dezelfde waarden te hebben:
+`user:` bepaalt wat er werkelijk gebeurt, `PUID`/`PGID` zijn wat de app
+verwacht. Lopen ze uiteen, dan zegt de app dat bij start (zie hieronder).
+
+### Waarom `user:` en geen entrypoint-script
+
+De gangbare aanpak in NAS-images is een entrypoint dat als root start, met
+`chown`/`usermod` de gewenste UID en GID inregelt en dan naar die gebruiker
+afdaalt. Dat kan hier niet, en dat is een bewuste keuze:
+
+- De runtime is `gcr.io/distroless/static-debian12`. Er zit geen shell in, geen
+  `chown` en geen `su-exec`. Zo'n script terugbrengen betekent een shell — en
+  daarmee een grotere aanvalsoppervlakte — het image in halen.
+- Zo'n script móet als root beginnen om zijn werk te kunnen doen. Precies wat
+  de eis "draait niet als root" wil uitsluiten. Met `user:` is het proces geen
+  moment root geweest.
+- Docker kan het gewoon zelf. Een entrypoint zou een taak overnemen die de
+  runtime al betrouwbaar uitvoert.
+
+Het `chown`-deel van zo'n script is hier bovendien niet nodig: Sleeve maakt
+geen eigen datamap aan, en bij het vervangen van een bestand nemen eigenaar,
+groep en rechten van het origineel over (zie
+[Schrijven zonder iets kwijt te raken](#schrijven-zonder-iets-kwijt-te-raken)).
+
+### Wat de app bij start controleert
+
+Een niet-root proces kan zijn eigen UID niet veranderen. `PUID`/`PGID` worden
+dus niet dóór de app toegepast maar dóór de runtime; de app (`startup::`)
+toetst bij start of dat ook zo is uitgepakt. Ze zet daarvoor één sondebestand
+in `MUSIC_ROOT` neer, leest de eigenaar ervan terug en ruimt het meteen op. Dat
+is bewust geen controle op de mode-bits: die liegen zodra er ACL's op de share
+staan of de map setgid is, en juist op een NAS is dat eerder regel dan
+uitzondering. Een bestand echt aanmaken beantwoordt beide vragen op de enige
+manier die telt — mág er geschreven worden, en wie is straks de eigenaar.
+
+| Situatie | Logregel | Gevolg |
+|---|---|---|
+| Schrijfbaar, uid/gid gelijk aan `PUID`/`PGID` | `INFO … MUSIC_ROOT is schrijfbaar` met `uid` en `gid` | — |
+| Schrijfbaar, uid/gid wijken af | `WARN … PUID/PGID` met beide waarden | De app draait door; controleer `user:` in compose |
+| Niet schrijfbaar | `ERROR … MUSIC_ROOT is niet schrijfbaar; opslaan zal mislukken` | De app draait door: bladeren en tags bekijken werkt gewoon |
+
+Een read-only share laat de container dus niet omvallen. Dat is opzet: een
+draaiende UI met een duidelijke melding is makkelijker te diagnosticeren dan een
+container in een herstartlus, en het onderscheid met een echte
+configuratiefout — die de app wél meteen laat stoppen — blijft zo zichtbaar.
+Wat de app níet doet, is wachten met melden tot de eerste bewerking wordt
+opgeslagen.
 
 ## Kwaliteitspoort
 
@@ -162,6 +229,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | Module | Verantwoordelijkheid |
 |--------|----------------------|
 | `config` | Configuratie uit omgevingsvariabelen |
+| `startup` | De startcontrole: is `MUSIC_ROOT` schrijfbaar, en met welke eigenaar en groep |
 | `fs` | Padvalidatie en containment binnen `MUSIC_ROOT`; de enige plek die een gebruikerspad naar een filesystem-pad vertaalt |
 | `tags` | Genormaliseerd tagmodel en alle tag-I/O (de enige plek die `lofty` gebruikt) |
 | `art` | Album art decoderen, verkleinen en encoderen (de enige plek die pixels aanraakt) |

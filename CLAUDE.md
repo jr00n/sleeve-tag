@@ -90,6 +90,14 @@ de conventies vast waar code zich aan houdt.
 - **De signalering (`checks::`) constateert alleen.** Ze krijgt het
   genormaliseerde tagmodel binnen, opent geen bestanden en stelt geen correcties
   voor. Wat er met een gesignaleerd probleem gebeurt, beslist de gebruiker.
+- **De startcontrole (`startup::`) toetst en past niets toe.** Het proces draait
+  als niet-root en kan zijn eigen UID dus niet wisselen: `PUID`/`PGID` worden
+  door de container-runtime gezet (`user:` in compose), en `startup::check`
+  stelt bij start alleen vast of dat klopt en of `MUSIC_ROOT` schrijfbaar is.
+  Het enige bestand dat ze aanraakt is haar eigen sonde, en die wordt in
+  dezelfde functie weer opgeruimd. Een verkeerde uitkomst wordt gemeld, niet
+  gerepareerd, en laat de app niet stoppen — bladeren werkt op een read-only
+  share gewoon. Een fout in de configuratie zelf blijft wél fataal.
 - **Niets ongevraagd wijzigen.** Geen achtergrondjobs, geen opschoonacties, geen
   velden aanraken die de gebruiker niet zelf heeft ingevuld.
 
