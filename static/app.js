@@ -58,6 +58,15 @@
 
     form.classList.add(BEZIG_KLASSE);
     toonBezig(form, knop);
+
+    // Een formulier dat de pagina niet mag verlaten, gaat op de achtergrond.
+    // Dat is het hoesje op de bewerkpagina: navigeren zou de tagvelden wegvagen
+    // die de gebruiker misschien net heeft ingevuld en nog niet heeft
+    // opgeslagen.
+    if (form.hasAttribute("data-inplace")) {
+      event.preventDefault();
+      verstuurInPlaats(form, knop);
+    }
   });
 
   // Firefox en Safari halen een pagina uit de bfcache terug zoals hij was —
@@ -105,27 +114,31 @@
   function herstel() {
     var formulieren = document.querySelectorAll("form." + BEZIG_KLASSE);
     for (var i = 0; i < formulieren.length; i++) {
-      var form = formulieren[i];
-      form.classList.remove(BEZIG_KLASSE);
+      herstelFormulier(formulieren[i]);
+    }
+  }
 
-      var knoppen = form.querySelectorAll("button, input[type=submit]");
-      for (var j = 0; j < knoppen.length; j++) {
-        knoppen[j].disabled = false;
-      }
+  /** Zet één formulier terug in de toestand van vóór de schrijfactie. */
+  function herstelFormulier(form) {
+    form.classList.remove(BEZIG_KLASSE);
 
-      var melding = form.querySelector(".bezigmelding");
-      if (melding) {
-        melding.remove();
-      }
+    var knoppen = form.querySelectorAll("button, input[type=submit]");
+    for (var i = 0; i < knoppen.length; i++) {
+      knoppen[i].disabled = false;
     }
 
-    // De opschriften zelf komen uit de bfcache zoals ze waren; alleen de knop
-    // die we hebben omgezet, is niet meer wat hij was. Een herladen is hier
-    // te grof — de tekst staat in `data-was`, gezet bij het omzetten.
-    var omgezet = document.querySelectorAll("[data-was]");
-    for (var k = 0; k < omgezet.length; k++) {
-      omgezet[k].textContent = omgezet[k].getAttribute("data-was");
-      omgezet[k].removeAttribute("data-was");
+    var melding = form.querySelector(".bezigmelding");
+    if (melding) {
+      melding.remove();
+    }
+
+    // De opschriften komen uit de bfcache zoals ze waren; alleen de knop die we
+    // hebben omgezet, is niet meer wat hij was. Een herladen is hier te grof —
+    // de tekst staat in `data-was`, gezet bij het omzetten.
+    var omgezet = form.querySelectorAll("[data-was]");
+    for (var j = 0; j < omgezet.length; j++) {
+      omgezet[j].textContent = omgezet[j].getAttribute("data-was");
+      omgezet[j].removeAttribute("data-was");
     }
   }
 
@@ -374,6 +387,142 @@
 
     melding.textContent = tekst || "";
     melding.hidden = !tekst;
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Een hoes embedden zonder de pagina te verlaten
+  //
+  // Het formulier gaat naar dezelfde route als altijd; alleen het antwoord komt
+  // hier terecht in plaats van in het venster. Wat de server terugstuurt is de
+  // hele hoespagina, inclusief het rapport per bestand — daar wordt de ene
+  // regel uit gehaald die deze gebruiker aangaat.
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Verstuurt het formulier op de achtergrond en werkt de pagina bij. */
+  function verstuurInPlaats(form, knop) {
+    var velden = new FormData(form);
+
+    // `FormData` neemt de ingedrukte knop niet mee, en juist daaraan ziet de
+    // server welke actie bedoeld was.
+    if (knop && knop.name) {
+      velden.append(knop.name, knop.value);
+    }
+
+    fetch(form.action, { method: "POST", body: velden })
+      .then(function (antwoord) {
+        return antwoord.text().then(function (html) {
+          return { ok: antwoord.ok, status: antwoord.status, html: html };
+        });
+      })
+      .then(function (uitkomst) {
+        herstelFormulier(form);
+
+        if (!uitkomst.ok) {
+          uitkomstTonen(form, samenvatting(uitkomst.html) || "Het is niet gelukt de hoes te plaatsen (" + uitkomst.status + ").", true);
+          return;
+        }
+
+        var rapport = leesRapport(uitkomst.html);
+        uitkomstTonen(form, rapport.tekst, rapport.mislukt);
+
+        if (!rapport.mislukt) {
+          verversHoes(form);
+          opruimenNaPlaatsen(form);
+        }
+      })
+      .catch(function (fout) {
+        herstelFormulier(form);
+        uitkomstTonen(form, "Het is niet gelukt de hoes te plaatsen: " + fout.message, true);
+      });
+  }
+
+  /**
+   * Haalt de regel over dit bestand uit het antwoord.
+   *
+   * De server stuurt de hele hoespagina terug; daarin staat per bestand wat er
+   * gebeurd is. Een antwoord met status 200 betekent nog niet dat het gelukt
+   * is — een bestand dat niet geschreven kon worden, staat als mislukt in dat
+   * rapport.
+   */
+  function leesRapport(html) {
+    var pagina = new DOMParser().parseFromString(html, "text/html");
+    var regel = pagina.querySelector(".resultaat__uitkomst");
+    var mislukt = pagina.querySelector(".resultaat__bestand--fout") !== null;
+
+    return {
+      tekst: regel ? regel.textContent.trim() : "Hoes geplaatst.",
+      mislukt: mislukt,
+    };
+  }
+
+  /** De kale tekst van een foutantwoord, voor zover er iets in staat. */
+  function samenvatting(html) {
+    var tekst = html.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+    return tekst.length > 0 && tekst.length < 300 ? tekst : null;
+  }
+
+  /** Zet de uitkomst onder het hoesje. */
+  function uitkomstTonen(form, tekst, mislukt) {
+    var regel = form.querySelector("[data-uitkomst]");
+    if (!regel) {
+      return;
+    }
+
+    regel.textContent = tekst;
+    regel.hidden = false;
+    regel.classList.toggle("hoesdoel__uitkomst--fout", !!mislukt);
+  }
+
+  /**
+   * Laat het hoesje de zojuist geplaatste afbeelding zien.
+   *
+   * Met een tijdstempel erachter, anders houdt de browser de oude afbeelding
+   * vast: het adres is niet veranderd, alleen de inhoud erachter. Had het
+   * bestand nog geen hoes, dan staat er een lege plaatshouder die eerst een
+   * `<img>` moet worden.
+   */
+  function verversHoes(form) {
+    var adres = form.getAttribute("data-art-url");
+    if (!adres) {
+      return;
+    }
+
+    var vers = adres + (adres.indexOf("?") === -1 ? "?" : "&") + "t=" + Date.now();
+
+    var hoes = form.querySelector("img.bestandskop__hoes");
+    if (hoes) {
+      hoes.src = vers;
+      return;
+    }
+
+    var leeg = form.querySelector(".bestandskop__hoes--leeg");
+    if (!leeg) {
+      return;
+    }
+
+    var afbeelding = document.createElement("img");
+    afbeelding.className = "bestandskop__hoes";
+    afbeelding.src = vers;
+    afbeelding.alt = "Album art van dit bestand";
+    afbeelding.width = 96;
+    afbeelding.height = 96;
+
+    var link = document.createElement("a");
+    link.href = leeg.getAttribute("href");
+    link.appendChild(afbeelding);
+
+    leeg.replaceWith(link);
+  }
+
+  /** Maakt het vak weer leeg, zodat er niet nóg eens dezelfde hoes in gaat. */
+  function opruimenNaPlaatsen(form) {
+    var invoer = form.querySelector("input[type=file]");
+    if (invoer) {
+      invoer.value = "";
+    }
+
+    verbergGekozen(form);
+    meld(form, null);
   }
 
   /** Een bestandsomvang zoals een mens hem leest. */

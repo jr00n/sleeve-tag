@@ -18,9 +18,15 @@
      formulieren bestaan niet in HTML, en een hoesactie hoort geen tags mee te
      sturen. Zonder JavaScript blijft er precies één ding over: de link naar de
      hoespagina, zoals het altijd was. #}
+  {# `data-inplace`: met JavaScript wordt dit formulier op de achtergrond
+     verstuurd, zodat de pagina blijft staan. Dat is geen sierlijkheid — een
+     navigatie zou de tagvelden die je zojuist hebt ingevuld maar nog niet
+     opgeslagen, wegvagen. Zonder JavaScript post het formulier gewoon en kom je
+     op de hoespagina uit, met het volledige rapport. #}
   <form class="hoesdoel" method="post" action="{{ page.cover_url }}"
         enctype="multipart/form-data"
-        data-neerzetvak data-max-mb="{{ page.max_upload_mb }}">
+        data-neerzetvak data-max-mb="{{ page.max_upload_mb }}"
+        data-inplace data-art-url="{{ page.art_url }}">
     {# De hoes leidt naar zijn eigen pagina en niet naar de kale afbeelding: daar
        staat wat je op een vakje van 96 pixels niet kunt zien (FR-12). #}
     {% if page.has_art %}
@@ -41,6 +47,9 @@
 
     <p class="hoesdoel__hint" data-neerzetvak-hint hidden>Sleep hier een hoes op</p>
     <p class="neerzetvak__melding" data-neerzetvak-melding role="status" hidden></p>
+
+    {# Wat er van het embedden terechtkwam, zonder de pagina te verlaten. #}
+    <p class="hoesdoel__uitkomst" data-uitkomst role="status" hidden></p>
 
     {# Verschijnt pas als er werkelijk een afbeelding klaarstaat: neerzetten zet
        klaar, de knop schrijft. #}

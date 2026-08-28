@@ -333,3 +333,64 @@ fn the_cover_form_does_not_carry_the_tag_fields() {
         "het hoesformulier omsluit het tagformulier; dan zouden de tags meegaan"
     );
 }
+
+#[test]
+fn the_cover_form_is_sent_in_the_background() {
+    // Navigeren zou de tagvelden wegvagen die de gebruiker misschien net heeft
+    // ingevuld maar nog niet heeft opgeslagen. Vandaar dat dit formulier op de
+    // achtergrond gaat; de markering is wat `app.js` daarop afgaat.
+    let server = Server::start_in(library_with_a_track(), &[]);
+    let page = server.get("/bewerk/Album/track.mp3");
+
+    assert!(page.contains("data-inplace"), "pagina was:\n{page}");
+
+    // Het adres van de hoes gaat mee, zodat het hoesje zich kan verversen
+    // zonder de pagina te herladen.
+    assert!(
+        page.contains(r#"data-art-url="/art/Album/track.mp3""#),
+        "het adres van de hoes ontbreekt:\n{page}"
+    );
+}
+
+#[test]
+fn embedding_from_the_edit_page_still_works_without_javascript() {
+    // De terugvaloptie: zonder JavaScript post het formulier gewoon, en dan
+    // komt de gebruiker op de hoespagina uit met het volledige rapport. Dat is
+    // dezelfde route die de achtergrondversie gebruikt — er is er maar één.
+    let root = library_with_a_track();
+    let track = root.path().join("Album").join("track.mp3");
+    let server = Server::start_in(root, &[]);
+
+    let cover = std::fs::read(
+        Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests")
+            .join("fixtures")
+            .join("cover.jpg"),
+    )
+    .expect("de fixture moet leesbaar zijn");
+
+    let response = server.post_multipart(
+        "/hoes/Album/track.mp3",
+        &[("actie", "embed-dit")],
+        Some(("afbeelding", "cover.jpg", &cover)),
+    );
+
+    assert!(
+        response.starts_with("HTTP/1.1 200 OK"),
+        "antwoord begon met: {}",
+        response.lines().next().unwrap_or_default()
+    );
+    assert!(
+        response.contains("resultaat__uitkomst"),
+        "het rapport ontbreekt:\n{response}"
+    );
+
+    // En de hoes zit er werkelijk in.
+    let bytes = std::fs::read(&track).expect("het bestand moet leesbaar zijn");
+    assert!(
+        bytes
+            .windows(4)
+            .any(|window| window == [0xFF, 0xD8, 0xFF, 0xE0]),
+        "er zit geen JPEG in het bestand"
+    );
+}

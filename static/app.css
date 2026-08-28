@@ -752,6 +752,20 @@ a.bestandskop__hoes {
   font-size: 0.8rem;
 }
 
+.hoesdoel__uitkomst {
+  margin: 0;
+  padding: 0.4rem 0.6rem;
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+  background: var(--vlak);
+  font-size: 0.85rem;
+}
+
+.hoesdoel__uitkomst--fout {
+  border-color: var(--waarschuwing);
+  background: color-mix(in srgb, var(--waarschuwing) 12%, transparent);
+}
+
 /* ── Meldingen boven het formulier ─────────────────────────────────────── */
 
 .melding {
