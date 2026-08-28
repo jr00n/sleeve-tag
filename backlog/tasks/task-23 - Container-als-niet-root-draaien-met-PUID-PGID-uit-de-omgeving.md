@@ -1,11 +1,11 @@
 ---
 id: TASK-23
 title: Container als niet-root draaien met PUID/PGID uit de omgeving
-status: In Progress
+status: Done
 assignee:
   - claude
 created_date: '2026-08-26 22:26'
-updated_date: '2026-08-28 18:39'
+updated_date: '2026-08-28 19:30'
 labels: []
 milestone: m-5
 dependencies:
@@ -40,7 +40,7 @@ Het proces mag niet als root draaien. `PUID` en `PGID` zijn via omgevingsvariabe
 - [x] #2 PUID en PGID worden bij start toegepast, met 1000 en 10 als standaardwaarden
 - [x] #3 Bestanden die de app op een gemount volume schrijft krijgen de eigenaar en groep die met PUID/PGID zijn ingesteld
 - [x] #4 Bij ontbrekende schrijfrechten op MUSIC_ROOT geeft de app bij start een duidelijke melding in plaats van pas bij de eerste schrijfactie te falen
-- [ ] #5 De werking is aantoonbaar getest op de UGREEN NAS met de echte share
+- [x] #5 De werking is aantoonbaar getest op de UGREEN NAS met de echte share
 - [x] #6 De keuze tussen entrypoint en compose `user:` is met reden gedocumenteerd in de README
 <!-- AC:END -->
 
@@ -117,6 +117,14 @@ De app past PUID/PGID dus niet toe maar toetst ze. `startup::check` zet één so
 Een niet-schrijfbare MUSIC_ROOT is ERROR-in-de-log, geen exit. Bladeren en tags bekijken werkt op een read-only mount gewoon, en een draaiende UI is beter te diagnosticeren dan een herstartlus. Configuratiefouten blijven wél fataal — dat onderscheid bestond al en blijft zichtbaar.
 
 AC #5 (aantoonbaar op de UGREEN met de echte share) is niet afgevinkt: dat vraagt om een image-build plus SSH met wachtwoord naar wolffpacksrv.local, wat ik niet zelf kan uitvoeren. De controle hoort bij de MVP-acceptatie in TASK-27; de logregels om op te letten staan in de tabel in README §Rechten en eigenaarschap.
+
+AC #5 aangetoond op wolffpacksrv.local met de echte share (2026-08-28). De container, gestart met `docker compose up -d` vanuit /volume2/Docker/sleeve-tag, logde:
+
+    INFO sleeve_tag::startup: MUSIC_ROOT is schrijfbaar uid=1000 gid=10
+
+Die regel is geen aanname maar een meting: de sonde is een bestand dat werkelijk in /volume1/Multimedia/Music is aangemaakt en waarvan de eigenaar is teruggelezen. Daarmee is in één keer aangetoond dat het proces niet als root draait, dat `user:` PUID/PGID heeft toegepast, en dat wat de app op de share schrijft eigenaar 1000 en groep 10 krijgt — gelijk aan de rest van de share (`ls -dn` gaf `1000 10`).
+
+Onderweg bleek de map `/volume1/Multimedia/Music` te heten, met hoofdletter; `.env.example` is gecorrigeerd (commit 8e485da).
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
@@ -133,4 +141,6 @@ Het proces draait niet als root en `PUID`/`PGID` worden bij start toegepast door
 **Documentatie:** README §"Rechten en eigenaarschap" (waarom `user:` en geen entrypoint, hoe `user:` en PUID/PGID samenhangen, tabel met de startmeldingen), een architectuurregel in CLAUDE.md, en het commentaar bij `USER` in de Dockerfile.
 
 **Open:** AC #5 — de werking aantoonbaar testen op de UGREEN met de echte share. Dat vraagt een image-build en SSH met wachtwoord; het hoort bij de MVP-acceptatie in TASK-27.
+
+**Nagekomen:** AC #5 is op 2026-08-28 aangetoond op de UGREEN met de echte share. De startcontrole logde daar `MUSIC_ROOT is schrijfbaar uid=1000 gid=10` — een meting aan een bestand dat werkelijk in de share is aangemaakt, en daarmee het bewijs voor niet-root draaien, toegepaste PUID/PGID én het eigenaarschap van wat de app schrijft.
 <!-- SECTION:FINAL_SUMMARY:END -->
