@@ -13,6 +13,31 @@
 
 <h1 class="maptitel">{{ page.name }}</h1>
 
+{% if let Some(notice) = page.notice %}
+<div class="melding {% if notice.is_accepted() %}melding--goed{% else %}melding--fout{% endif %}"
+     role="status">
+  <p class="melding__regel">{{ notice.line() }}</p>
+</div>
+{% endif %}
+
+{# Per bestand wat er gebeurd is: één onschrijfbaar bestand mag de rest van het
+   album niet tegenhouden, en dan hoort erbij te staan welk bestand dat was. #}
+{% if let Some(report) = page.report %}
+<div class="melding {% if report.has_failures() %}melding--fout{% else %}melding--goed{% endif %}"
+     role="status">
+  <p class="melding__regel">{{ report.summary() }}</p>
+</div>
+
+<ul class="resultaat">
+  {% for result in report.results %}
+  <li class="resultaat__bestand{% if result.is_failed() %} resultaat__bestand--fout{% endif %}">
+    <span class="resultaat__naam">{{ result.name }}</span>
+    <span class="resultaat__uitkomst">{{ result.describe() }}</span>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
+
 {% if let Some(details) = page.details %}
 {# De hoes zo groot als het scherm toelaat: op een thumbnail is niet te zien of
    een afbeelding scherp is, en daar gaat deze pagina juist over. #}
@@ -46,16 +71,63 @@
 {% else %}
 <div class="melding" role="status">
   <p class="melding__regel">Dit bestand heeft geen embedded hoes.</p>
-  <p class="melding__regel">
-    Een hoes toevoegen kan nog niet; dat komt in een volgende stap. Sleeve raakt
-    niets aan wat je niet zelf hebt ingevuld, dus zolang die er niet is, blijft
-    het bestand zoals het is.
-  </p>
+  <p class="melding__regel">Hieronder kun je er een toevoegen.</p>
 </div>
 {% endif %}
 
+{# Uploaden en verwijderen (FR-13 en FR-16). Twee knoppen per actie: het bestand
+   zelf, of alle tracks in deze map. Wat er gebeurt staat in de knop, zodat er
+   geen keuzevakje bij hoeft dat je over het hoofd kunt zien. #}
+<form class="hoesform" method="post" action="{{ page.url }}" enctype="multipart/form-data">
+  <fieldset class="hoesform__blok">
+    <legend class="hoesform__kop">Nieuwe hoes</legend>
+
+    <div class="veld">
+      <label class="veld__label" for="afbeelding">JPEG of PNG</label>
+      <input class="veld__invoer" id="afbeelding" name="afbeelding" type="file"
+             accept="image/jpeg,image/png" required />
+      <p class="veld__hulp">
+        Wat groter is dan de ingestelde maximumresolutie wordt verkleind; wat er
+        al binnen past, gaat ongewijzigd het bestand in.
+      </p>
+    </div>
+
+    <div class="knoppen">
+      <button class="knop knop--primair" type="submit" name="actie" value="embed-dit">
+        Alleen dit bestand
+      </button>
+      {% if page.has_siblings() %}
+      <button class="knop" type="submit" name="actie" value="embed-alle">
+        {{ page.all_tracks_label() }}
+      </button>
+      {% endif %}
+    </div>
+  </fieldset>
+
+  {% if page.has_art() %}
+  <fieldset class="hoesform__blok">
+    <legend class="hoesform__kop">Hoes verwijderen</legend>
+    <p class="veld__hulp">
+      Haalt de embedded afbeelding uit het bestand. De tags blijven zoals ze zijn.
+    </p>
+
+    <div class="knoppen">
+      <button class="knop" type="submit" name="actie" value="verwijder-dit">
+        Uit dit bestand
+      </button>
+      {% if page.has_siblings() %}
+      <button class="knop" type="submit" name="actie" value="verwijder-alle">
+        Uit {{ page.all_tracks_label().to_lowercase() }}
+      </button>
+      {% endif %}
+    </div>
+  </fieldset>
+  {% endif %}
+</form>
+
 <div class="knoppen">
   <a class="knop" href="{{ page.edit_url }}">Terug naar het bestand</a>
+  <a class="knop" href="{{ page.back_url }}">Terug naar de map</a>
   {% if page.has_art() %}
   <a class="knop" href="{{ page.art_url }}">De afbeelding zelf</a>
   {% endif %}

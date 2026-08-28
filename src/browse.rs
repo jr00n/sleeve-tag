@@ -363,7 +363,7 @@ fn crumbs_for(path: &str) -> Vec<Crumb> {
 }
 
 /// De URL van een mappagina; de root is de startpagina.
-fn url_for(path: &str) -> String {
+pub fn url_for(path: &str) -> String {
     if path.is_empty() {
         "/".to_string()
     } else {
@@ -425,7 +425,7 @@ pub fn name_of_file(path: &str) -> &str {
 }
 
 /// Het pad van de map waarin dit bestand staat; leeg voor de wortel.
-fn parent_of(path: &str) -> &str {
+pub fn parent_of(path: &str) -> &str {
     match path.rfind('/') {
         Some(index) => &path[..index],
         None => "",

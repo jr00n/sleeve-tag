@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use lofty::config::{ParseOptions, WriteOptions};
 use lofty::file::{AudioFile, FileType, TaggedFile, TaggedFileExt};
-use lofty::picture::{Picture, PictureType};
+use lofty::picture::{MimeType, Picture, PictureType};
 use lofty::probe::Probe;
 use lofty::tag::{Accessor, ItemKey, ItemValue, Tag, TagExt, TagType};
 
@@ -334,6 +334,119 @@ pub fn write(path: &Path, wanted: &Tags, options: atomic::Options) -> Result<(),
             }
         },
     )
+}
+
+/// Zet of verwijdert de front cover van een bestand (FR-13 en FR-16).
+///
+/// `cover` is het MIME-type met de bytes, of `None` om de hoes te verwijderen.
+/// De bytes komen van [`crate::art::prepare`]: valideren en verkleinen gebeurt
+/// daar, hier gaan ze ongewijzigd het bestand in.
+///
+/// Alleen de afbeelding verandert. De tekstuele tags blijven onaangeraakt, en
+/// andere afbeeldingen dan de front cover — een achterkant, een bandfoto —
+/// blijven staan: er wordt gericht op `CoverFront` gewisseld en niet met een
+/// schone tag begonnen.
+///
+/// Levert `true` wanneer het bestand werkelijk is aangepast. Zit dezelfde hoes
+/// er al in, of is er niets te verwijderen, dan wordt het bestand niet
+/// aangeraakt: een herschrijving die niets verandert is een ongevraagde
+/// wijziging.
+///
+/// Het schrijven loopt door [`crate::atomic::replace`], met dezelfde
+/// hervalidatie als [`write`]: pas als de hoes teruggelezen is zoals bedoeld,
+/// gaat het tijdelijke bestand over het origineel heen.
+pub fn write_art(
+    path: &Path,
+    cover: Option<(&str, &[u8])>,
+    options: atomic::Options,
+) -> Result<bool, WriteError> {
+    let current = read_front_cover(path).map_err(atomic::WriteError::Prepare)?;
+
+    let unchanged = match (&current, cover) {
+        (None, None) => true,
+        (Some((mime, data)), Some((wanted_mime, wanted_data))) => {
+            mime == wanted_mime && data == wanted_data
+        }
+        _ => false,
+    };
+
+    if unchanged {
+        tracing::debug!(
+            path = %path.display(),
+            "de hoes is al zoals bedoeld; het bestand wordt niet aangeraakt"
+        );
+        return Ok(false);
+    }
+
+    let changes = if cover.is_some() {
+        "hoes"
+    } else {
+        "hoes verwijderd"
+    };
+
+    atomic::replace(
+        path,
+        options,
+        changes,
+        |temp| apply_art(temp, cover),
+        |temp| {
+            let after = read_front_cover(temp)?;
+
+            let ok = match (&after, cover) {
+                (None, None) => true,
+                (Some((mime, data)), Some((wanted_mime, wanted_data))) => {
+                    mime == wanted_mime && data == wanted_data
+                }
+                _ => false,
+            };
+
+            if ok { Ok(()) } else { Err(TagError::Mismatch) }
+        },
+    )?;
+
+    Ok(true)
+}
+
+/// Wisselt de front cover in de tag van het tijdelijke bestand.
+fn apply_art(path: &Path, cover: Option<(&str, &[u8])>) -> Result<(), TagError> {
+    let file = open(path)?;
+    let target = tag_type_for(format_of(&file)?);
+
+    let mut tag = match file.tag(target) {
+        Some(existing) => existing.clone(),
+        None => match primary_tag(&file) {
+            Some(other) => {
+                let mut converted = other.clone();
+                converted.re_map(target);
+                converted
+            }
+            None => Tag::new(target),
+        },
+    };
+
+    // Eerst weg wat er stond. Zonder dit zou een tweede hoes naast de eerste
+    // belanden, en welke van de twee een speler dan kiest, is niet te zeggen.
+    tag.remove_picture_type(PictureType::CoverFront);
+
+    if let Some((mime, data)) = cover {
+        // `unchecked`: de afbeelding is al door `art::prepare` gehaald, en die
+        // heeft strengere eisen dan lofty — alleen JPEG en PNG, en werkelijk
+        // gedecodeerd.
+        tag.push_picture(
+            Picture::unchecked(data.to_vec())
+                .pic_type(PictureType::CoverFront)
+                .mime_type(MimeType::from_str(mime))
+                .build(),
+        );
+    }
+
+    tag.save_to_path(path, WriteOptions::new())
+        .map_err(|error| {
+            tracing::error!(%error, "de hoes kon niet weggeschreven worden");
+            TagError::Unwritable
+        })?;
+
+    remove_stale_tags(path, target)
 }
 
 /// Zet het model in de tag van het tijdelijke bestand en schrijft die weg.
@@ -1118,6 +1231,139 @@ mod tests {
         assert_eq!(raw_value(&flac, "TRACKTOTAL"), "9");
         assert_eq!(raw_value(&flac, "DISCNUMBER"), "2");
         assert_eq!(raw_value(&flac, "DISCTOTAL"), "3");
+    }
+
+    /// De losse coverafbeelding uit de fixtures.
+    fn cover_bytes(name: &str) -> Vec<u8> {
+        std::fs::read(testfixtures::fixture_path(name)).expect("fixture moet leesbaar zijn")
+    }
+
+    #[test]
+    fn a_cover_can_be_embedded_in_both_formats() {
+        for name in [testfixtures::MP3_WITH_TAGS, testfixtures::FLAC_WITH_TAGS] {
+            let (_tempdir, path) = writable_copy(name);
+            let cover = cover_bytes(testfixtures::COVER_PNG);
+
+            assert!(read(&path).expect("lezen").art.is_none(), "{name}");
+
+            let written = write_art(
+                &path,
+                Some(("image/png", &cover)),
+                atomic::Options::default(),
+            )
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+            assert!(written, "{name}: er hoorde iets geschreven te worden");
+
+            let (mime, data) = read_front_cover(&path)
+                .expect("lezen")
+                .unwrap_or_else(|| panic!("{name}: er hoort nu een hoes in te zitten"));
+
+            assert_eq!(mime, "image/png", "{name}");
+            assert_eq!(data, cover, "{name}: de bytes horen ongewijzigd te zijn");
+        }
+    }
+
+    #[test]
+    fn embedding_a_cover_leaves_the_other_tags_alone() {
+        // De hoes vervangen is geen reden om aan de tekst te komen.
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_WITH_TAGS);
+        let before = read(&path).expect("lezen").tags;
+
+        write_art(
+            &path,
+            Some(("image/jpeg", &cover_bytes(testfixtures::COVER_JPEG))),
+            atomic::Options::default(),
+        )
+        .expect("schrijven moet lukken");
+
+        assert_eq!(read(&path).expect("lezen").tags, before);
+    }
+
+    #[test]
+    fn a_cover_replaces_the_one_that_was_there() {
+        // Niet ernaast: welke van de twee een speler dan kiest, is niet te
+        // zeggen.
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_WITH_ART);
+        let other = cover_bytes(testfixtures::OTHER_COVER_PNG);
+
+        write_art(
+            &path,
+            Some(("image/png", &other)),
+            atomic::Options::default(),
+        )
+        .expect("schrijven moet lukken");
+
+        let art = read(&path).expect("lezen").art.expect("er is een hoes");
+        assert_eq!(art.mime, "image/png");
+        assert_eq!(art.bytes, other.len());
+        assert_eq!((art.width, art.height), (500, 500));
+    }
+
+    #[test]
+    fn a_cover_can_be_removed() {
+        for name in [testfixtures::MP3_WITH_ART, testfixtures::FLAC_WITH_ART] {
+            let (_tempdir, path) = writable_copy(name);
+            let tags = read(&path).expect("lezen").tags;
+
+            let written = write_art(&path, None, atomic::Options::default())
+                .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            assert!(written, "{name}: er hoorde iets geschreven te worden");
+            assert!(read(&path).expect("lezen").art.is_none(), "{name}");
+            assert_eq!(
+                read(&path).expect("lezen").tags,
+                tags,
+                "{name}: de tekstuele tags horen ongemoeid te blijven"
+            );
+        }
+    }
+
+    #[test]
+    fn writing_the_same_cover_leaves_the_file_untouched() {
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_WITH_ART);
+        let before = std::fs::read(&path).expect("lezen");
+        let (mime, data) = read_front_cover(&path)
+            .expect("lezen")
+            .expect("de fixture heeft een hoes");
+
+        let written = write_art(&path, Some((&mime, &data)), atomic::Options::default())
+            .expect("schrijven moet lukken");
+
+        assert!(!written, "er viel niets te wijzigen");
+        assert_eq!(std::fs::read(&path).expect("lezen"), before);
+    }
+
+    #[test]
+    fn removing_a_cover_that_is_not_there_leaves_the_file_untouched() {
+        let (_tempdir, path) = writable_copy(testfixtures::MP3_WITH_TAGS);
+        let before = std::fs::read(&path).expect("lezen");
+
+        let written =
+            write_art(&path, None, atomic::Options::default()).expect("dit hoort te lukken");
+
+        assert!(!written);
+        assert_eq!(std::fs::read(&path).expect("lezen"), before);
+    }
+
+    #[test]
+    fn the_audio_survives_a_cover_change_bit_for_bit() {
+        for name in [testfixtures::MP3_WITH_ART, testfixtures::FLAC_WITH_ART] {
+            let (_tempdir, path) = writable_copy(name);
+            let before = audio_bytes(&path);
+
+            write_art(
+                &path,
+                Some(("image/png", &cover_bytes(testfixtures::OTHER_COVER_PNG))),
+                atomic::Options::default(),
+            )
+            .unwrap_or_else(|error| panic!("{name}: {error}"));
+
+            assert_eq!(
+                audio_bytes(&path),
+                before,
+                "{name}: de audio is veranderd door een hoeswijziging"
+            );
+        }
     }
 
     #[test]

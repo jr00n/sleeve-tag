@@ -187,6 +187,58 @@ impl Server {
         String::from_utf8_lossy(&self.send(request.as_bytes())).into_owned()
     }
 
+    /// Verstuurt een `multipart/form-data`-formulier met hoogstens één bestand.
+    ///
+    /// Nodig voor het uploaden van een hoes: dat gaat niet urlencoded, want er
+    /// zitten ruwe bytes in. De grens is een vaste tekst; die hoeft alleen
+    /// uniek te zijn binnen dit ene verzoek.
+    pub fn post_multipart(
+        &self,
+        path: &str,
+        fields: &[(&str, &str)],
+        file: Option<(&str, &str, &[u8])>,
+    ) -> String {
+        const GRENS: &str = "----SleeveTestGrens";
+
+        let mut body: Vec<u8> = Vec::new();
+
+        for (name, value) in fields {
+            body.extend_from_slice(
+                format!(
+                    "--{GRENS}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n{value}\r\n"
+                )
+                .as_bytes(),
+            );
+        }
+
+        if let Some((name, filename, data)) = file {
+            body.extend_from_slice(
+                format!(
+                    "--{GRENS}\r\nContent-Disposition: form-data; name=\"{name}\"; \
+                     filename=\"{filename}\"\r\nContent-Type: application/octet-stream\r\n\r\n"
+                )
+                .as_bytes(),
+            );
+            body.extend_from_slice(data);
+            body.extend_from_slice(b"\r\n");
+        }
+
+        body.extend_from_slice(format!("--{GRENS}--\r\n").as_bytes());
+
+        let head = format!(
+            "POST {path} HTTP/1.1\r\nHost: {}\r\n\
+             Content-Type: multipart/form-data; boundary={GRENS}\r\n\
+             Content-Length: {}\r\nConnection: close\r\n\r\n",
+            self.address,
+            body.len()
+        );
+
+        let mut request = head.into_bytes();
+        request.extend_from_slice(&body);
+
+        String::from_utf8_lossy(&self.send(&request)).into_owned()
+    }
+
     fn request(&self, path: &str, headers: &[(&str, &str)]) -> Vec<u8> {
         let extra: String = headers
             .iter()

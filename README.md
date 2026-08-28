@@ -171,7 +171,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
 | `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand en de hulpacties |
 | `casing` | Hoofdlettergebruik van een tagwaarde normaliseren; kent geen tags en geen bestanden |
-| `cover` | De hoesweergave van één bestand: formaat, afmetingen en grootte als leesbare tekst |
+| `cover` | De hoespagina van één bestand: formaat, afmetingen en grootte als leesbare tekst, en wat een upload opleverde |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
@@ -439,7 +439,28 @@ dan staat dat er ook: vrijwel elke speler toont hem in een vierkant vak, en daar
 wordt hij dan bijgesneden of uitgerekt.
 
 Een bestand zonder hoes levert geen 404 op maar dezelfde pagina met de
-mededeling dat er niets in zit. Dat is straks de plek om er een toe te voegen.
+mededeling dat er niets in zit — en met het formulier om er een toe te voegen.
+
+#### Een hoes plaatsen of verwijderen
+
+Op dezelfde pagina staat een uploadveld voor een JPEG of PNG, met twee knoppen:
+**alleen dit bestand**, of **alle tracks in deze map**. Wat er gebeurt staat in
+de knop zelf, zodat er geen keuzevakje bij hoeft dat je over het hoofd kunt zien.
+Zit er al een hoes in, dan staan dezelfde twee knoppen er ook om hem te
+verwijderen.
+
+Het schrijven gaat bestand voor bestand via dezelfde atomische route als de
+tags: naar een tijdelijk bestand, hervalideren door de hoes terug te lezen, en
+pas dan hernoemen. Alleen de afbeelding verandert — de tekstuele tags blijven
+zoals ze zijn, en andere afbeeldingen dan de front cover blijven staan. Een fout
+bij één bestand houdt de rest niet tegen; na afloop staat er per bestand of het
+is bijgewerkt, ongemoeid is gebleven, of waarom het niet lukte. De pagina toont
+daarna de **opnieuw ingelezen** situatie: wat je ziet, zit werkelijk in het
+bestand.
+
+Zit dezelfde hoes er al in, of valt er niets te verwijderen, dan wordt het
+bestand niet aangeraakt: een herschrijving die niets verandert is een
+ongevraagde wijziging.
 
 De feiten komen uit dezelfde leesronde als de tags: er wordt alleen de header van
 de afbeelding gelezen, niet de pixels. Dat is ook wat de maplijst gebruikt om te

@@ -485,6 +485,34 @@ a.bestandskop__hoes {
   color: var(--waarschuwing);
 }
 
+/* Uploaden en verwijderen van een hoes (FR-13, FR-16). */
+.hoesform {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.hoesform__blok {
+  margin: 0;
+  padding: 1rem;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.hoesform__kop {
+  padding: 0 0.4rem;
+  font-weight: 600;
+}
+
+/* Een bestandsveld is geen tekstveld: de bladerknop van de browser hoort niet
+   in een strak kadertje geperst te worden. */
+.veld__invoer[type="file"] {
+  padding: 0.5rem;
+  background: var(--achtergrond);
+}
+
 .bestandskop .maptitel {
   margin-bottom: 0.25rem;
 }

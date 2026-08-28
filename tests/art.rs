@@ -261,3 +261,214 @@ fn one_cover_for_the_whole_folder_says_nothing() {
 
     assert!(!html.contains("verschillende hoezen"), "{html}");
 }
+
+/// De bytes van een ingecheckte coverafbeelding.
+fn cover_bytes(name: &str) -> Vec<u8> {
+    std::fs::read(common::fixture_path(name)).expect("fixture moet leesbaar zijn")
+}
+
+/// De afmetingen van de hoes die nu in dit bestand zit.
+fn embedded_cover(server: &Server, file: &str) -> (String, Vec<u8>) {
+    let (status, headers, body) = parse(&server.get_bytes(&format!("/art/Album/{file}")));
+    assert!(status.starts_with("HTTP/1.1 200 OK"), "{file}: {status}");
+
+    let mime = headers
+        .lines()
+        .find_map(|line| line.strip_prefix("content-type: "))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+
+    (mime, body)
+}
+
+#[test]
+fn a_cover_can_be_uploaded_into_one_file() {
+    // AC #1 en #4: embedden in het geopende bestand, en daarna tonen wat er
+    // werkelijk in zit.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+    let png = cover_bytes("cover.png");
+
+    let page = server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit")],
+        Some(("afbeelding", "cover.png", &png)),
+    );
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("1 bestand bijgewerkt."), "{page}");
+    assert!(page.contains("Bijgewerkt: Hoes"), "{page}");
+    // De opnieuw ingelezen situatie: PNG, en de afmetingen van de fixture.
+    assert!(page.contains("PNG"), "{page}");
+    assert!(
+        page.contains(&format!("{FIXTURE_SIZE} × {FIXTURE_SIZE} pixels")),
+        "{page}"
+    );
+
+    // En het bestand geeft de afbeelding ook werkelijk terug.
+    let (mime, body) = embedded_cover(&server, "zonder-hoes.mp3");
+    assert_eq!(mime, "image/png");
+    assert_eq!(body, png, "de bytes horen ongewijzigd geëmbed te zijn");
+}
+
+#[test]
+fn a_cover_can_be_uploaded_into_a_flac_too() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+    let png = cover_bytes("andere-cover.png");
+
+    let page = server.post_multipart(
+        "/hoes/Album/met-hoes.flac",
+        &[("actie", "embed-dit")],
+        Some(("afbeelding", "andere-cover.png", &png)),
+    );
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("500 × 500 pixels"), "{page}");
+
+    let (mime, body) = embedded_cover(&server, "met-hoes.flac");
+    assert_eq!(mime, "image/png");
+    assert_eq!(body, png);
+}
+
+#[test]
+fn the_same_cover_can_go_into_every_track_at_once() {
+    // AC #2 en #5: in één keer het hele album, met een uitkomst per bestand.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+    let png = cover_bytes("andere-cover.png");
+
+    let page = server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-alle")],
+        Some(("afbeelding", "andere-cover.png", &png)),
+    );
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("3 bestanden bijgewerkt."), "{page}");
+
+    for file in ["met-hoes.mp3", "met-hoes.flac", "zonder-hoes.mp3"] {
+        assert!(
+            page.contains(file),
+            "{file} ontbreekt in het rapport:\n{page}"
+        );
+
+        let (mime, body) = embedded_cover(&server, file);
+        assert_eq!(mime, "image/png", "{file}");
+        assert_eq!(body, png, "{file}");
+    }
+}
+
+#[test]
+fn embedding_leaves_the_other_tags_alone() {
+    // AC #6.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+    let before = server.get("/bewerk/Album/zonder-hoes.mp3");
+
+    server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit")],
+        Some(("afbeelding", "cover.jpg", &cover_bytes("cover.jpg"))),
+    );
+
+    let after = server.get("/bewerk/Album/zonder-hoes.mp3");
+
+    for value in ["Stilte in D", "De Testartiest", "Fixtures voor Sleeve"] {
+        assert!(before.contains(value), "de fixture is veranderd: {value}");
+        assert!(after.contains(value), "{value} is verdwenen:\n{after}");
+    }
+}
+
+#[test]
+fn a_cover_can_be_removed_from_one_file_and_from_all_of_them() {
+    // AC #3.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let one = server.post_multipart(
+        "/hoes/Album/met-hoes.mp3",
+        &[("actie", "verwijder-dit")],
+        None,
+    );
+    assert!(one.starts_with("HTTP/1.1 200 OK"), "{one}");
+    assert!(one.contains("Bijgewerkt: Hoes verwijderd"), "{one}");
+    assert!(one.contains("geen embedded hoes"), "{one}");
+
+    // De FLAC heeft er nog een; die gaat er in de tweede ronde ook uit.
+    let all = server.post_multipart(
+        "/hoes/Album/met-hoes.flac",
+        &[("actie", "verwijder-alle")],
+        None,
+    );
+    assert!(all.starts_with("HTTP/1.1 200 OK"), "{all}");
+
+    for file in ["met-hoes.mp3", "met-hoes.flac", "zonder-hoes.mp3"] {
+        let (status, _, _) = parse(&server.get_bytes(&format!("/art/Album/{file}")));
+        assert!(
+            status.starts_with("HTTP/1.1 404"),
+            "{file} heeft nog een hoes: {status}"
+        );
+    }
+
+    // Wat niets had, is niet aangeraakt; dat staat er ook.
+    assert!(all.contains("Er viel niets te wijzigen"), "{all}");
+}
+
+#[test]
+fn something_that_is_not_an_image_is_refused_and_changes_nothing() {
+    let root = library_with_and_without_art();
+    let album = root.path().join("Album");
+    let before = std::fs::read(album.join("zonder-hoes.mp3")).expect("bestand moet leesbaar zijn");
+
+    let server = Server::start_in(root, &[]);
+    let page = server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit")],
+        Some(("afbeelding", "hoes.jpg", b"dit is gewoon tekst")),
+    );
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("Er is niets gewijzigd"), "{page}");
+    assert!(page.contains("alleen JPEG en PNG"), "{page}");
+
+    let after = std::fs::read(album.join("zonder-hoes.mp3")).expect("bestand moet leesbaar zijn");
+    assert_eq!(after, before, "er is geschreven en dat hoort niet");
+}
+
+#[test]
+fn a_cover_that_is_too_large_is_scaled_down_before_it_is_embedded() {
+    // De grens komt uit MAX_ART_SIZE; de fixture is 500×500.
+    let server = Server::start_in(library_with_and_without_art(), &[("MAX_ART_SIZE", "200")]);
+
+    let page = server.post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit")],
+        Some((
+            "afbeelding",
+            "andere-cover.png",
+            &cover_bytes("andere-cover.png"),
+        )),
+    );
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(
+        page.contains("verkleind van 500 × 500 naar 200 × 200 pixels"),
+        "{page}"
+    );
+
+    let (mime, body) = embedded_cover(&server, "zonder-hoes.mp3");
+    // Verkleind én zonder doorzichtigheid, dus JPEG.
+    assert_eq!(mime, "image/jpeg");
+    assert_eq!(dimensions(&body), (200, 200));
+}
+
+#[test]
+fn the_cover_page_offers_the_upload_form() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let page = server.get("/hoes/Album/zonder-hoes.mp3");
+
+    assert!(page.contains("multipart/form-data"), "{page}");
+    assert!(page.contains("name=\"afbeelding\""), "{page}");
+    assert!(page.contains("value=\"embed-dit\""), "{page}");
+    assert!(page.contains("value=\"embed-alle\""), "{page}");
+    // Zonder hoes valt er niets te verwijderen.
+    assert!(!page.contains("value=\"verwijder-dit\""), "{page}");
+}

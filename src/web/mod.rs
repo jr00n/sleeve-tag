@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use askama::Template;
 use axum::Router;
-use axum::extract::{Form, Path, Query, State};
+use axum::extract::{Form, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
 use axum::routing::get;
@@ -19,7 +19,7 @@ use tower_http::trace::TraceLayer;
 use crate::batch::AlbumPage;
 use crate::browse::{self, Crumb, Listing, THUMBNAIL_SIZE_PARAM};
 use crate::config::Config;
-use crate::cover::{CoverDetails, CoverPage};
+use crate::cover::{self, CoverDetails, CoverPage};
 use crate::edit::{EditPage, Notice};
 use crate::fs::{Library, PathError};
 use crate::tags::RawTags;
@@ -38,6 +38,10 @@ pub struct AppState {
 
     /// Hoe er geschreven wordt; komt uit `BACKUP_ON_WRITE`.
     pub write_options: atomic::Options,
+
+    /// Waar een aangeleverde hoes aan moet voldoen; komt uit `MAX_ART_SIZE`,
+    /// `ART_QUALITY` en `MAX_UPLOAD_MB`.
+    pub art_limits: art::Limits,
 }
 
 /// Bouwt de volledige router.
@@ -45,10 +49,21 @@ pub struct AppState {
 /// Los van het opstarten van de server, zodat tests hem zonder netwerk kunnen
 /// aanroepen.
 pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
+    // De uploadgrens geldt op twee plekken, en dat is met opzet: axum kapt de
+    // body af vóór hij in het geheugen past, en `art::prepare` meldt wat er aan
+    // de hand is zodra de bytes er wél zijn.
+    let upload_limit = config.max_upload_mb as usize * 1024 * 1024;
+
     let state = AppState {
         library: Arc::new(Library::new(config.music_root)),
         write_options: atomic::Options {
             backup: config.backup_on_write,
+        },
+        art_limits: art::Limits {
+            max_width: config.max_art_size.width,
+            max_height: config.max_art_size.height,
+            quality: config.art_quality,
+            max_upload_mb: config.max_upload_mb,
         },
     };
 
@@ -60,12 +75,15 @@ pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
         .route("/map/{*path}", get(browse_directory))
         .route("/art/{*path}", get(art_of_file))
         .route("/tags/{*path}", get(raw_tags_of_file))
-        .route("/hoes/{*path}", get(cover_of_file))
+        .route("/hoes/{*path}", get(cover_of_file).post(save_cover))
         .route("/bewerk/{*path}", get(edit_form).post(save_tags))
         // De albumweergave hoort bij een map, dus ook de wortel heeft er een.
         .route("/album", get(album_root).post(album_root_selection))
         .route("/album/{*path}", get(album_page).post(album_selection))
         .route("/healthz", get(healthz))
+        // Axum staat standaard 2 MB toe; een hoes van vijf megabyte zou dan
+        // afketsen op een kale 413 in plaats van op onze eigen melding.
+        .layer(axum::extract::DefaultBodyLimit::max(upload_limit))
         .nest_service("/static", ServeDir::new(static_dir))
         .layer(TraceLayer::new_for_http())
         .with_state(state)
@@ -406,29 +424,218 @@ struct CoverTemplate {
 ///
 /// De feiten komen uit dezelfde leesronde als de tags: `tags::read` beschrijft
 /// de hoes zonder de pixels uit te pakken, dus deze pagina kost niet meer dan
-/// het openen van het bestand.
+/// het openen van het bestand plus het opsommen van de map.
 async fn cover_of_file(
     State(state): State<AppState>,
     Path(path): Path<String>,
 ) -> Result<Html<String>, WebError> {
-    let library = Arc::clone(&state.library);
-    let wanted = path.clone();
+    let page = load_cover(&state, &path, None, None).await?;
+    Ok(Html(CoverTemplate { page }.render()?))
+}
 
-    let track = tokio::task::spawn_blocking(move || {
+/// Bouwt de hoespagina van één bestand.
+///
+/// De map wordt erbij opgesomd om te weten hoeveel tracks er zijn; dat is
+/// alleen een `read_dir` en geen leesronde over de tags.
+async fn load_cover(
+    state: &AppState,
+    path: &str,
+    notice: Option<cover::Notice>,
+    report: Option<batch::SaveReport>,
+) -> Result<CoverPage, WebError> {
+    let library = Arc::clone(&state.library);
+    let wanted = path.to_string();
+
+    let (track, tracks_in_folder) = tokio::task::spawn_blocking(move || {
         let absolute = library.resolve(&wanted)?;
-        tags::read(&absolute).map_err(WebError::from)
+        let track = tags::read(&absolute).map_err(WebError::from)?;
+
+        let siblings = library
+            .list_directory(browse::parent_of(&wanted))
+            .map(|contents| contents.files.len())
+            .unwrap_or(1);
+
+        Ok::<_, WebError>((track, siblings))
     })
     .await??;
 
-    let page = CoverPage {
-        name: browse::name_of_file(&path).to_string(),
-        crumbs: browse::crumbs_to_parent(&path),
-        art_url: browse::art_url(&path),
-        edit_url: browse::edit_url(&path),
+    Ok(CoverPage {
+        name: browse::name_of_file(path).to_string(),
+        crumbs: browse::crumbs_to_parent(path),
+        art_url: browse::art_url(path),
+        edit_url: browse::edit_url(path),
+        url: browse::cover_url(path),
+        back_url: browse::url_for(browse::parent_of(path)),
+        tracks_in_folder,
         details: track.art.as_ref().map(CoverDetails::of),
+        notice,
+        report,
+    })
+}
+
+/// Wat er met de hoes moet gebeuren, en waar.
+#[derive(Debug, Default)]
+struct CoverForm {
+    /// De aangeklikte knop.
+    action: String,
+
+    /// De aangeleverde bytes; leeg bij een verwijderactie.
+    upload: Vec<u8>,
+}
+
+impl CoverForm {
+    /// Of de actie op de hele map slaat in plaats van op dit ene bestand.
+    fn whole_folder(&self) -> bool {
+        self.action.ends_with("-alle")
+    }
+
+    /// Of de hoes verwijderd moet worden.
+    fn removes(&self) -> bool {
+        self.action.starts_with("verwijder")
+    }
+}
+
+/// Embedt een geüploade hoes of verwijdert de bestaande (FR-13 en FR-16).
+///
+/// De afbeelding gaat eerst door [`art::prepare`]: valideren op de bytes zelf
+/// en verkleinen wat te groot is. Pas daarna wordt er geschreven, bestand voor
+/// bestand — een fout bij het ene bestand houdt het andere niet tegen.
+///
+/// Na afloop wordt de situatie opnieuw ingelezen: wat er op het scherm staat,
+/// staat werkelijk in het bestand.
+async fn save_cover(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    multipart: Multipart,
+) -> Result<Html<String>, WebError> {
+    let form = read_cover_form(multipart).await?;
+
+    // Verwijderen heeft geen afbeelding nodig; embedden wel.
+    let prepared = if form.removes() {
+        None
+    } else {
+        match art::prepare(&form.upload, state.art_limits) {
+            Ok(prepared) => Some(prepared),
+            Err(error) => {
+                tracing::info!(%error, "aangeleverde hoes is geweigerd");
+
+                let page = load_cover(
+                    &state,
+                    &path,
+                    Some(cover::Notice::Refused(format!(
+                        "Er is niets gewijzigd: {error}."
+                    ))),
+                    None,
+                )
+                .await?;
+
+                return Ok(Html(CoverTemplate { page }.render()?));
+            }
+        }
     };
 
+    let report = write_cover(&state, &path, form.whole_folder(), prepared.as_ref()).await?;
+    let notice = prepared.as_ref().map(cover::Notice::accepted);
+
+    let page = load_cover(&state, &path, notice, Some(report)).await?;
     Ok(Html(CoverTemplate { page }.render()?))
+}
+
+/// Leest het multipart-formulier van de hoespagina.
+async fn read_cover_form(mut multipart: Multipart) -> Result<CoverForm, WebError> {
+    let mut form = CoverForm::default();
+
+    while let Some(field) = multipart.next_field().await? {
+        match field.name() {
+            Some("actie") => form.action = field.text().await?,
+            Some("afbeelding") => form.upload = field.bytes().await?.to_vec(),
+            // Een onbekend veld hoort de rest niet tegen te houden, maar moet
+            // wel uitgelezen worden om bij het volgende te komen.
+            _ => {
+                let _ = field.bytes().await?;
+            }
+        }
+    }
+
+    Ok(form)
+}
+
+/// Schrijft de hoes naar één bestand of naar de hele map.
+///
+/// Bestand voor bestand, met per bestand een uitkomst: dezelfde regel als bij
+/// de batch-tagbewerking, en om dezelfde reden — één onschrijfbaar bestand mag
+/// de rest van het album niet tegenhouden.
+async fn write_cover(
+    state: &AppState,
+    path: &str,
+    whole_folder: bool,
+    prepared: Option<&art::Prepared>,
+) -> Result<batch::SaveReport, WebError> {
+    let library = Arc::clone(&state.library);
+    let options = state.write_options;
+    let cover = prepared.map(|prepared| (prepared.mime.clone(), prepared.data.clone()));
+    let wanted = path.to_string();
+
+    let results = tokio::task::spawn_blocking(move || {
+        let targets = cover_targets(&library, &wanted, whole_folder);
+
+        targets
+            .into_iter()
+            .map(|(name, absolute)| batch::SaveResult {
+                name,
+                outcome: write_one_cover(&absolute, cover.as_ref(), options),
+            })
+            .collect()
+    })
+    .await?;
+
+    Ok(batch::SaveReport { results })
+}
+
+/// De bestanden die deze actie raakt, met hun naam voor in het rapport.
+fn cover_targets(
+    library: &Library,
+    path: &str,
+    whole_folder: bool,
+) -> Vec<(String, std::path::PathBuf)> {
+    if !whole_folder {
+        return match library.resolve(path) {
+            Ok(absolute) => vec![(browse::name_of_file(path).to_string(), absolute)],
+            // Een pad dat niet mag, levert geen doel op; de lus hieronder heeft
+            // dan niets te doen en het rapport blijft leeg.
+            Err(_) => Vec::new(),
+        };
+    }
+
+    library
+        .list_directory(browse::parent_of(path))
+        .map(|contents| {
+            contents
+                .files
+                .into_iter()
+                .map(|entry| (entry.name, entry.path))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// Zet of verwijdert de hoes van één bestand.
+fn write_one_cover(
+    absolute: &std::path::Path,
+    cover: Option<&(String, Vec<u8>)>,
+    options: crate::atomic::Options,
+) -> batch::Outcome {
+    let cover = cover.map(|(mime, data)| (mime.as_str(), data.as_slice()));
+
+    match tags::write_art(absolute, cover, options) {
+        Ok(true) if cover.is_some() => batch::Outcome::Saved(vec!["Hoes".to_string()]),
+        Ok(true) => batch::Outcome::Saved(vec!["Hoes verwijderd".to_string()]),
+        Ok(false) => batch::Outcome::Unchanged,
+        Err(error) => {
+            tracing::error!(path = %absolute.display(), %error, "de hoes kon niet weggeschreven worden");
+            batch::Outcome::Failed(error.to_string())
+        }
+    }
 }
 
 /// Het bewerkformulier van één bestand (FR-5 en FR-6).
@@ -657,6 +864,9 @@ pub enum WebError {
 
     #[error("dit bestand bevat geen album art")]
     NoArt,
+
+    #[error("het formulier kon niet gelezen worden: {0}")]
+    Upload(#[from] axum::extract::multipart::MultipartError),
 }
 
 impl IntoResponse for WebError {
@@ -701,6 +911,18 @@ impl IntoResponse for WebError {
 
             // Geen fout in de aanvraag, maar er is niets te tonen.
             WebError::NoArt => (StatusCode::NOT_FOUND, WebError::NoArt.to_string()).into_response(),
+
+            // Een onleesbaar of te groot formulier: het verzoek klopt niet, en
+            // er is niets geschreven.
+            WebError::Upload(error) => {
+                tracing::warn!(%error, "upload kon niet gelezen worden");
+                (
+                    error.status(),
+                    "De upload kon niet gelezen worden. Is de afbeelding misschien te groot?"
+                        .to_string(),
+                )
+                    .into_response()
+            }
 
             WebError::Pad(error) => {
                 let status = match error {

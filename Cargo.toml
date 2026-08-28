@@ -6,7 +6,8 @@ edition = "2024"
 [dependencies]
 anyhow = "1.0.104"
 askama = "0.16.0"
-axum = "0.8.9"
+# `multipart` is nodig om een geüploade hoes uit het formulier te lezen (FR-13).
+axum = { version = "0.8.9", features = ["multipart"] }
 clap = { version = "4.6.6", features = ["derive", "env"] }
 image = { version = "0.25.10", default-features = false, features = ["jpeg", "png"] }
 lofty = "0.25.1"

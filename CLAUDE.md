@@ -26,6 +26,11 @@ de conventies vast waar code zich aan houdt.
   het bestand en raakt de afbeelding verder niet aan — ook het uitlezen van de
   afmetingen gaat langs `art::`. `art::` opent zelf geen bestanden: in en uit
   gaan bytes. Deze regel wordt afgedwongen door `tests/architecture.rs`.
+- **Een hoes schrijven gaat via `tags::write_art`.** Die wisselt gericht de
+  front cover en laat de rest van de tag staan: tekstuele velden, maar ook
+  andere afbeeldingen. Verandert er niets, dan wordt het bestand niet
+  aangeraakt. Ook deze route loopt door `atomic::replace`, met dezelfde
+  hervalidatie.
 - **Een aangeleverde hoes gaat door `art::prepare`.** Die valideert op de bytes
   zelf (alleen JPEG en PNG), verkleint alleen wat boven `MAX_ART_SIZE` uitkomt,
   en hercodeert alleen wat verkleind is. Past de afbeelding al, dan gaan de

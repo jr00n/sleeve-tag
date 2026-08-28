@@ -8,7 +8,12 @@
 //! Hier worden geen bestanden geopend en geen pixels aangeraakt: in gaat de
 //! [`ArtInfo`] die [`crate::tags`] uit het bestand las, uit komt tekst die een
 //! template rechtstreeks kan tonen.
+//!
+//! Het rapport per bestand komt uit [`crate::batch`]: dat model is daar
+//! ontstaan voor de batch-tagbewerking, en een hoes in twaalf tracks zetten
+//! stelt precies dezelfde vraag — wat is er per bestand gebeurd.
 
+use crate::batch::SaveReport;
 use crate::browse::Crumb;
 use crate::tags::ArtInfo;
 
@@ -27,14 +32,91 @@ pub struct CoverPage {
     /// Terug naar het bewerkformulier van dit bestand.
     pub edit_url: String,
 
+    /// Waar het formulier naartoe post; ook de URL van deze pagina.
+    pub url: String,
+
+    /// Terug naar de map waarin het bestand staat.
+    pub back_url: String,
+
+    /// Hoeveel bewerkbare bestanden er in deze map staan, dit bestand
+    /// meegerekend.
+    ///
+    /// Bepaalt of het zin heeft om "in alle tracks" aan te bieden: in een map
+    /// met één bestand is dat dezelfde knop twee keer.
+    pub tracks_in_folder: usize,
+
     /// Wat er over de hoes bekend is; `None` wanneer het bestand er geen heeft.
     pub details: Option<CoverDetails>,
+
+    /// Wat er met een zojuist aangeleverde afbeelding gebeurd is; leeg zolang
+    /// er niets is geüpload.
+    pub notice: Option<Notice>,
+
+    /// Hoe het schrijven per bestand is afgelopen (FR-13, FR-16).
+    pub report: Option<SaveReport>,
 }
 
 impl CoverPage {
     /// Of er een hoes te tonen is.
     pub fn has_art(&self) -> bool {
         self.details.is_some()
+    }
+
+    /// Of het zin heeft om de hele map als doel aan te bieden.
+    pub fn has_siblings(&self) -> bool {
+        self.tracks_in_folder > 1
+    }
+
+    /// Het opschrift van de knop die de hele map bedient.
+    pub fn all_tracks_label(&self) -> String {
+        format!("Alle {} tracks in deze map", self.tracks_in_folder)
+    }
+}
+
+/// Wat er boven de hoespagina staat na een upload of een verwijdering.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Notice {
+    /// De afbeelding is aangenomen; dit is wat ermee gebeurd is.
+    Accepted(String),
+
+    /// Er is niets geschreven, en de bestanden zijn ongemoeid gebleven.
+    Refused(String),
+}
+
+impl Notice {
+    /// De melding dat een afbeelding is aangenomen, met wat ermee gebeurd is.
+    ///
+    /// Verkleinen is een wijziging die de gebruiker niet zelf vroeg; die hoort
+    /// er dus bij te staan, met de afmetingen ervoor en erna.
+    pub fn accepted(prepared: &crate::art::Prepared) -> Notice {
+        let (from_width, from_height) = prepared.original;
+
+        if prepared.is_resized() {
+            Notice::Accepted(format!(
+                "De afbeelding is verkleind van {from_width} × {from_height} naar {} × {} pixels ({}).",
+                prepared.width,
+                prepared.height,
+                format_bytes(prepared.data.len())
+            ))
+        } else {
+            Notice::Accepted(format!(
+                "De afbeelding is overgenomen zoals hij is: {} × {} pixels ({}).",
+                prepared.width,
+                prepared.height,
+                format_bytes(prepared.data.len())
+            ))
+        }
+    }
+
+    /// Of dit een bevestiging is; de opmaak hangt ervan af.
+    pub fn is_accepted(&self) -> bool {
+        matches!(self, Notice::Accepted(_))
+    }
+
+    pub fn line(&self) -> &str {
+        match self {
+            Notice::Accepted(line) | Notice::Refused(line) => line,
+        }
     }
 }
 

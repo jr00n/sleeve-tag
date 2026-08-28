@@ -7,10 +7,6 @@
 //!
 //! Bestanden worden hier niet geopend en niet geschreven: in en uit gaan bytes.
 
-// `prepare` wacht op de taak die album art uploadt en embedt; hij is hier al
-// wel volledig getest.
-#![allow(dead_code)]
-
 use std::io::Cursor;
 
 use image::codecs::jpeg::JpegEncoder;
