@@ -475,6 +475,7 @@ async fn load_cover(
         folder_cover,
         notice,
         report,
+        max_upload_mb: state.art_limits.max_upload_mb,
     })
 }
 

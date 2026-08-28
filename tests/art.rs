@@ -657,3 +657,70 @@ fn the_upload_field_is_a_drop_target() {
         "pagina was:\n{page}"
     );
 }
+
+#[test]
+fn the_upload_limit_is_on_the_page() {
+    // Zonder deze grens in de pagina kan de browser een te grote afbeelding
+    // niet tegenhouden, en dan kapt de server de upload halverwege af: de
+    // browser gooit het antwoord weg en toont een netwerkfout, waardoor de
+    // uitleg die de server wél meestuurt nooit aankomt.
+    let server = Server::start_in(library_with_and_without_art(), &[("MAX_UPLOAD_MB", "4")]);
+    let page = server.get("/hoes/Album/zonder-hoes.mp3");
+
+    assert!(
+        page.contains(r#"data-max-mb="4""#),
+        "de grens staat niet in het neerzetvak:\n{page}"
+    );
+
+    // En de gebruiker hoort hem te lezen vóór hij iets kiest, niet pas als het
+    // misgaat.
+    assert!(
+        page.contains("hoogstens 4 MB"),
+        "de grens staat niet in de uitleg:\n{page}"
+    );
+}
+
+#[test]
+fn an_upload_over_the_limit_changes_nothing() {
+    // De laatste verdediging, voor wie geen JavaScript heeft. De server weigert
+    // zodra hij merkt dat de body over de grens gaat, en sluit de verbinding
+    // terwijl de client nog verstuurt — dus of het antwoord aankomt, hangt af
+    // van de timing. Wat wél vaststaat: er is niets geschreven.
+    //
+    // Precies dat is de reden dat `app.js` een te grote afbeelding tegenhoudt
+    // vóór er een byte de deur uit gaat: een browser laat dit antwoord meestal
+    // niet zien maar toont een netwerkfout, en dan staat de gebruiker met lege
+    // handen.
+    let root = library_with_and_without_art();
+    let track = root.path().join("Album").join("zonder-hoes.mp3");
+    let before = std::fs::read(&track).expect("de fixture moet leesbaar zijn");
+
+    let server = Server::start_in(root, &[("MAX_UPLOAD_MB", "1")]);
+    let te_groot = vec![0u8; 2 * 1024 * 1024];
+
+    let response = server.try_post_multipart(
+        "/hoes/Album/zonder-hoes.mp3",
+        &[("actie", "embed-dit")],
+        Some(("afbeelding", "groot.jpg", &te_groot)),
+    );
+
+    // Komt het antwoord aan, dan hoort het een weigering te zijn met uitleg.
+    if let Some(response) = response.filter(|text| !text.is_empty()) {
+        assert!(
+            response.starts_with("HTTP/1.1 413"),
+            "antwoord begon met: {}",
+            response.lines().next().unwrap_or_default()
+        );
+        assert!(
+            response.contains("te groot"),
+            "de uitleg ontbreekt: {response}"
+        );
+    }
+
+    assert_eq!(
+        std::fs::read(&track).expect("het bestand moet er nog zijn"),
+        before,
+        "een geweigerde upload hoort het bestand niet aan te raken"
+    );
+    server.wait_for_log("upload kon niet gelezen worden");
+}

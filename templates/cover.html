@@ -90,7 +90,11 @@
     <div class="veld">
       <label class="veld__label" for="afbeelding">JPEG of PNG</label>
 
-      <div class="neerzetvak" data-neerzetvak>
+      {# De grens gaat als getal mee zodat de browser een te grote afbeelding
+         kan tegenhouden vóór het versturen. Doet hij dat niet, dan kapt de
+         server de upload halverwege af, gooit de browser het antwoord weg en
+         ziet de gebruiker een netwerkfout in plaats van uitleg. #}
+      <div class="neerzetvak" data-neerzetvak data-max-mb="{{ page.max_upload_mb }}">
         <p class="neerzetvak__hint" data-neerzetvak-hint hidden>
           Sleep een afbeelding hierheen, of kies er een:
         </p>
@@ -110,7 +114,8 @@
 
       <p class="veld__hulp">
         Wat groter is dan de ingestelde maximumresolutie wordt verkleind; wat er
-        al binnen past, gaat ongewijzigd het bestand in.
+        al binnen past, gaat ongewijzigd het bestand in. Het bestand zelf mag
+        hoogstens {{ page.max_upload_mb }} MB zijn.
       </p>
     </div>
 

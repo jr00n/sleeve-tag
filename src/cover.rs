@@ -67,6 +67,16 @@ pub struct CoverPage {
 
     /// Hoe het schrijven per bestand is afgelopen (FR-13, FR-16).
     pub report: Option<SaveReport>,
+
+    /// De bovengrens aan een upload in megabytes, uit `MAX_UPLOAD_MB`.
+    ///
+    /// Staat op de pagina zodat de browser een te grote afbeelding kan
+    /// tegenhouden vóór het versturen. Dat is geen luxe: een upload boven de
+    /// grens wordt door de server afgekapt terwijl de browser nog aan het
+    /// versturen is, en die gooit het antwoord dan weg en toont een
+    /// netwerkfout. De gebruiker ziet dan een dode pagina in plaats van de
+    /// uitleg die de server wel degelijk meestuurt.
+    pub max_upload_mb: u32,
 }
 
 impl CoverPage {

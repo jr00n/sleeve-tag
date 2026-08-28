@@ -198,6 +198,17 @@ impl Server {
         fields: &[(&str, &str)],
         file: Option<(&str, &str, &[u8])>,
     ) -> String {
+        let request = self.multipart_request(path, fields, file);
+        String::from_utf8_lossy(&self.send(&request)).into_owned()
+    }
+
+    /// Bouwt het volledige `multipart/form-data`-verzoek als bytes.
+    fn multipart_request(
+        &self,
+        path: &str,
+        fields: &[(&str, &str)],
+        file: Option<(&str, &str, &[u8])>,
+    ) -> Vec<u8> {
         const GRENS: &str = "----SleeveTestGrens";
 
         let mut body: Vec<u8> = Vec::new();
@@ -235,8 +246,36 @@ impl Server {
 
         let mut request = head.into_bytes();
         request.extend_from_slice(&body);
+        request
+    }
 
-        String::from_utf8_lossy(&self.send(&request)).into_owned()
+    /// Zoals [`Server::post_multipart`], maar verdraagt een afgebroken
+    /// verbinding.
+    ///
+    /// Nodig voor een upload die boven de grens uitkomt: de server weigert hem
+    /// zodra hij dat merkt, en sluit de verbinding terwijl de client nog aan het
+    /// versturen is. Of het antwoord dan nog aankomt, hangt af van de timing —
+    /// vandaar `Option`. Precies dit gedrag zien browsers ook: Chrome gooit het
+    /// antwoord weg en toont een netwerkfout in plaats van de uitleg die de
+    /// server wel degelijk meestuurt. Daarom houdt `app.js` een te grote
+    /// afbeelding tegen vóór er iets verstuurd wordt.
+    pub fn try_post_multipart(
+        &self,
+        path: &str,
+        fields: &[(&str, &str)],
+        file: Option<(&str, &str, &[u8])>,
+    ) -> Option<String> {
+        let mut stream = TcpStream::connect(self.address).ok()?;
+        stream.set_read_timeout(Some(PATIENCE)).ok()?;
+        stream.set_write_timeout(Some(PATIENCE)).ok()?;
+
+        let request = self.multipart_request(path, fields, file);
+        stream.write_all(&request).ok()?;
+
+        let mut response = Vec::new();
+        stream.read_to_end(&mut response).ok()?;
+
+        Some(String::from_utf8_lossy(&response).into_owned())
     }
 
     fn request(&self, path: &str, headers: &[(&str, &str)]) -> Vec<u8> {

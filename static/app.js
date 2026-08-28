@@ -212,12 +212,64 @@
       neerzetten(vak, invoer, event.dataTransfer);
     });
 
-    // Ook wie via de bestandskiezer kiest, hoort te zien wát hij gekozen heeft.
+    // Ook wie via de bestandskiezer kiest, hoort te zien wát hij gekozen heeft
+    // — en te horen dat het te groot is, langs dezelfde weg.
     invoer.addEventListener("change", function () {
-      if (invoer.files && invoer.files.length === 1) {
-        toon(vak, invoer.files[0]);
+      if (!invoer.files || invoer.files.length !== 1) {
+        return;
       }
+
+      var bestand = invoer.files[0];
+      var bezwaar = bezwaarTegen(vak, bestand);
+      if (bezwaar) {
+        invoer.value = "";
+        verbergGekozen(vak);
+        meld(vak, bezwaar);
+        return;
+      }
+
+      toon(vak, bestand);
     });
+  }
+
+  /**
+   * Wat er tegen dit bestand is, of `null` wanneer het mag.
+   *
+   * De omvang wordt hier gecontroleerd en niet pas op de server. Een upload
+   * boven de grens wordt daar afgekapt terwijl de browser nog aan het versturen
+   * is; die gooit het antwoord dan weg en toont een netwerkfout, dus de uitleg
+   * die de server meestuurt komt nooit aan. Beter hier tegenhouden, vóór er een
+   * byte de deur uit gaat.
+   */
+  function bezwaarTegen(vak, bestand) {
+    if (TOEGESTAAN.indexOf(bestand.type) === -1) {
+      return (
+        "Alleen JPEG en PNG kunnen als hoes worden ingebed; dit is " +
+        (bestand.type || "een onbekend bestandstype") +
+        "."
+      );
+    }
+
+    var grens = parseInt(vak.getAttribute("data-max-mb"), 10);
+    if (grens > 0 && bestand.size > grens * 1024 * 1024) {
+      return (
+        "Deze afbeelding is " +
+        leesbareOmvang(bestand.size) +
+        "; er gaat hoogstens " +
+        grens +
+        " MB in. Verklein hem eerst, of verhoog MAX_UPLOAD_MB."
+      );
+    }
+
+    return null;
+  }
+
+  /** Haalt de voorbeeldweergave weg. */
+  function verbergGekozen(vak) {
+    var gekozen = vak.querySelector("[data-neerzetvak-gekozen]");
+    if (gekozen) {
+      gekozen.hidden = true;
+    }
   }
 
   /** Verwerkt wat er is neergezet. */
@@ -237,13 +289,9 @@
     }
 
     var bestand = overdracht.files[0];
-    if (TOEGESTAAN.indexOf(bestand.type) === -1) {
-      meld(
-        vak,
-        "Alleen JPEG en PNG kunnen als hoes worden ingebed; dit is " +
-          (bestand.type || "een onbekend bestandstype") +
-          "."
-      );
+    var bezwaar = bezwaarTegen(vak, bestand);
+    if (bezwaar) {
+      meld(vak, bezwaar);
       return;
     }
 
