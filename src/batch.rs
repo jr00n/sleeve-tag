@@ -1,15 +1,18 @@
-//! De albumweergave: een selectie bestanden en de velden die ze delen (FR-8).
+//! De albumweergave: een selectie bestanden, de velden die ze delen (FR-8) en
+//! wat er per bestand van afwijkt (FR-9).
 //!
 //! Waar [`crate::edit`] één bestand bedient, gaat het hier om een map vol
 //! bestanden tegelijk. Deze module vertaalt tussen het verstuurde formulier en
 //! een weergavemodel dat de templates rechtstreeks kunnen renderen, en bepaalt
-//! per gedeeld veld wat er met de selectie zou gebeuren.
+//! per veld wat er met de selectie zou gebeuren. Titel en tracknummer horen bij
+//! één bestand en zijn daarom in de tabel zelf in te tikken; zo'n override wint
+//! van een gedeelde waarde voor datzelfde bestand.
 //!
 //! Er wordt hier niets geschreven en er gaat geen bestand open: in en uit gaan
 //! een [`Listing`] en een [`Form`]. Het daadwerkelijk wegschrijven hoort bij de
 //! diff-preview, zodat een batch-wijziging nooit zonder voorbeeld plaatsvindt.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use percent_encoding::percent_decode_str;
 
@@ -101,6 +104,77 @@ impl SharedField {
     }
 }
 
+/// Een veld dat per bestand verschilt en daarom in de tabel zelf staat (FR-9).
+///
+/// De tegenhanger van [`SharedField`]: waar dat veld één waarde voor de hele
+/// selectie zet, hoort hier per rij iets anders te kunnen staan.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowField {
+    Track,
+    Title,
+}
+
+impl RowField {
+    /// Beide velden, in de volgorde waarin ze in de tabel staan.
+    pub const ALL: [RowField; 2] = [RowField::Track, RowField::Title];
+
+    /// De naam van het veld in het tagmodel; ook de sleutel in een [`FileIntent`].
+    pub fn field_name(self) -> &'static str {
+        match self {
+            RowField::Track => "track",
+            RowField::Title => "title",
+        }
+    }
+
+    /// De naam waaronder de invoer voor één bestand in het formulier staat.
+    ///
+    /// De bestandsnaam hoort erin: er staat één rij per bestand, en de browser
+    /// verstuurt alle rijen tegelijk. Splitsen gebeurt op de eerste dubbele
+    /// punt, zodat een bestandsnaam er zelf ook een mag bevatten.
+    pub fn input_name(self, file: &str) -> String {
+        format!("{}:{file}", self.prefix())
+    }
+
+    /// Het voorvoegsel van de formuliersleutel.
+    fn prefix(self) -> &'static str {
+        match self {
+            RowField::Track => "nummer",
+            RowField::Title => "titel",
+        }
+    }
+
+    /// Het opschrift boven de kolom.
+    pub fn label(self) -> &'static str {
+        match self {
+            RowField::Track => "Tracknummer",
+            RowField::Title => "Titel",
+        }
+    }
+
+    /// Of er een getal in hoort; bepaalt de controle en het toetsenbord.
+    pub fn is_numeric(self) -> bool {
+        matches!(self, RowField::Track)
+    }
+
+    /// De plek van dit veld in de vaste arrays van [`Override`].
+    fn index(self) -> usize {
+        match self {
+            RowField::Track => 0,
+            RowField::Title => 1,
+        }
+    }
+}
+
+/// Wat er voor één bestand in de tabel is ingetikt.
+///
+/// Leeg betekent hier hetzelfde als bij een gedeeld veld: ongemoeid laten. Er
+/// wordt dus niets voorgevuld; wat er nú in het bestand staat, staat als grijze
+/// tekst in het veld.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct Override {
+    values: [String; 2],
+}
+
 /// Wat er met de selectie moet gebeuren voordat de pagina wordt opgebouwd.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Action {
@@ -181,6 +255,12 @@ pub struct Form {
 
     /// Of het wissen-vinkje aan stond, in dezelfde volgorde.
     clear: [bool; 5],
+
+    /// De ingetikte overrides, per bestandsnaam (FR-9).
+    ///
+    /// Een bestand dat niets gekregen heeft, staat er niet in; wat er niet
+    /// (meer) in de map staat, valt bij het opbouwen vanzelf af.
+    overrides: BTreeMap<String, Override>,
 }
 
 impl Form {
@@ -200,6 +280,11 @@ impl Form {
                     form.selected.insert(raw);
                 }
                 _ => {
+                    if let Some((field, file)) = row_key(&key) {
+                        form.overrides.entry(file).or_default().values[field.index()] = raw;
+                        continue;
+                    }
+
                     for field in SharedField::ALL {
                         if key == field.name() {
                             form.values[field.index()] = raw;
@@ -269,6 +354,43 @@ impl Form {
 
         Ok(Intent::Set(value.to_string()))
     }
+
+    /// Wat de gebruiker in de tabel voor dit bestand heeft ingetikt.
+    pub fn override_value(&self, file: &str, field: RowField) -> &str {
+        self.overrides
+            .get(file)
+            .map(|entry| entry.values[field.index()].as_str())
+            .unwrap_or_default()
+    }
+
+    /// Wat er bij het opslaan met dit veld van dit ene bestand zou gebeuren.
+    ///
+    /// Dezelfde regel als bij een gedeeld veld: leeg laat het bestand houden
+    /// wat het heeft. Wissen kan hier niet — titel en tracknummer weghalen is
+    /// geen batch-actie, en dat hoort in het bewerkformulier van het bestand
+    /// zelf te gebeuren.
+    pub fn row_intent(&self, file: &str, field: RowField) -> Result<Intent, String> {
+        let value = self.override_value(file, field).trim();
+        if value.is_empty() {
+            return Ok(Intent::Unchanged);
+        }
+
+        if field.is_numeric() {
+            edit::parse_number(value, field.label())?;
+        }
+
+        Ok(Intent::Set(value.to_string()))
+    }
+}
+
+/// Leest de sleutel van een override: welk veld, en van welk bestand.
+fn row_key(key: &str) -> Option<(RowField, String)> {
+    let (prefix, file) = key.split_once(':')?;
+
+    RowField::ALL
+        .into_iter()
+        .find(|field| field.prefix() == prefix)
+        .map(|field| (field, file.to_string()))
 }
 
 /// Wat er nú in de selectie staat voor één gedeeld veld.
@@ -407,6 +529,111 @@ pub struct Row {
 
     /// Naar het bewerkformulier van dit ene bestand.
     pub edit_url: String,
+
+    /// De naam van het tracknummerveld van deze rij in het formulier.
+    pub track_name: String,
+
+    /// De naam van het titelveld van deze rij in het formulier.
+    pub title_name: String,
+
+    /// Wat er voor deze rij is ingetikt; leeg bij het openen van de pagina.
+    pub track_input: String,
+    pub title_input: String,
+
+    /// Wat er aan de invoer van déze rij mankeert.
+    ///
+    /// Een fout hier blijft bij deze rij: de andere rijen en de gedeelde velden
+    /// blijven gewoon opgeslagen kunnen worden.
+    pub problems: Vec<String>,
+}
+
+impl Row {
+    /// Of er iets in deze rij is ingetikt.
+    pub fn is_overridden(&self) -> bool {
+        !self.track_input.trim().is_empty() || !self.title_input.trim().is_empty()
+    }
+
+    /// Of deze rij zo niet opgeslagen kan worden.
+    pub fn has_problems(&self) -> bool {
+        !self.problems.is_empty()
+    }
+
+    /// Of hier iets is ingetikt dat niet wordt opgeslagen omdat de rij niet
+    /// geselecteerd staat.
+    ///
+    /// De invoer blijft staan — het aanvinken maakt haar zo weer geldig — maar
+    /// dat ze nu niets doet, hoort zichtbaar te zijn.
+    pub fn is_ignored(&self) -> bool {
+        !self.selected && self.is_overridden()
+    }
+}
+
+/// Wat er bij het opslaan met één bestand zou gebeuren.
+///
+/// De gedeelde velden gelden voor de hele selectie, de overrides voor dit ene
+/// bestand. Waar ze elkaar raken wint de override: wie in de rij zelf iets
+/// intikt, bedoelt dat voor dat bestand en niet voor het album. Die regel staat
+/// hier, in [`intents`], en niet bij de aanroeper.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileIntent {
+    /// Bestandsnaam binnen de map.
+    pub name: String,
+
+    /// Per veld uit het tagmodel wat ermee gebeurt. Wat ongemoeid blijft, staat
+    /// er niet in.
+    pub fields: BTreeMap<&'static str, Intent>,
+}
+
+/// Wat er bij het opslaan per bestand zou gebeuren (FR-9, vooruit naar FR-11).
+///
+/// Alleen geselecteerde bestanden doen mee, en alleen bestanden waarvan de
+/// invoer klopt: een fout in één rij houdt de rest niet tegen. Bestanden
+/// waaraan niets verandert, blijven weg uit de uitkomst.
+pub fn intents(listing: &Listing, form: &Form) -> Vec<FileIntent> {
+    let selected = resolve_selection(listing, form);
+
+    let shared: BTreeMap<&'static str, Intent> = SharedField::ALL
+        .into_iter()
+        .filter_map(|field| match form.intent(field) {
+            Ok(Intent::Set(value)) => Some((field.name(), Intent::Set(value))),
+            Ok(Intent::Clear) => Some((field.name(), Intent::Clear)),
+            // Ongemoeid, of onleesbaar: dan gebeurt er niets mee. Wat er aan de
+            // invoer mankeert, staat op de pagina en houdt het opslaan tegen.
+            Ok(Intent::Unchanged) | Err(_) => None,
+        })
+        .collect();
+
+    listing
+        .tracks
+        .iter()
+        .filter(|track| selected.contains(&track.name))
+        .filter_map(|track| {
+            let mut fields = shared.clone();
+
+            for field in RowField::ALL {
+                match form.row_intent(&track.name, field) {
+                    Ok(Intent::Unchanged) => {}
+                    // De override overschrijft wat de gedeelde velden voor dit
+                    // bestand hadden bedacht.
+                    Ok(intent) => {
+                        fields.insert(field.field_name(), intent);
+                    }
+                    // Een onleesbare invoer laat dit bestand vallen; de rij
+                    // meldt zelf wat eraan mankeert.
+                    Err(_) => return None,
+                }
+            }
+
+            if fields.is_empty() {
+                return None;
+            }
+
+            Some(FileIntent {
+                name: track.name.clone(),
+                fields,
+            })
+        })
+        .collect()
 }
 
 /// Alles wat de albumpagina nodig heeft.
@@ -435,8 +662,19 @@ pub struct AlbumPage {
     /// Hoeveel bestanden de map bevat.
     pub total: usize,
 
-    /// Wat er aan de invoer mankeert; leeg wanneer alles klopt.
+    /// Wat er aan de invoer van de gedeelde velden mankeert; leeg wanneer alles
+    /// klopt. Wat er aan een rij mankeert, staat bij die rij.
     pub problems: Vec<String>,
+
+    /// Hoeveel geselecteerde rijen een eigen titel of tracknummer gekregen
+    /// hebben.
+    pub overridden: usize,
+
+    /// Hoeveel bestanden er bij het opslaan daadwerkelijk zouden veranderen.
+    ///
+    /// Komt uit [`intents`], zodat het getal onder het formulier van dezelfde
+    /// berekening komt als het plan dat de voorbeeldweergave straks toont.
+    pub changed_files: usize,
 }
 
 impl AlbumPage {
@@ -445,11 +683,36 @@ impl AlbumPage {
         self.selected > 0
     }
 
-    /// Of er ook maar één gedeeld veld iets zou doen.
+    /// Of er ook maar één veld iets zou doen.
     pub fn changes_anything(&self) -> bool {
-        self.fields
-            .iter()
-            .any(|field| field.cleared || !field.value.trim().is_empty())
+        self.overridden > 0
+            || self
+                .fields
+                .iter()
+                .any(|field| field.cleared || !field.value.trim().is_empty())
+    }
+
+    /// Of er ergens in de tabel een onbruikbare invoer staat.
+    pub fn has_row_problems(&self) -> bool {
+        self.rows.iter().any(Row::has_problems)
+    }
+
+    /// Hoeveel bestanden er zouden veranderen, in één zin.
+    pub fn changed_files_effect(&self) -> String {
+        match self.changed_files {
+            0 => "Er verandert geen enkel bestand.".to_string(),
+            1 => "In totaal verandert er 1 bestand.".to_string(),
+            count => format!("In totaal veranderen er {count} bestanden."),
+        }
+    }
+
+    /// Wat er bij het opslaan met de per-bestand overrides gebeurt, in één zin.
+    pub fn overrides_effect(&self) -> String {
+        match self.overridden {
+            0 => "Titel en tracknummer blijven ongemoeid.".to_string(),
+            1 => "1 bestand krijgt een eigen titel of tracknummer.".to_string(),
+            count => format!("{count} bestanden krijgen een eigen titel of tracknummer."),
+        }
     }
 }
 
@@ -466,6 +729,18 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         .iter()
         .map(|track| Row {
             selected: selected.contains(&track.name),
+            track_name: RowField::Track.input_name(&track.name),
+            title_name: RowField::Title.input_name(&track.name),
+            track_input: form
+                .override_value(&track.name, RowField::Track)
+                .to_string(),
+            title_input: form
+                .override_value(&track.name, RowField::Title)
+                .to_string(),
+            problems: RowField::ALL
+                .into_iter()
+                .filter_map(|field| form.row_intent(&track.name, field).err())
+                .collect(),
             name: track.name.clone(),
             track: track.track_label(),
             title: track.title_label().to_string(),
@@ -516,6 +791,11 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         })
         .collect();
 
+    let overridden = rows
+        .iter()
+        .filter(|row| row.selected && row.is_overridden() && !row.has_problems())
+        .count();
+
     AlbumPage {
         name: listing.name.clone(),
         crumbs: listing.crumbs.clone(),
@@ -526,6 +806,8 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         rows,
         fields,
         problems,
+        overridden,
+        changed_files: intents(listing, form).len(),
     }
 }
 
@@ -845,6 +1127,197 @@ mod tests {
 
         assert_eq!(page.problems.len(), 1, "{:?}", page.problems);
         assert!(page.problems[0].starts_with("Discnummer"));
+    }
+
+    fn row_of<'a>(page: &'a AlbumPage, name: &str) -> &'a Row {
+        page.rows
+            .iter()
+            .find(|row| row.name == name)
+            .expect("de rij hoort er te zijn")
+    }
+
+    #[test]
+    fn an_override_is_read_per_file_and_per_field() {
+        let form = Form::parse("nummer:een.mp3=3&titel:een.mp3=Stilte+in+D&titel:twee.mp3=Ruis");
+
+        assert_eq!(form.override_value("een.mp3", RowField::Track), "3");
+        assert_eq!(
+            form.override_value("een.mp3", RowField::Title),
+            "Stilte in D"
+        );
+        assert_eq!(form.override_value("twee.mp3", RowField::Title), "Ruis");
+        // Wat niets gekregen heeft, blijft leeg.
+        assert_eq!(form.override_value("twee.mp3", RowField::Track), "");
+        assert_eq!(form.override_value("drie.mp3", RowField::Title), "");
+    }
+
+    #[test]
+    fn a_file_name_may_contain_a_colon_itself() {
+        // Er wordt op de eerste dubbele punt gesplitst, en die staat vast in
+        // het voorvoegsel.
+        let form = Form::parse("titel%3Aa%3Ab.mp3=Werkt");
+
+        assert_eq!(form.override_value("a:b.mp3", RowField::Title), "Werkt");
+    }
+
+    #[test]
+    fn an_empty_override_changes_nothing_and_a_filled_one_sets_a_value() {
+        let form = Form::parse("titel:een.mp3=+++&nummer:een.mp3=7");
+
+        assert_eq!(
+            form.row_intent("een.mp3", RowField::Title),
+            Ok(Intent::Unchanged)
+        );
+        assert_eq!(
+            form.row_intent("een.mp3", RowField::Track),
+            Ok(Intent::Set("7".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_track_number_that_is_not_a_number_is_refused() {
+        let form = Form::parse("nummer:een.mp3=drie");
+
+        let problem = form
+            .row_intent("een.mp3", RowField::Track)
+            .expect_err("dit hoort een fout te zijn");
+
+        assert!(problem.starts_with("Tracknummer"), "{problem}");
+        assert!(problem.contains("drie"), "{problem}");
+    }
+
+    #[test]
+    fn the_table_offers_a_field_per_row_with_the_current_value_as_a_hint() {
+        // AC #1: titel en tracknummer zijn per rij in te tikken.
+        let page = album(&album_with_two_albums(), &Form::select_all());
+        let row = row_of(&page, "een.mp3");
+
+        assert_eq!(row.track_name, "nummer:een.mp3");
+        assert_eq!(row.title_name, "titel:een.mp3");
+        // Niets voorgevuld: leeg betekent hier hetzelfde als bij een gedeeld
+        // veld, namelijk ongemoeid laten.
+        assert_eq!(row.track_input, "");
+        assert_eq!(row.title_input, "");
+        assert!(!row.is_overridden());
+    }
+
+    #[test]
+    fn typed_overrides_survive_a_change_of_selection() {
+        // AC #2: de selectie of de gedeelde velden aanpassen mag de tabel niet
+        // leegvegen.
+        let form = Form::parse("actie=niets&titel:een.mp3=Nieuwe+titel&album=Nieuw+album");
+        let page = album(&album_with_two_albums(), &form);
+
+        let row = row_of(&page, "een.mp3");
+        assert_eq!(row.title_input, "Nieuwe titel");
+        assert!(row.is_overridden());
+        // Maar niet geselecteerd, dus er gebeurt niets mee — en dat staat er.
+        assert!(row.is_ignored());
+        assert_eq!(page.overridden, 0);
+    }
+
+    #[test]
+    fn an_override_wins_from_a_shared_value_for_the_same_file() {
+        // AC #3: wie in de rij zelf iets intikt, bedoelt dat voor dat bestand.
+        let form =
+            Form::parse("actie=alles&album=Nieuw+album&titel:een.mp3=Eigen+titel&nummer:een.mp3=4");
+        let plan = intents(&album_with_two_albums(), &form);
+
+        assert_eq!(plan.len(), 3, "{plan:?}");
+
+        let first = plan
+            .iter()
+            .find(|file| file.name == "een.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(
+            first.fields.get("title"),
+            Some(&Intent::Set("Eigen titel".to_string()))
+        );
+        assert_eq!(
+            first.fields.get("track"),
+            Some(&Intent::Set("4".to_string()))
+        );
+        // Het gedeelde veld geldt nog steeds voor dit bestand.
+        assert_eq!(
+            first.fields.get("album"),
+            Some(&Intent::Set("Nieuw album".to_string()))
+        );
+
+        // De rest van de selectie krijgt alleen het gedeelde veld.
+        let second = plan
+            .iter()
+            .find(|file| file.name == "twee.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(second.fields.get("title"), None);
+        assert_eq!(
+            second.fields.get("album"),
+            Some(&Intent::Set("Nieuw album".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_file_that_changes_nothing_stays_out_of_the_plan() {
+        let form = Form::parse("actie=alles&titel:een.mp3=Alleen+deze");
+        let plan = intents(&album_with_two_albums(), &form);
+
+        assert_eq!(plan.len(), 1, "{plan:?}");
+        assert_eq!(plan[0].name, "een.mp3");
+    }
+
+    #[test]
+    fn an_unselected_file_stays_out_of_the_plan() {
+        let form = Form::parse("bestand=twee.mp3&titel:een.mp3=Wordt+niet+opgeslagen");
+
+        assert!(intents(&album_with_two_albums(), &form).is_empty());
+    }
+
+    #[test]
+    fn bad_input_in_a_row_is_reported_there_and_blocks_only_that_row() {
+        // AC #4: één typefout mag de rest van de tabel niet ophouden.
+        let form = Form::parse("actie=alles&nummer:een.mp3=drie&titel:twee.mp3=Wel+dit");
+        let page = album(&album_with_two_albums(), &form);
+
+        let broken = row_of(&page, "een.mp3");
+        assert!(broken.has_problems());
+        assert!(
+            broken.problems[0].starts_with("Tracknummer"),
+            "{:?}",
+            broken
+        );
+
+        let fine = row_of(&page, "twee.mp3");
+        assert!(!fine.has_problems());
+
+        // De gedeelde velden blijven bruikbaar; alleen de kapotte rij valt weg.
+        assert!(page.problems.is_empty(), "{:?}", page.problems);
+        assert!(page.has_row_problems());
+
+        let plan = intents(&album_with_two_albums(), &form);
+        assert_eq!(plan.len(), 1, "{plan:?}");
+        assert_eq!(plan[0].name, "twee.mp3");
+    }
+
+    #[test]
+    fn overrides_count_towards_what_would_happen() {
+        let untouched = album(&album_with_two_albums(), &Form::select_all());
+        assert!(!untouched.changes_anything());
+        assert!(untouched.overrides_effect().contains("blijven ongemoeid"));
+
+        let form = Form::parse("actie=alles&titel:een.mp3=Eén&titel:twee.mp3=Twee");
+        let page = album(&album_with_two_albums(), &form);
+
+        assert!(page.changes_anything());
+        assert_eq!(page.overridden, 2);
+        // Het derde bestand krijgt niets en verandert dus ook niet.
+        assert_eq!(page.changed_files, 2);
+        assert_eq!(
+            page.changed_files_effect(),
+            "In totaal veranderen er 2 bestanden."
+        );
+        assert_eq!(
+            page.overrides_effect(),
+            "2 bestanden krijgen een eigen titel of tracknummer."
+        );
     }
 
     #[test]

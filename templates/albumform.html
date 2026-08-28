@@ -37,6 +37,7 @@
           <th scope="col" class="batchtabel__kies">Kies</th>
           <th scope="col">#</th>
           <th scope="col">Titel</th>
+          <th scope="col">Bewerken</th>
           <th scope="col">Artiest</th>
           <th scope="col">Albumartiest</th>
           <th scope="col">Album</th>
@@ -47,7 +48,7 @@
       </thead>
       <tbody>
         {% for row in page.rows %}
-        <tr class="batchtabel__rij{% if row.selected %} batchtabel__rij--gekozen{% endif %}">
+        <tr class="batchtabel__rij{% if row.selected %} batchtabel__rij--gekozen{% endif %}{% if row.has_problems() %} batchtabel__rij--fout{% endif %}">
           <td class="batchtabel__kies">
             {# Het label is de bestandsnaam: op een telefoon is een vinkje van
                een paar pixels geen doel, en zo is de hele cel aanklikbaar. #}
@@ -58,8 +59,33 @@
               <span class="vinkje__tekst">{{ row.name }}</span>
             </label>
           </td>
-          <td class="batchtabel__nummer">{{ row.track }}</td>
-          <td><a class="batchtabel__titel" href="{{ row.edit_url }}">{{ row.title }}</a></td>
+          {# Titel en tracknummer verschillen per bestand en zijn daarom hier
+             in te tikken (FR-9). Wat er nu in het bestand staat, staat als
+             grijze tekst in het veld: leeg laten verandert er niets aan. #}
+          <td class="batchtabel__nummer">
+            <input class="rijveld rijveld--nummer" type="text" inputmode="numeric"
+                   name="{{ row.track_name }}" value="{{ row.track_input }}"
+                   placeholder="{{ row.track }}" autocomplete="off"
+                   aria-label="Tracknummer van {{ row.name }}"
+                   {% if row.has_problems() %}aria-invalid="true"{% endif %} />
+          </td>
+          <td>
+            <input class="rijveld rijveld--titel" type="text"
+                   name="{{ row.title_name }}" value="{{ row.title_input }}"
+                   placeholder="{{ row.title }}" autocomplete="off"
+                   aria-label="Titel van {{ row.name }}" />
+
+            {# Een fout blijft bij de rij waar hij gemaakt is; de rest van de
+               tabel en de gedeelde velden kunnen gewoon opgeslagen worden. #}
+            {% for problem in row.problems %}
+            <p class="rijveld__fout" role="status">{{ problem }}</p>
+            {% endfor %}
+
+            {% if row.is_ignored() %}
+            <p class="rijveld__hulp">Niet geselecteerd; deze invoer wordt niet opgeslagen.</p>
+            {% endif %}
+          </td>
+          <td><a class="batchtabel__titel" href="{{ row.edit_url }}">Bewerken</a></td>
           <td>{{ row.artist }}</td>
           <td>{{ row.album_artist }}</td>
           <td>{{ row.album }}</td>
@@ -72,11 +98,14 @@
     </table>
   </div>
 
-  {% if !page.problems.is_empty() %}
+  {% if !page.problems.is_empty() || page.has_row_problems() %}
   <div class="melding melding--fout" role="status">
     {% for problem in page.problems %}
     <p class="melding__regel">{{ problem }}</p>
     {% endfor %}
+    {% if page.has_row_problems() %}
+    <p class="melding__regel">Eén of meer rijen in de tabel zijn zo niet op te slaan; de melding staat bij de rij zelf.</p>
+    {% endif %}
   </div>
   {% endif %}
 
@@ -126,7 +155,9 @@
       {% for field in page.fields %}
       <li class="gevolg__regel">{{ field.effect }}</li>
       {% endfor %}
+      <li class="gevolg__regel">{{ page.overrides_effect() }}</li>
     </ul>
+    <p class="gevolg__regel">{{ page.changed_files_effect() }}</p>
     {% endif %}
 
     <p class="uitleg">

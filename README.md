@@ -167,7 +167,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
-| `batch` | De albumweergave: een selectie bestanden en wat de gedeelde velden ermee zouden doen |
+| `batch` | De albumweergave: een selectie bestanden, de gedeelde velden en de overrides per bestand |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
@@ -352,6 +352,16 @@ Wissen is een aparte keuze, met een vinkje naast het veld. Wat er nú in de
 selectie staat, is als tekst onder het veld te lezen: één gedeelde waarde, leeg,
 of "verschillend" met de waarden die voorkomen. Onder het formulier staat per
 veld wat er bij het opslaan zou gebeuren.
+
+Titel en tracknummer horen niet bij het album maar bij het bestand, en zijn
+daarom **in de tabel zelf** in te tikken: één invoerveld per rij, met de huidige
+waarde als grijze tekst erin. Dezelfde regel geldt er: leeg laten verandert
+niets. Een override is voor dat ene bestand bedoeld en wint daarom van wat de
+gedeelde velden ervoor zouden doen. De ingetikte waarden blijven staan bij het
+wisselen van selectie; wat in een niet-geselecteerde rij staat, zegt erbij dat
+het niet wordt opgeslagen. Een onleesbaar tracknummer wordt bij die rij gemeld
+en houdt alleen die rij tegen — de andere rijen en de gedeelde velden blijven
+bruikbaar.
 
 Er wordt op deze pagina **niets geschreven**, ook niet door de POST die de
 selectie bijwerkt: die bouwt de pagina alleen opnieuw op. Het wegschrijven gaat

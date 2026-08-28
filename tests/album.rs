@@ -193,6 +193,104 @@ fn leaving_a_field_empty_is_not_the_same_as_clearing_it() {
 }
 
 #[test]
+fn every_row_offers_a_title_and_a_track_number() {
+    // AC #1: titel en tracknummer horen inline in de tabel te staan, en niet in
+    // een apart formulier per bestand.
+    let server = server();
+    let page = server.get("/album/Album");
+
+    assert_ok(&page);
+    for name in ["een.mp3", "twee.mp3"] {
+        assert!(page.contains(&format!("name=\"titel:{name}\"")), "{page}");
+        assert!(page.contains(&format!("name=\"nummer:{name}\"")), "{page}");
+    }
+
+    // Wat er nu in het bestand staat, staat als grijze tekst in het veld en
+    // niet als waarde: leeg laten verandert er niets aan.
+    assert!(page.contains("placeholder=\"Stilte in D\""), "{page}");
+    assert!(!page.contains("value=\"Stilte in D\""), "{page}");
+}
+
+#[test]
+fn shared_fields_and_overrides_go_together() {
+    // AC #2, #3 en #6: de gedeelde velden gelden voor de selectie, de override
+    // voor dat ene bestand, en het een wist het ander niet.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("bestand", "een.mp3"),
+            ("bestand", "twee.mp3"),
+            ("album", "Een nieuw album"),
+            ("titel:twee.mp3", "Ruis in B"),
+            ("nummer:twee.mp3", "2"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(page.contains("2 van 2 bestanden geselecteerd"), "{page}");
+    assert!(page.contains("value=\"Een nieuw album\""), "{page}");
+    assert!(page.contains("value=\"Ruis in B\""), "{page}");
+    assert!(
+        page.contains("Album wordt “Een nieuw album” in 2 bestanden."),
+        "{page}"
+    );
+    assert!(
+        page.contains("1 bestand krijgt een eigen titel of tracknummer."),
+        "{page}"
+    );
+}
+
+#[test]
+fn an_override_survives_a_change_of_selection() {
+    // AC #2: het uitvinken van een ander bestand mag de tabel niet leegvegen.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "niets"),
+            ("titel:een.mp3", "Blijft staan"),
+            ("album", "Blijft ook staan"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(page.contains("0 van 2 bestanden geselecteerd"), "{page}");
+    assert!(page.contains("value=\"Blijft staan\""), "{page}");
+    assert!(page.contains("value=\"Blijft ook staan\""), "{page}");
+    assert!(
+        page.contains("Niet geselecteerd; deze invoer wordt niet opgeslagen."),
+        "{page}"
+    );
+}
+
+#[test]
+fn a_bad_track_number_is_reported_at_the_row_it_was_typed_in() {
+    // AC #4: de melding staat bij de rij, en de rest blijft bruikbaar.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "alles"),
+            ("nummer:een.mp3", "drie"),
+            ("titel:twee.mp3", "Wel goed"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(page.contains("Tracknummer moet een getal"), "{page}");
+    assert!(page.contains("drie"), "{page}");
+    assert!(page.contains("rijveld__fout"), "{page}");
+    assert!(page.contains("de melding staat bij de rij zelf"), "{page}");
+
+    // De goede rij telt gewoon mee.
+    assert!(
+        page.contains("1 bestand krijgt een eigen titel of tracknummer."),
+        "{page}"
+    );
+}
+
+#[test]
 fn nothing_is_written_yet() {
     // Het wegschrijven hoort bij de voorbeeldweergave. Zolang die er niet is,
     // mag geen enkele POST naar deze pagina een bestand aanraken.
@@ -210,6 +308,8 @@ fn nothing_is_written_yet() {
             ("actie", "alles"),
             ("album", "Een heel ander album"),
             ("wis_genre", "aan"),
+            ("titel:een.mp3", "Een heel andere titel"),
+            ("nummer:twee.mp3", "9"),
         ],
     );
     assert_ok(&page);

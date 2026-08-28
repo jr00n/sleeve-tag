@@ -637,6 +637,67 @@ a {
   color: var(--tekst);
 }
 
+.batchtabel__rij--fout {
+  background: color-mix(in srgb, var(--waarschuwing) 12%, transparent);
+}
+
+.batchtabel__rij--fout .batchtabel__kies {
+  background: color-mix(in srgb, var(--waarschuwing) 12%, var(--vlak));
+}
+
+/* Titel en tracknummer worden in de tabel zelf ingetikt (FR-9). Het veld is
+   even hoog als een knop, zodat het op een telefoon met een duim te raken is,
+   en 16px groot omdat Safari op iOS anders inzoomt bij het focussen. */
+.rijveld {
+  padding: 0.5rem 0.6rem;
+  font-size: 1rem;
+  font-family: inherit;
+  color: var(--tekst);
+  background: var(--achtergrond);
+  border: 1px solid var(--rand);
+  border-radius: 8px;
+}
+
+.rijveld:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rijveld--nummer {
+  width: 4.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.rijveld--titel {
+  /* Breed genoeg voor een gewone titel, maar de kolom mag de tabel niet
+     opblazen: die scrollt toch al binnen zijn eigen rand. */
+  width: 100%;
+  min-width: 14rem;
+}
+
+.rijveld[aria-invalid="true"] {
+  border-color: var(--waarschuwing);
+}
+
+/* De melding hoort bij deze rij en mag daarom wél afbreken, anders dan de rest
+   van de tabel. */
+.rijveld__fout,
+.rijveld__hulp {
+  margin: 0.3rem 0 0;
+  max-width: 20rem;
+  font-size: 0.8rem;
+  white-space: normal;
+}
+
+.rijveld__fout {
+  color: var(--waarschuwing);
+}
+
+.rijveld__hulp {
+  color: var(--tekst-zacht);
+}
+
 .vinkje {
   display: inline-flex;
   align-items: center;

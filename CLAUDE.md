@@ -34,7 +34,10 @@ de conventies vast waar code zich aan houdt.
   ermee gebeurt, beslist de gebruiker in de voorbeeldweergave; dat is de enige
   route waarlangs een batch wordt weggeschreven. In een gedeeld veld betekent
   leeg daar "ongemoeid laten" en niet "verwijderen" — het veld wordt nooit
-  voorgevuld, en wissen is een aparte, expliciete keuze.
+  voorgevuld, en wissen is een aparte, expliciete keuze. Titel en tracknummer
+  zijn geen gedeeld veld maar een override per bestand; die wint van wat de
+  gedeelde velden voor datzelfde bestand zouden doen, en een fout in één rij
+  houdt alleen die rij tegen.
 - **Schrijven is atomisch, en loopt via `atomic::replace`.** Naar een tijdelijk
   bestand in dezelfde map, hervalideren door opnieuw in te lezen, en pas dan
   hernoemen over het origineel. Bij een fout blijft het origineel onaangetast.
