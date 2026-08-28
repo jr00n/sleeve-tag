@@ -5,7 +5,7 @@ status: In Progress
 assignee:
   - claude
 created_date: '2026-08-26 22:26'
-updated_date: '2026-08-28 19:00'
+updated_date: '2026-08-28 19:32'
 labels: []
 milestone: m-5
 dependencies:
@@ -116,6 +116,15 @@ Geen /config-volume opgenomen, wel als commentaar benoemd: Sleeve houdt geen sta
 Lokaal geverifieerd met het amd64-image onder podman: `podman compose up -d` start de container, `docker inspect` meldt na de start_period `healthy`, de UI antwoordt met 200, en `podman exec sleeve-tag /usr/local/bin/sleeve-tag --health` geeft exitcode 0. De startcontrole uit TASK-23 logde daarbij `MUSIC_ROOT is schrijfbaar uid=1000 gid=10`.
 
 AC #7 (bereikbaar op de NAS en via Tailscale) staat nog open: dat vraagt de UGREEN zelf. Het image is gebouwd en klaar om over te zetten.
+
+Op de NAS geverifieerd (2026-08-28), draaiend vanuit /volume2/Docker/sleeve-tag met het overgezette amd64-image:
+
+- `docker compose ps` toont `Up 4 minutes (healthy)` — Docker heeft daar dus `sleeve-tag --health` aangeroepen en exitcode 0 gekregen. De healthcheck-modus werkt in de echte container, niet alleen lokaal.
+- Vanaf het LAN antwoordt `http://wolffpacksrv.local:8080/` met 200 in 17 ms, `/healthz` met `ok`, en de startpagina toont de werkelijke mappen van de share (Live Sets & Festivals, Own Recordings, Singles & EPs, Studio Albums).
+
+De Tailscale-helft van AC #7 kan ik niet vaststellen: op de ontwikkelmachine staat geen Tailscale-client. Dat deel wacht op een controle door de eigenaar vanaf een apparaat op het tailnet.
+
+Onderweg twee dingen die in het geheugen zijn vastgelegd: `scp` naar deze NAS vereist `-O` (het SFTP-subsysteem is gechroot, waardoor een absoluut pad faalt met `remote mkdir: No such file or directory`), en de share heet `/volume1/Multimedia/Music` met hoofdletter — `.env.example` is daarop gecorrigeerd.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary
