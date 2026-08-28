@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::fmt;
 
-use crate::tags::Tags;
+use crate::tags::{ArtInfo, Tags};
 
 /// Hoeveel afwijkende waarden er hoogstens bij naam genoemd worden.
 ///
@@ -25,8 +25,9 @@ const MAX_NAMED_VALUES: usize = 3;
 pub struct Entry<'a> {
     pub tags: &'a Tags,
 
-    /// Of er een embedded hoes in het bestand zit.
-    pub has_art: bool,
+    /// Wat er over de embedded hoes bekend is; `None` wanneer het bestand er
+    /// geen heeft.
+    pub art: Option<&'a ArtInfo>,
 }
 
 /// Wat er aan één bestand mankeert.
@@ -95,6 +96,12 @@ pub enum FolderIssue {
 
     /// Deze tracknummers komen meer dan eens voor.
     DuplicateTrackNumbers(Vec<u32>),
+
+    /// De bestanden met een hoes hebben er niet allemaal dezelfde (FR-12).
+    ///
+    /// Zoveel verschillende hoezen zijn er geteld. Bestanden zonder hoes tellen
+    /// niet mee: die hebben hun eigen melding.
+    DifferentArt(usize),
 }
 
 impl FolderIssue {
@@ -113,6 +120,10 @@ impl FolderIssue {
             FolderIssue::MissingTrackNumbers(1) => "1 bestand heeft geen tracknummer".to_string(),
             FolderIssue::MissingTrackNumbers(count) => {
                 format!("{count} bestanden hebben geen tracknummer")
+            }
+
+            FolderIssue::DifferentArt(count) => {
+                format!("{count} verschillende hoezen in deze map")
             }
 
             FolderIssue::DuplicateTrackNumbers(numbers) => {
@@ -184,7 +195,32 @@ pub fn review(entries: &[Entry<'_>]) -> Review {
         folder.push(FolderIssue::DuplicateTrackNumbers(duplicates));
     }
 
+    let covers = distinct_covers(entries);
+    if covers > 1 {
+        folder.push(FolderIssue::DifferentArt(covers));
+    }
+
     Review { tracks, folder }
+}
+
+/// Hoeveel verschillende hoezen er in deze map zitten.
+///
+/// Vergeleken wordt op type, afmetingen en omvang, en niet op de pixels zelf:
+/// twee hoezen die daarin gelijk zijn, zijn in de praktijk dezelfde
+/// afbeelding, en de bytes uitpakken om dat zeker te weten is voor een
+/// constatering te veel werk. Bestanden zonder hoes tellen niet mee; die
+/// hebben hun eigen melding.
+fn distinct_covers(entries: &[Entry<'_>]) -> usize {
+    let mut seen: Vec<(&str, u32, u32, usize)> = Vec::new();
+
+    for art in entries.iter().filter_map(|entry| entry.art) {
+        let fingerprint = (art.mime.as_str(), art.width, art.height, art.bytes);
+        if !seen.contains(&fingerprint) {
+            seen.push(fingerprint);
+        }
+    }
+
+    seen.len()
 }
 
 /// Wat er aan één bestand mankeert.
@@ -201,7 +237,7 @@ fn track_issues(entry: &Entry<'_>, duplicates: &[u32]) -> Vec<TrackIssue> {
     if tags.album.is_none() {
         issues.push(TrackIssue::MissingAlbum);
     }
-    if !entry.has_art {
+    if entry.art.is_none() {
         issues.push(TrackIssue::MissingArt);
     }
 
@@ -293,15 +329,25 @@ mod tests {
         tags("Het Album", "De Albumartiest", "1999", Some(track))
     }
 
-    fn entries<'a>(tags: &'a [Tags], has_art: bool) -> Vec<Entry<'a>> {
-        tags.iter().map(|tags| Entry { tags, has_art }).collect()
+    /// Een hoes zoals de fixtures die hebben; alle tracks dezelfde.
+    fn cover() -> ArtInfo {
+        ArtInfo {
+            mime: "image/jpeg".to_string(),
+            width: 300,
+            height: 300,
+            bytes: 12_345,
+        }
+    }
+
+    fn entries<'a>(tags: &'a [Tags], art: Option<&'a ArtInfo>) -> Vec<Entry<'a>> {
+        tags.iter().map(|tags| Entry { tags, art }).collect()
     }
 
     #[test]
     fn a_consistent_folder_has_nothing_to_report() {
         let files = [complete(1), complete(2), complete(3)];
 
-        let review = review(&entries(&files, true));
+        let review = review(&entries(&files, Some(&cover())));
 
         assert!(review.folder.is_empty(), "gevonden: {:?}", review.folder);
         assert!(
@@ -315,7 +361,7 @@ mod tests {
     fn an_untagged_folder_reports_every_missing_field() {
         let files = [Tags::default(), Tags::default()];
 
-        let review = review(&entries(&files, false));
+        let review = review(&entries(&files, None));
 
         for issues in &review.tracks {
             assert_eq!(
@@ -340,10 +386,63 @@ mod tests {
     }
 
     #[test]
+    fn one_cover_for_the_whole_folder_is_nothing_to_report() {
+        let files = [complete(1), complete(2), complete(3)];
+
+        assert!(review(&entries(&files, Some(&cover()))).folder.is_empty());
+    }
+
+    #[test]
+    fn different_covers_in_one_folder_are_reported() {
+        // FR-12: twee tracks van hetzelfde album horen dezelfde hoes te hebben.
+        let files = [complete(1), complete(2), complete(3)];
+        let cover = cover();
+        let other = ArtInfo {
+            width: 500,
+            height: 500,
+            mime: "image/png".to_string(),
+            bytes: 1_860,
+        };
+
+        let mut entries = entries(&files, Some(&cover));
+        entries[2].art = Some(&other);
+
+        let review = review(&entries);
+
+        assert_eq!(review.folder, vec![FolderIssue::DifferentArt(2)]);
+        assert_eq!(
+            review.folder[0].describe(),
+            "2 verschillende hoezen in deze map"
+        );
+    }
+
+    #[test]
+    fn a_file_without_a_cover_does_not_count_as_a_different_one() {
+        // Dat er een hoes ontbreekt, is de melding van dat ene bestand; het
+        // maakt de map niet inconsistent.
+        let files = [complete(1), complete(2)];
+        let cover = cover();
+        let mut entries = entries(&files, Some(&cover));
+        entries[1].art = None;
+
+        let review = review(&entries);
+
+        assert!(
+            !review
+                .folder
+                .iter()
+                .any(|issue| matches!(issue, FolderIssue::DifferentArt(_))),
+            "{:?}",
+            review.folder
+        );
+    }
+
+    #[test]
     fn missing_art_is_reported_per_file() {
         let files = [complete(1), complete(2)];
-        let mut entries = entries(&files, true);
-        entries[1].has_art = false;
+        let cover = cover();
+        let mut entries = entries(&files, Some(&cover));
+        entries[1].art = None;
 
         let review = review(&entries);
 
@@ -358,7 +457,7 @@ mod tests {
             tags("Tweede album", "Dezelfde", "1999", Some(2)),
         ];
 
-        let review = review(&entries(&files, true));
+        let review = review(&entries(&files, Some(&cover())));
 
         assert_eq!(
             review.folder,
@@ -380,7 +479,7 @@ mod tests {
             tags("Het Album", "Tweede artiest", "2001", Some(2)),
         ];
 
-        let review = review(&entries(&files, true));
+        let review = review(&entries(&files, Some(&cover())));
 
         assert_eq!(
             review.folder,
@@ -405,7 +504,7 @@ mod tests {
         incomplete.album = None;
         let files = [complete(1), incomplete];
 
-        let review = review(&entries(&files, true));
+        let review = review(&entries(&files, Some(&cover())));
 
         assert_eq!(review.tracks[1], vec![TrackIssue::MissingAlbum]);
         assert!(
@@ -422,7 +521,7 @@ mod tests {
 
         let files = [complete(1), complete(1), complete(2), without_number];
 
-        let review = review(&entries(&files, true));
+        let review = review(&entries(&files, Some(&cover())));
 
         assert_eq!(review.tracks[0], vec![TrackIssue::DuplicateTrackNumber]);
         assert_eq!(review.tracks[1], vec![TrackIssue::DuplicateTrackNumber]);
@@ -445,7 +544,7 @@ mod tests {
     fn a_single_file_folder_is_never_inconsistent() {
         let files = [complete(1)];
 
-        let review = review(&entries(&files, true));
+        let review = review(&entries(&files, Some(&cover())));
 
         assert!(review.folder.is_empty());
         assert!(review.tracks[0].is_empty());

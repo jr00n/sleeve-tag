@@ -12,20 +12,23 @@
 </nav>
 
 <div class="bestandskop">
+  {# De hoes leidt naar zijn eigen pagina en niet naar de kale afbeelding: daar
+     staat wat je op een vakje van 96 pixels niet kunt zien (FR-12). #}
   {% if page.has_art %}
-  <a href="{{ page.art_url }}">
+  <a href="{{ page.cover_url }}">
     <img class="bestandskop__hoes" src="{{ page.art_url }}" alt="Album art van dit bestand"
          width="96" height="96" decoding="async" />
   </a>
   {% else %}
-  <span class="bestandskop__hoes bestandskop__hoes--leeg"
-        role="img" aria-label="Geen album art"></span>
+  <a class="bestandskop__hoes bestandskop__hoes--leeg" href="{{ page.cover_url }}"
+     role="img" aria-label="Geen album art"></a>
   {% endif %}
 
   <div class="bestandskop__tekst">
     <h1 class="maptitel">{{ page.name }}</h1>
     <p class="uitleg">
       {{ page.format }} · {{ page.duration }} ·
+      <a href="{{ page.cover_url }}">hoes</a> ·
       <a href="{{ page.raw_url }}">ruwe tags</a>
     </p>
   </div>

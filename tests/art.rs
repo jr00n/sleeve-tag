@@ -1,8 +1,9 @@
-//! Het album-art-endpoint over HTTP, tegen de echte binary.
+//! Het album-art-endpoint en de hoesweergave over HTTP, tegen de echte binary.
 //!
 //! De unit-tests in `src/art.rs` controleren het verkleinen en die in `src/web`
 //! de routering; deze test controleert wat er werkelijk over de lijn gaat: de
-//! statusregel, de `Content-Type` en de bytes zelf.
+//! statusregel, de `Content-Type` en de bytes zelf. Daarna de pagina eromheen
+//! (FR-12): wat er over een hoes te zien is zonder hem te downloaden.
 //!
 //! De bibliotheek is een tempdir met kopieën van de fixtures. De echte
 //! muziekbibliotheek wordt nooit aangeraakt.
@@ -170,4 +171,93 @@ fn the_listing_asks_for_thumbnails_and_skips_files_without_art() {
         !html.contains("src=\"/art/Album/zonder-hoes.mp3"),
         "een bestand zonder hoes hoort geen verzoek uit te lokken:\n{html}"
     );
+}
+
+#[test]
+fn the_cover_page_shows_format_dimensions_and_size() {
+    // AC #5: de eigenschappen die op een thumbnail niet te zien zijn.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let page = server.get("/hoes/Album/met-hoes.mp3");
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("JPEG"), "{page}");
+    assert!(page.contains("image/jpeg"), "{page}");
+    assert!(
+        page.contains(&format!("{FIXTURE_SIZE} × {FIXTURE_SIZE} pixels")),
+        "{page}"
+    );
+    assert!(page.contains("kB"), "{page}");
+
+    // En de afbeelding zelf staat erop, op ware grootte.
+    assert!(page.contains("src=\"/art/Album/met-hoes.mp3\""), "{page}");
+    assert!(!page.contains("size=thumb"), "{page}");
+}
+
+#[test]
+fn a_file_without_art_says_so_on_its_cover_page() {
+    // AC #3: geen 404, maar de mededeling dat er niets in zit.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let page = server.get("/hoes/Album/zonder-hoes.mp3");
+
+    assert!(page.starts_with("HTTP/1.1 200 OK"), "{page}");
+    assert!(page.contains("geen embedded hoes"), "{page}");
+    assert!(!page.contains("<img"), "{page}");
+}
+
+#[test]
+fn the_edit_page_leads_to_the_cover_page() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    for file in ["met-hoes.mp3", "zonder-hoes.mp3"] {
+        let page = server.get(&format!("/bewerk/Album/{file}"));
+        assert!(
+            page.contains(&format!("/hoes/Album/{file}")),
+            "{file} verwijst niet naar zijn hoespagina:\n{page}"
+        );
+    }
+}
+
+#[test]
+fn a_cover_page_outside_the_library_is_refused() {
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let response = server.get("/hoes/../../etc/passwd");
+
+    assert!(
+        response.starts_with("HTTP/1.1 403") || response.starts_with("HTTP/1.1 404"),
+        "antwoord begon met: {}",
+        response.lines().next().unwrap_or_default()
+    );
+}
+
+#[test]
+fn different_covers_in_one_folder_are_visible_in_the_listing() {
+    // AC #4: de maplijst wijst het aan, zodat je niet elk bestand hoeft te
+    // openen om te ontdekken dat de hoezen uiteenlopen.
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "een.mp3", "tagged-with-art.mp3");
+    place_fixture(&album, "twee.mp3", "tagged-with-other-art.mp3");
+
+    let server = Server::start_in(root, &[]);
+    let html = server.get("/map/Album");
+
+    assert!(
+        html.contains("2 verschillende hoezen in deze map"),
+        "{html}"
+    );
+}
+
+#[test]
+fn one_cover_for_the_whole_folder_says_nothing() {
+    // Dezelfde hoes in MP3 en FLAC mag geen valse melding opleveren.
+    let server = Server::start_in(library_with_and_without_art(), &[]);
+
+    let html = server.get("/map/Album");
+
+    assert!(!html.contains("verschillende hoezen"), "{html}");
 }

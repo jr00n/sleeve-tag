@@ -23,8 +23,12 @@ de conventies vast waar code zich aan houdt.
   een lijst nooit iets toont wat de app niet mag openen.
 - **Alle pixelbewerking loopt via `art::`.** Decoderen, verkleinen en
   encoderen van album art gebeurt daar; `tags::` levert alleen de ruwe bytes uit
-  het bestand en raakt de afbeelding verder niet aan. `art::` opent zelf geen
-  bestanden: in en uit gaan bytes.
+  het bestand en raakt de afbeelding verder niet aan — ook het uitlezen van de
+  afmetingen gaat langs `art::`. `art::` opent zelf geen bestanden: in en uit
+  gaan bytes. Deze regel wordt afgedwongen door `tests/architecture.rs`.
+- **De hoesweergave (`cover::`) beschrijft alleen.** Ze krijgt de `ArtInfo` die
+  `tags::` uit het bestand las en maakt daar tekst van; ze opent geen bestanden
+  en raakt geen pixels aan.
 - **Wat de UI toont, wordt in `browse::` opgebouwd.** Die module brengt `fs::`
   en `tags::` samen tot een weergavemodel; handlers renderen dat model en
   bevatten zelf geen sorteer-, filter- of opmaaklogica. Paden die naar de

@@ -19,6 +19,7 @@ use tower_http::trace::TraceLayer;
 use crate::batch::AlbumPage;
 use crate::browse::{self, Crumb, Listing, THUMBNAIL_SIZE_PARAM};
 use crate::config::Config;
+use crate::cover::{CoverDetails, CoverPage};
 use crate::edit::{EditPage, Notice};
 use crate::fs::{Library, PathError};
 use crate::tags::RawTags;
@@ -59,6 +60,7 @@ pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
         .route("/map/{*path}", get(browse_directory))
         .route("/art/{*path}", get(art_of_file))
         .route("/tags/{*path}", get(raw_tags_of_file))
+        .route("/hoes/{*path}", get(cover_of_file))
         .route("/bewerk/{*path}", get(edit_form).post(save_tags))
         // De albumweergave hoort bij een map, dus ook de wortel heeft er een.
         .route("/album", get(album_root).post(album_root_selection))
@@ -393,6 +395,42 @@ async fn raw_tags_of_file(
     Ok(Html(page.render()?))
 }
 
+/// De hoesweergave van één bestand (FR-12).
+#[derive(Template)]
+#[template(path = "cover.html")]
+struct CoverTemplate {
+    page: CoverPage,
+}
+
+/// Toont de embedded hoes groot, met formaat, afmetingen en grootte.
+///
+/// De feiten komen uit dezelfde leesronde als de tags: `tags::read` beschrijft
+/// de hoes zonder de pixels uit te pakken, dus deze pagina kost niet meer dan
+/// het openen van het bestand.
+async fn cover_of_file(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+) -> Result<Html<String>, WebError> {
+    let library = Arc::clone(&state.library);
+    let wanted = path.clone();
+
+    let track = tokio::task::spawn_blocking(move || {
+        let absolute = library.resolve(&wanted)?;
+        tags::read(&absolute).map_err(WebError::from)
+    })
+    .await??;
+
+    let page = CoverPage {
+        name: browse::name_of_file(&path).to_string(),
+        crumbs: browse::crumbs_to_parent(&path),
+        art_url: browse::art_url(&path),
+        edit_url: browse::edit_url(&path),
+        details: track.art.as_ref().map(CoverDetails::of),
+    };
+
+    Ok(Html(CoverTemplate { page }.render()?))
+}
+
 /// Het bewerkformulier van één bestand (FR-5 en FR-6).
 #[derive(Template)]
 #[template(path = "edit.html")]
@@ -501,6 +539,7 @@ async fn load_page(
         raw_url: browse::raw_tags_url(&path),
         art_url: browse::art_url(&path),
         has_art: track.art.is_some(),
+        cover_url: browse::cover_url(&path),
         format: track.format.to_string(),
         duration: browse::format_duration(track.duration),
         fields: fields.unwrap_or_else(|| edit::Form::from_tags(&track.tags)),

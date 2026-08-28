@@ -421,8 +421,68 @@ a {
   border: 1px solid var(--rand);
 }
 
+/* Ook het lege vakje is een link naar de hoespagina; het hoort zich als een
+   blok te gedragen en niet als tekst. */
+a.bestandskop__hoes {
+  display: block;
+}
+
 .bestandskop__tekst {
   min-width: 0;
+}
+
+/* ── Hoesweergave van één bestand (FR-12) ──────────────────────────────── */
+
+.hoes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+/* Zo groot als het scherm toelaat, want daar gaat deze pagina over: op een
+   thumbnail is niet te zien of een hoes scherp is. */
+.hoes__afbeelding {
+  width: 100%;
+  max-width: 22rem;
+  height: auto;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.hoes__feiten {
+  flex: 1 1 14rem;
+  margin: 0;
+  padding: 0.9rem 1rem;
+  border: 1px solid var(--rand);
+  border-radius: 10px;
+  background: var(--vlak);
+}
+
+.hoes__feit + .hoes__feit {
+  margin-top: 0.7rem;
+}
+
+.hoes__label {
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+}
+
+.hoes__waarde {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.hoes__mime,
+.hoes__kanttekening {
+  color: var(--tekst-zacht);
+  font-size: 0.85rem;
+}
+
+.hoes__kanttekening {
+  color: var(--waarschuwing);
 }
 
 .bestandskop .maptitel {

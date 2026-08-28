@@ -1653,7 +1653,7 @@ mod tests {
             issues: Vec::new(),
             duration: "0:00".to_string(),
             format: "MP3".to_string(),
-            has_art: false,
+            art: None,
             art_url: String::new(),
             edit_url: format!("/bewerk/Album/{name}"),
         }

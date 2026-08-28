@@ -10,6 +10,7 @@ mod browse;
 mod casing;
 mod checks;
 mod config;
+mod cover;
 mod edit;
 mod fs;
 mod tags;

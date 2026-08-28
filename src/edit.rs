@@ -141,6 +141,12 @@ pub struct EditPage {
     pub art_url: String,
     pub has_art: bool,
 
+    /// Naar de hoesweergave met formaat, afmetingen en grootte (FR-12).
+    ///
+    /// Ook zonder hoes: daar staat dan dat er geen is, en straks de manier om
+    /// er een toe te voegen.
+    pub cover_url: String,
+
     pub format: String,
     pub duration: String,
 

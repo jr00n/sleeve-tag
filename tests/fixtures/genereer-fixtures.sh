@@ -104,6 +104,28 @@ echo "MP3 met embedded album art"
   -id3v2_version 4 -write_id3v1 0 "${TAGS[@]}" tagged-with-art.mp3
 voeg_comm_frame_toe tagged-with-art.mp3 "$COMMENTAAR"
 
+echo "MP3 met een àndere embedded hoes"
+# Voor de signalering "verschillende hoezen in deze map" (FR-12) is een tweede
+# afbeelding nodig die in type én afmetingen van cover.jpg verschilt. Titel en
+# tracknummer wijken ook af, zodat de twee bestanden naast elkaar in één map
+# kunnen staan zonder elkaars signalering in de weg te zitten. Geen COMM-frame:
+# deze fixture bestaat om zijn hoes.
+"${FF[@]}" -f lavfi -i "color=c=0xa53a3a:s=500x500" -frames:v 1 -update 1 -bitexact andere-cover.png
+"${FF[@]}" "${STILTE[@]}" -i andere-cover.png -c:a libmp3lame -q:a 9 -bitexact \
+  -map 0:a -map 1:v -c:v copy -disposition:v attached_pic \
+  -metadata:s:v title="Album cover" -metadata:s:v comment="Cover (front)" \
+  -id3v2_version 4 -write_id3v1 0 \
+  -metadata title="Ruis in B" \
+  -metadata artist="De Testartiest" \
+  -metadata album_artist="De Albumartiest" \
+  -metadata album="Fixtures voor Sleeve" \
+  -metadata track="4/12" \
+  -metadata disc="1/2" \
+  -metadata date="2024" \
+  -metadata genre="Ambient" \
+  -metadata composer="De Componist" \
+  tagged-with-other-art.mp3
+
 echo "MP3 met uitsluitend een ID3v1-tag"
 "${FF[@]}" "${STILTE[@]}" -c:a libmp3lame -q:a 9 -bitexact \
   -write_id3v1 1 "${TAGS[@]}" id3v1-only.mp3

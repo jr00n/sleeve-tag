@@ -612,19 +612,15 @@ fn mime_of(picture: &Picture) -> String {
         .unwrap_or_else(|| "application/octet-stream".to_string())
 }
 
-/// Leest de afmetingen uit de header van de afbeelding.
+/// Beschrijft de hoes zonder de pixels uit te pakken.
 ///
-/// `into_dimensions` leest alleen de header en decodeert de pixels niet. Dat is
-/// wat de maplijst nodig heeft: die toont per bestand of er art is en hoe groot,
-/// en mag daarvoor geen dertig afbeeldingen uitpakken.
+/// De afmetingen komen uit [`crate::art`], want dat is de enige module die aan
+/// afbeeldingen raakt; hier gaan alleen de ruwe bytes uit het bestand naartoe.
+/// Er wordt daar alleen de header gelezen: de maplijst toont per bestand of er
+/// art is en hoe groot, en mag daarvoor geen dertig afbeeldingen uitpakken.
 fn describe_art(picture: &Picture) -> Option<ArtInfo> {
     let data = picture.data();
-
-    let (width, height) = image::ImageReader::new(std::io::Cursor::new(data))
-        .with_guessed_format()
-        .ok()?
-        .into_dimensions()
-        .ok()?;
+    let (width, height) = crate::art::dimensions(data).ok()?;
 
     Some(ArtInfo {
         mime: mime_of(picture),

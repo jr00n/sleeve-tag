@@ -92,13 +92,16 @@ pub struct TrackSummary {
     /// `MP3` of `FLAC`.
     pub format: String,
 
-    /// Of er een embedded hoes in het bestand zit.
+    /// Wat er over de embedded hoes bekend is; `None` wanneer het bestand er
+    /// geen heeft.
     ///
-    /// Bepaalt of de lijst een afbeelding of een placeholder toont; zo hoeft de
-    /// browser geen verzoek te doen dat toch een 404 oplevert.
-    pub has_art: bool,
+    /// De maplijst gebruikt alleen het bestaan ervan — dat bepaalt of ze een
+    /// afbeelding of een placeholder toont, zodat de browser geen verzoek doet
+    /// dat toch een 404 oplevert. De signalering kijkt naar de inhoud: twee
+    /// tracks van hetzelfde album horen dezelfde hoes te hebben.
+    pub art: Option<crate::tags::ArtInfo>,
 
-    /// URL van de verkleinde hoes. Alleen zinvol wanneer `has_art` waar is.
+    /// URL van de verkleinde hoes. Alleen zinvol wanneer er een hoes is.
     pub art_url: String,
 
     /// URL van het bewerkformulier van dit bestand.
@@ -110,6 +113,11 @@ pub struct TrackSummary {
 }
 
 impl TrackSummary {
+    /// Of er een embedded hoes in dit bestand zit.
+    pub fn has_art(&self) -> bool {
+        self.art.is_some()
+    }
+
     /// Het tracknummer, of een lege tekst wanneer het ontbreekt.
     ///
     /// Bewust leeg en niet `—`: in een smalle kolom vóór de titel is een streepje
@@ -254,7 +262,7 @@ fn summarize(entry: &DirEntry, directory: &str) -> Option<TrackSummary> {
         name: entry.name.clone(),
         duration: format_duration(track.duration),
         format: track.format.to_string(),
-        has_art: track.art.is_some(),
+        art: track.art,
         tags: track.tags,
         // Wordt hierna ingevuld: wat er aan één bestand mankeert hangt mede af
         // van de rest van de map.
@@ -271,7 +279,7 @@ fn review(tracks: &mut [TrackSummary]) -> Vec<FolderIssue> {
         .iter()
         .map(|track| checks::Entry {
             tags: &track.tags,
-            has_art: track.has_art,
+            art: track.art.as_ref(),
         })
         .collect();
 
@@ -393,6 +401,14 @@ pub fn edit_url(path: &str) -> String {
 /// De URL van de hoes op ware grootte.
 pub fn art_url(path: &str) -> String {
     format!("/art/{}", encode(path))
+}
+
+/// De URL van de hoesweergave van één bestand (FR-12).
+///
+/// Niet te verwarren met [`art_url`]: dat is de afbeelding zelf, dit is de
+/// pagina eromheen.
+pub fn cover_url(path: &str) -> String {
+    format!("/hoes/{}", encode(path))
 }
 
 /// Broodkruimels tot en met de map waarin dit bestand staat.
@@ -651,7 +667,7 @@ mod tests {
         assert_eq!(track.artist_label(), MISSING);
         assert_eq!(track.album_label(), MISSING);
         assert_eq!(track.format, "FLAC");
-        assert!(!track.has_art);
+        assert!(!track.has_art());
     }
 
     #[test]
@@ -662,7 +678,7 @@ mod tests {
         let listing = album_listing(&library, "");
         let track = &listing.tracks[0];
 
-        assert!(track.has_art, "de fixture heeft een hoes");
+        assert!(track.has_art(), "de fixture heeft een hoes");
         assert_eq!(
             track.art_url, "/art/Artiest/Album/hoes.mp3?size=thumb",
             "de lijst hoort de verkleinde variant op te vragen"

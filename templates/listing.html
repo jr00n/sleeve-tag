@@ -37,7 +37,7 @@
        ook maar één hoes binnen is, en er verschuift niets na wanneer ze
        aankomen. Bestanden zonder hoes doen geen verzoek dat toch een 404 zou
        opleveren; die krijgen de placeholder. #}
-    {% if track.has_art %}
+    {% if track.has_art() %}
     <img class="track__hoes" src="{{ track.art_url }}" alt=""
          width="40" height="40" loading="lazy" decoding="async" />
     {% else %}

@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+
+{% block title %}Hoes — {{ page.name }} — Sleeve{% endblock %}
+
+{% block inhoud %}
+<nav class="kruimels" aria-label="Broodkruimelpad">
+  {% for crumb in page.crumbs %}
+  <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
+  <span class="kruimels__scheiding" aria-hidden="true">/</span>
+  {% endfor %}
+  <span class="kruimels__huidig" aria-current="page">Hoes</span>
+</nav>
+
+<h1 class="maptitel">{{ page.name }}</h1>
+
+{% if let Some(details) = page.details %}
+{# De hoes zo groot als het scherm toelaat: op een thumbnail is niet te zien of
+   een afbeelding scherp is, en daar gaat deze pagina juist over. #}
+<div class="hoes">
+  <img class="hoes__afbeelding" src="{{ page.art_url }}"
+       alt="De embedded hoes van {{ page.name }}"
+       width="{{ details.width }}" height="{{ details.height }}" decoding="async" />
+
+  <dl class="hoes__feiten">
+    <div class="hoes__feit">
+      <dt class="hoes__label">Formaat</dt>
+      <dd class="hoes__waarde">{{ details.format }} <span class="hoes__mime">({{ details.mime }})</span></dd>
+    </div>
+    <div class="hoes__feit">
+      <dt class="hoes__label">Afmetingen</dt>
+      <dd class="hoes__waarde">
+        {{ details.dimensions() }}
+        {% if !details.is_square() %}
+        {# Vrijwel elke speler toont een hoes in een vierkant vak; dat deze dat
+           niet is, is geen fout maar wel iets om te weten. #}
+        <span class="hoes__kanttekening">· niet vierkant</span>
+        {% endif %}
+      </dd>
+    </div>
+    <div class="hoes__feit">
+      <dt class="hoes__label">Grootte</dt>
+      <dd class="hoes__waarde">{{ details.size }}</dd>
+    </div>
+  </dl>
+</div>
+{% else %}
+<div class="melding" role="status">
+  <p class="melding__regel">Dit bestand heeft geen embedded hoes.</p>
+  <p class="melding__regel">
+    Een hoes toevoegen kan nog niet; dat komt in een volgende stap. Sleeve raakt
+    niets aan wat je niet zelf hebt ingevuld, dus zolang die er niet is, blijft
+    het bestand zoals het is.
+  </p>
+</div>
+{% endif %}
+
+<div class="knoppen">
+  <a class="knop" href="{{ page.edit_url }}">Terug naar het bestand</a>
+  {% if page.has_art() %}
+  <a class="knop" href="{{ page.art_url }}">De afbeelding zelf</a>
+  {% endif %}
+</div>
+{% endblock %}

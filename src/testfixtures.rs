@@ -15,6 +15,11 @@ pub const MP3_WITHOUT_TAGS: &str = "untagged.mp3";
 pub const MP3_WITH_TAGS: &str = "tagged.mp3";
 /// MP3 met volledige tags én een embedded front cover.
 pub const MP3_WITH_ART: &str = "tagged-with-art.mp3";
+/// MP3 met een àndere embedded front cover dan [`MP3_WITH_ART`].
+///
+/// Andere afmetingen en een ander type, zodat twee bestanden in één map de
+/// signalering "verschillende hoezen" uitlokken (FR-12).
+pub const MP3_WITH_OTHER_ART: &str = "tagged-with-other-art.mp3";
 /// MP3 met uitsluitend een ID3v1-tag, zonder ID3v2.
 pub const MP3_ID3V1_ONLY: &str = "id3v1-only.mp3";
 /// MP3 waarvan de ID3v1-tag andere waarden bevat dan de ID3v2-tag.
@@ -33,12 +38,15 @@ pub const FLAC_WITH_ART: &str = "tagged-with-art.flac";
 /// Losse coverafbeeldingen, voor het testen van uploaden en embedden.
 pub const COVER_JPEG: &str = "cover.jpg";
 pub const COVER_PNG: &str = "cover.png";
+/// De grotere, afwijkende afbeelding die in [`MP3_WITH_OTHER_ART`] zit.
+pub const OTHER_COVER_PNG: &str = "andere-cover.png";
 
 /// Alle fixtures, zodat een test kan controleren dat er niets ontbreekt.
 pub const ALL_FIXTURES: &[&str] = &[
     MP3_WITHOUT_TAGS,
     MP3_WITH_TAGS,
     MP3_WITH_ART,
+    MP3_WITH_OTHER_ART,
     MP3_ID3V1_ONLY,
     MP3_ID3V1_INCONSISTENT,
     FLAC_WITHOUT_TAGS,
@@ -46,6 +54,7 @@ pub const ALL_FIXTURES: &[&str] = &[
     FLAC_WITH_ART,
     COVER_JPEG,
     COVER_PNG,
+    OTHER_COVER_PNG,
 ];
 
 /// Pad naar een fixture in de repo.

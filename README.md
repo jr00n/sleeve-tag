@@ -169,6 +169,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
 | `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand en de hulpacties |
 | `casing` | Hoofdlettergebruik van een tagwaarde normaliseren; kent geen tags en geen bestanden |
+| `cover` | De hoesweergave van één bestand: formaat, afmetingen en grootte als leesbare tekst |
 | `web` | Axum-router, handlers en askama-templates |
 
 Daarnaast: `templates/` met de askama-templates en `static/` met de assets.
@@ -424,6 +425,26 @@ reden staat erbij.
 De tabel is breder dan een telefoonscherm en scrollt daarom horizontaal binnen
 zijn eigen rand; de kolom met de bestandsnaam blijft daarbij staan, want zonder
 die naam is niet te zien wat je aanvinkt.
+
+### Hoesweergave: wat er werkelijk in zit
+
+Een thumbnail van veertig pixels verraadt niet of de hoes eronder 300×300 of
+3000×3000 is, en of daar een halve megabyte in gaat zitten. `/hoes/<pad>`,
+bereikbaar door op de hoes of de link "hoes" op de bewerkpagina te klikken, toont
+de afbeelding zo groot als het scherm toelaat, met het formaat (JPEG, PNG, …),
+de afmetingen in pixels en de bestandsgrootte erbij. Is de hoes niet vierkant,
+dan staat dat er ook: vrijwel elke speler toont hem in een vierkant vak, en daar
+wordt hij dan bijgesneden of uitgerekt.
+
+Een bestand zonder hoes levert geen 404 op maar dezelfde pagina met de
+mededeling dat er niets in zit. Dat is straks de plek om er een toe te voegen.
+
+De feiten komen uit dezelfde leesronde als de tags: er wordt alleen de header van
+de afbeelding gelezen, niet de pixels. Dat is ook wat de maplijst gebruikt om te
+signaleren dat de tracks in een map **verschillende hoezen** hebben — vergeleken
+op type, afmetingen en omvang, want twee hoezen die daarin gelijk zijn, zijn in
+de praktijk dezelfde afbeelding. Bestanden zonder hoes tellen daarbij niet mee;
+die hebben hun eigen melding.
 
 ### Geavanceerde weergave: alle ruwe tags
 
