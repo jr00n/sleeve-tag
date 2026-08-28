@@ -4,7 +4,7 @@ title: 'Album art detailweergave met formaat, afmetingen en bestandsgrootte (FR-
 status: Done
 assignee: []
 created_date: '2026-08-26 22:25'
-updated_date: '2026-08-28 12:44'
+updated_date: '2026-08-28 13:12'
 labels: []
 milestone: m-4
 dependencies:
@@ -47,7 +47,7 @@ Deze weergave is het startpunt van alle art-acties in fase 4: vervangen, verklei
 <!-- AC:BEGIN -->
 - [x] #1 De huidige embedded front cover van een bestand is groot te bekijken
 - [x] #2 Bij de afbeelding worden formaat (JPEG/PNG), afmetingen in pixels en bestandsgrootte getoond
-- [ ] #3 Voor een bestand zonder embedded art toont de weergave dat expliciet, met de mogelijkheid om art toe te voegen
+- [x] #3 Voor een bestand zonder embedded art toont de weergave dat expliciet, met de mogelijkheid om art toe te voegen
 - [x] #4 Wanneer de tracks in een map verschillende art hebben, is dat zichtbaar
 - [x] #5 Een integratietest controleert de getoonde eigenschappen voor een fixture met embedded art
 <!-- AC:END -->
@@ -95,6 +95,16 @@ AC #3 is half: de weergave toont expliciet dat er geen hoes is, maar er art
 kunnen toevoegen is FR-13 en hoort bij task-21. De plek en de tekst staan er
 klaar voor.
 <!-- SECTION:NOTES:END -->
+
+## Comments
+
+<!-- COMMENTS:BEGIN -->
+author: Claude
+created: 2026-08-28 13:12
+---
+AC #3 is nu volledig: task-21 heeft het uploadformulier op deze pagina gezet, dus een bestand zonder hoes toont niet alleen dát er geen is maar biedt ook de manier om er een toe te voegen.
+---
+<!-- COMMENTS:END -->
 
 ## Final Summary
 
