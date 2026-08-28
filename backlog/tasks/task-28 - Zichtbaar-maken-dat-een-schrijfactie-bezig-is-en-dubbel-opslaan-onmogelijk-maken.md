@@ -3,11 +3,11 @@ id: TASK-28
 title: >-
   Zichtbaar maken dat een schrijfactie bezig is, en dubbel opslaan onmogelijk
   maken
-status: In Progress
+status: Done
 assignee:
   - claude
 created_date: '2026-08-28 20:08'
-updated_date: '2026-08-28 20:13'
+updated_date: '2026-08-28 21:35'
 labels: []
 milestone: m-5
 dependencies: []
@@ -43,7 +43,7 @@ Deze taak lost de zichtbaarheid op, niet de duur. Het versnellen van de kopie (r
 - [x] #4 Alleen schrijfacties krijgen deze behandeling; hulpacties als hernummeren, selecteren en annuleren blijven meteen reageren
 - [x] #5 De knopwaarde (name=actie) wordt nog steeds meegestuurd — uitschakelen mag de inhoud van het verzoek niet veranderen
 - [x] #6 Zonder JavaScript blijft het formulier gewoon werken; de bezig-weergave is een toevoeging en geen voorwaarde
-- [ ] #7 Terugkeren naar de pagina met de terug-knop van de browser laat geen uitgeschakelde knop achter
+- [x] #7 Terugkeren naar de pagina met de terug-knop van de browser laat geen uitgeschakelde knop achter
 - [x] #8 De spinner respecteert prefers-reduced-motion
 <!-- AC:END -->
 
@@ -118,4 +118,6 @@ De valkuil zat in `name="actie"`: een knop die uitgeschakeld wordt vóórdat de 
 AC #7 (terug-knop) is in code afgehandeld met een `pageshow`-luisteraar op `event.persisted`, die de klasse, de uitgeschakelde knoppen, de melding en het oorspronkelijke opschrift (bewaard in `data-was`) terugzet. Niet in een echte browser geverifieerd: de Chrome-extensie was in deze sessie niet verbonden. Het blijft daarom als enige criterium open tot de eigenaar het op de NAS heeft geprobeerd.
 
 Getest met `tests/busy.rs` — zes tests over de echte binary: het script wordt lokaal geserveerd, elke pagina laadt het, de schrijvende knoppen dragen de markering met hun tekst, en de hulpacties juist niet. Wat in de browser gebeurt valt buiten het bereik van een test zonder browser; `node --check` bevestigt in elk geval de syntaxis.
+
+AC #7 bevestigd door de eigenaar op 2026-08-28: na een opslagactie en daarna de terug-knop van de browser staat de knop weer normaal. De `pageshow`-luisteraar op `event.persisted` doet dus wat hij moest doen.
 <!-- SECTION:NOTES:END -->

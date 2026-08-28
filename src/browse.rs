@@ -406,6 +406,18 @@ pub fn edit_url(path: &str) -> String {
     format!("/bewerk/{}", encode(path))
 }
 
+/// Wie het bewerkformulier heeft geopend, zodat de weg terug erheen leidt.
+///
+/// Zonder dit komt iedereen op de maplijst uit, ook wie uit de albumweergave
+/// kwam — en juist daar heeft de gebruiker net een selectie gemaakt waar hij
+/// naar terug wil.
+pub const FROM_ALBUM: &str = "album";
+
+/// De URL van het bewerkformulier, met de albumweergave als herkomst.
+pub fn edit_url_from_album(path: &str) -> String {
+    format!("{}?terug={FROM_ALBUM}", edit_url(path))
+}
+
 /// De URL van de hoes op ware grootte.
 pub fn art_url(path: &str) -> String {
     format!("/art/{}", encode(path))

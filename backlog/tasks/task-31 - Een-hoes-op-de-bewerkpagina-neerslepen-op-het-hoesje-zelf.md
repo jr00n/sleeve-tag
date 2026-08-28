@@ -1,11 +1,11 @@
 ---
 id: TASK-31
 title: 'Een hoes op de bewerkpagina neerslepen, op het hoesje zelf'
-status: In Progress
+status: Done
 assignee:
   - claude
 created_date: '2026-08-28 21:01'
-updated_date: '2026-08-28 21:02'
+updated_date: '2026-08-28 21:35'
 labels: []
 milestone: m-6
 dependencies:
@@ -29,24 +29,24 @@ Het slepen mag niets schrijven. Neerzetten laat zien wát er klaarstaat; wat erm
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Een afbeelding op het hoesje van de bewerkpagina slepen zet hem klaar, met een voorbeeldweergave en de bestandsnaam
-- [ ] #2 Tijdens het slepen laat het hoesje zien dat het bestand daar losgelaten kan worden
-- [ ] #3 Er wordt niets geschreven zonder klik: neerzetten zet de afbeelding klaar, een knop bevestigt
-- [ ] #4 Na het embedden komt de gebruiker op de hoespagina uit, met het rapport van wat er gebeurd is
-- [ ] #5 De ingevulde tagvelden gaan niet mee met de hoesactie, en een hoesactie slaat geen tags op
-- [ ] #6 Ook een bestand zonder hoes is een doel om iets op te slepen
-- [ ] #7 Te groot of geen JPEG/PNG geeft dezelfde melding als op de hoespagina, vóór er iets verstuurd wordt
-- [ ] #8 De hoespagina blijft bereikbaar voor wat daar meer kan: alle tracks, en de losse cover.jpg
-- [ ] #9 Zonder JavaScript verandert er niets aan de bewerkpagina
+- [x] #1 Een afbeelding op het hoesje van de bewerkpagina slepen zet hem klaar, met een voorbeeldweergave en de bestandsnaam
+- [x] #2 Tijdens het slepen laat het hoesje zien dat het bestand daar losgelaten kan worden
+- [x] #3 Er wordt niets geschreven zonder klik: neerzetten zet de afbeelding klaar, een knop bevestigt
+- [x] #4 Na het embedden blijft de gebruiker op de bewerkpagina: het hoesje ververst zich en de uitkomst komt eronder te staan (herzien tijdens de uitvoering; de oorspronkelijke opzet ging naar de hoespagina en vaagde niet-opgeslagen tagvelden weg)
+- [x] #5 De ingevulde tagvelden gaan niet mee met de hoesactie, en een hoesactie slaat geen tags op
+- [x] #6 Ook een bestand zonder hoes is een doel om iets op te slepen
+- [x] #7 Te groot of geen JPEG/PNG geeft dezelfde melding als op de hoespagina, vóór er iets verstuurd wordt
+- [x] #8 De hoespagina blijft bereikbaar voor wat daar meer kan: alle tracks, en de losse cover.jpg
+- [x] #9 Zonder JavaScript verandert er niets aan de bewerkpagina: dan post het formulier gewoon en volgt de hoespagina met het rapport
 <!-- AC:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 cargo fmt --check slaagt
-- [ ] #2 cargo clippy -- -D warnings slaagt
-- [ ] #3 cargo test slaagt zonder toegang tot de echte muziekbibliotheek
-- [ ] #4 Nieuwe of gewijzigde functionaliteit is gedekt door unit- of integratietests
-- [ ] #5 Relevante documentatie (README / CLAUDE.md) is bijgewerkt
+- [x] #1 cargo fmt --check slaagt
+- [x] #2 cargo clippy -- -D warnings slaagt
+- [x] #3 cargo test slaagt zonder toegang tot de echte muziekbibliotheek
+- [x] #4 Nieuwe of gewijzigde functionaliteit is gedekt door unit- of integratietests
+- [x] #5 Relevante documentatie (README / CLAUDE.md) is bijgewerkt
 <!-- DOD:END -->
 
 ## Implementation Plan
@@ -86,3 +86,27 @@ De losse `cover.jpg` en "alle tracks". Die vragen om keuzes (overschrijven?
 hoeveel bestanden?) die op de hoespagina thuishoren, en die pagina blijft één
 klik weg. Deze snelkoppeling dekt het gewone geval: één hoes, dit ene bestand.
 <!-- SECTION:PLAN:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Bevestigd door de eigenaar op 2026-08-28: het hoesje ververst zich ter plekke en de ingevulde tagvelden blijven staan.
+
+Twee dingen kwamen uit dit testen. Ten eerste landde je na het embedden op de hoespagina, wat niet-opgeslagen tagvelden wegvaagde; het formulier gaat nu op de achtergrond (commit 9d460d9). Ten tweede stond de knop 'In dit bestand zetten' altijd in beeld: `hidden` is niet meer dan `display: none` uit de standaardstijl, en mijn eigen `display: flex` won ervan. Opgelost met één regel bovenaan app.css plus een test die vastlegt dat hij er staat (commit 5fdf6d3).
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Het hoesje op de bewerkpagina is een sleepdoel geworden. Een afbeelding erop zetten laat een miniatuur zien met één knop eronder; die knop schrijft.
+
+**Geen tweede route.** Het formulier rond het hoesje post naar dezelfde `/hoes/{pad}` die de hoespagina gebruikt, met `actie=embed-dit`. Het staat náást het tagformulier en niet erin: geneste formulieren bestaan niet in HTML, en een hoesactie hoort geen tags mee te sturen. Een test bewaakt die volgorde.
+
+**Herzien tijdens de uitvoering.** De eerste opzet liet je na het embedden op de hoespagina uitkomen, met het volledige rapport. Bij het proberen bleek dat een gevolg te hebben dat ik niet had voorzien: tagvelden die je had ingevuld maar nog niet opgeslagen, gingen bij die navigatie verloren. Het formulier gaat nu op de achtergrond — het hoesje ververst zich, de uitkomst komt eronder te staan, en je invoer blijft staan. Zonder JavaScript post het gewoon en volgt alsnog de hoespagina.
+
+De uitkomst wordt uit het antwoord gelezen en niet uit de HTTP-status: Sleeve rendert bij een mislukt bestand nog steeds een pagina met status 200, en dan hoort er geen "gelukt" te verschijnen.
+
+**Twee fouten uit het testen.** Een te grote afbeelding leverde een dode pagina op (opgelost met een controle in de browser, TASK-30). En de knop stond altijd in beeld: `hidden` is niet meer dan `display: none` uit de standaardstijl van de browser, en mijn eigen `display: flex` won ervan — verholpen met één regel bovenaan `app.css`, plus een test die vastlegt dat hij er staat.
+
+**Bevestigd door de eigenaar** op 2026-08-28: slepen werkt, het hoesje ververst zich ter plekke, en de tagvelden blijven staan.
+<!-- SECTION:FINAL_SUMMARY:END -->

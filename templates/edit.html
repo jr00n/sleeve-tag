@@ -175,9 +175,9 @@
     {# `data-bezig` markeert de knoppen die werkelijk schrijven: die kunnen bij
        een groot bestand minuten duren. De tekst is wat de knop dan toont. #}
     <button class="knop knop--primair" type="submit" data-bezig="Bezig met opslaan…">Opslaan</button>
-    {% if !page.crumbs.is_empty() %}
-    <a class="knop" href="{{ page.crumbs[page.crumbs.len() - 1].url }}">Terug naar de map</a>
-    {% endif %}
+    {# Terug naar waar de gebruiker vandaan kwam: de maplijst, of de
+       albumweergave waar hij net een selectie had staan. #}
+    <a class="knop" href="{{ page.back_url }}">{{ page.back_label }}</a>
   </div>
 </form>
 {% endblock %}

@@ -394,3 +394,66 @@ fn embedding_from_the_edit_page_still_works_without_javascript() {
         "er zit geen JPEG in het bestand"
     );
 }
+
+#[test]
+fn the_way_back_leads_where_the_user_came_from() {
+    // Wie uit de albumweergave komt, heeft daar net een selectie gemaakt en wil
+    // daarheen terug — niet naar de kale maplijst.
+    let server = Server::start_in(library_with_a_track(), &[]);
+
+    let vanuit_album = server.get("/bewerk/Album/track.mp3?terug=album");
+    assert!(
+        vanuit_album.contains(r#"href="/album/Album""#),
+        "de weg terug wijst niet naar de albumweergave:\n{vanuit_album}"
+    );
+    assert!(
+        vanuit_album.contains("Terug naar de albumweergave"),
+        "het opschrift klopt niet:\n{vanuit_album}"
+    );
+
+    // En zonder die herkomst blijft alles zoals het was.
+    let vanuit_map = server.get("/bewerk/Album/track.mp3");
+    assert!(
+        vanuit_map.contains(r#"href="/map/Album""#),
+        "de weg terug wijst niet naar de map:\n{vanuit_map}"
+    );
+    assert!(
+        vanuit_map.contains("Terug naar de map"),
+        "het opschrift klopt niet:\n{vanuit_map}"
+    );
+}
+
+#[test]
+fn the_way_back_survives_a_save() {
+    // Het formulier post naar dezelfde URL, dus de herkomst hoort daarin te
+    // blijven staan; anders sta je na het opslaan ineens op de maplijst.
+    let server = Server::start_in(library_with_a_track(), &[]);
+
+    let page = server.get("/bewerk/Album/track.mp3?terug=album");
+    assert!(
+        page.contains(r#"action="/bewerk/Album/track.mp3?terug=album""#),
+        "het formulier verliest de herkomst:\n{page}"
+    );
+
+    let saved = server.post_form(
+        "/bewerk/Album/track.mp3?terug=album",
+        &fields("Nieuwe titel", "3"),
+    );
+    assert!(
+        saved.contains("Terug naar de albumweergave"),
+        "na het opslaan is de weg terug kwijt:\n{saved}"
+    );
+}
+
+#[test]
+fn the_album_view_links_back_to_itself() {
+    // De link in de albumtabel draagt de herkomst mee; anders weet het
+    // bewerkformulier niet waar het vandaan komt.
+    let server = Server::start_in(library_with_a_track(), &[]);
+    let page = server.get("/album/Album");
+
+    assert!(
+        page.contains("/bewerk/Album/track.mp3?terug=album"),
+        "de albumweergave wijst niet terug naar zichzelf:\n{page}"
+    );
+}

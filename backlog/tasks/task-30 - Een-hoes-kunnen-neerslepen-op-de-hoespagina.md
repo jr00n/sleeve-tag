@@ -1,11 +1,11 @@
 ---
 id: TASK-30
 title: Een hoes kunnen neerslepen op de hoespagina
-status: In Progress
+status: Done
 assignee:
   - claude
 created_date: '2026-08-28 20:21'
-updated_date: '2026-08-28 20:46'
+updated_date: '2026-08-28 21:35'
 labels: []
 milestone: m-6
 dependencies: []
@@ -100,6 +100,8 @@ Slepen vult het bestaande bestandsveld en verder niets: de vinkjes en de knoppen
 De bestaande test `a_file_without_art_says_so_on_its_cover_page` sloeg aan op mijn eerste versie: die bewaakt dat een bestand zónder hoes geen enkele `<img>` krijgt, en ik had een lege voorbeeld-`<img>` in de template gezet. Terecht — de voorbeeldweergave wordt nu door `app.js` gemaakt op het moment dat er iets te tonen valt.
 
 Niet in een echte browser geverifieerd: de Chrome-extensie is in deze sessie niet verbonden. Er draait wel een verse instantie op http://localhost:18090 met een testbibliotheek (nooit de echte), zodat de eigenaar het slepen zelf kan proberen.
+
+Bevestigd door de eigenaar op 2026-08-28: het slepen werkt. Onderweg kwam er één echte fout uit dit testen — een afbeelding boven MAX_UPLOAD_MB leverde een dode pagina op omdat de server antwoordt terwijl de browser nog verstuurt. Opgelost in commit 32c7811 met een controle in de browser, vóór er een byte de deur uit gaat.
 <!-- SECTION:NOTES:END -->
 
 ## Final Summary

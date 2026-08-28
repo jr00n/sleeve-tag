@@ -160,6 +160,14 @@ pub struct EditPage {
     /// Bevestiging of foutmelding; leeg bij het openen van de pagina.
     pub notice: Option<Notice>,
 
+    /// Waar de knop "terug" heen leidt, en hoe hij heet.
+    ///
+    /// Wie uit de albumweergave komt, heeft daar net een selectie gemaakt en
+    /// wil daarheen terug; wie uit de maplijst komt, naar de map. Welke van de
+    /// twee het is, staat in de URL waarmee deze pagina is geopend.
+    pub back_url: String,
+    pub back_label: String,
+
     /// De bovengrens aan een upload in megabytes, uit `MAX_UPLOAD_MB`.
     ///
     /// Nodig omdat er ook op deze pagina een hoes neergezet kan worden. De

@@ -769,11 +769,23 @@ struct EditTemplate {
 }
 
 /// Toont het formulier met de waarden die nu in het bestand staan.
+/// Waar de gebruiker vandaan kwam toen hij dit formulier opende.
+///
+/// Alleen om de weg terug te wijzen. Wat er niet in staat, is de selectie die
+/// hij in de albumweergave had: die leeft in een verstuurd formulier en niet in
+/// een URL. De terug-knop van de browser brengt hem daar wél compleet terug.
+#[derive(Debug, Default, serde::Deserialize)]
+struct EditQuery {
+    #[serde(default)]
+    terug: String,
+}
+
 async fn edit_form(
     State(state): State<AppState>,
     Path(path): Path<String>,
+    Query(query): Query<EditQuery>,
 ) -> Result<Html<String>, WebError> {
-    let page = load_page(&state, path, None, None).await?;
+    let page = load_page(&state, path, &query.terug, None, None).await?;
     Ok(Html(EditTemplate { page }.render()?))
 }
 
@@ -791,6 +803,7 @@ async fn edit_form(
 async fn save_tags(
     State(state): State<AppState>,
     Path(path): Path<String>,
+    Query(query): Query<EditQuery>,
     Form(fields): Form<edit::Form>,
 ) -> Result<Html<String>, WebError> {
     // Eerst de invoer, dan pas het bestand: een typefout in een tracknummer
@@ -798,8 +811,14 @@ async fn save_tags(
     let wanted = match fields.to_tags() {
         Ok(tags) => tags,
         Err(problems) => {
-            let page =
-                load_page(&state, path, Some(fields), Some(Notice::Failed(problems))).await?;
+            let page = load_page(
+                &state,
+                path,
+                &query.terug,
+                Some(fields),
+                Some(Notice::Failed(problems)),
+            )
+            .await?;
             return Ok(Html(EditTemplate { page }.render()?));
         }
     };
@@ -832,6 +851,7 @@ async fn save_tags(
             let page = load_page(
                 &state,
                 path,
+                &query.terug,
                 Some(fields),
                 Some(Notice::Failed(vec![format!(
                     "Er is niets opgeslagen: {error}. Het bestand is onveranderd gebleven."
@@ -842,7 +862,7 @@ async fn save_tags(
         }
     };
 
-    let page = load_page(&state, path, None, Some(notice)).await?;
+    let page = load_page(&state, path, &query.terug, None, Some(notice)).await?;
     Ok(Html(EditTemplate { page }.render()?))
 }
 
@@ -855,6 +875,7 @@ async fn save_tags(
 async fn load_page(
     state: &AppState,
     path: String,
+    origin: &str,
     fields: Option<edit::Form>,
     notice: Option<Notice>,
 ) -> Result<EditPage, WebError> {
@@ -867,10 +888,30 @@ async fn load_page(
     })
     .await??;
 
+    let from_album = origin == browse::FROM_ALBUM;
+    let parent = browse::parent_of(&path);
+
     Ok(EditPage {
         name: browse::name_of_file(&path).to_string(),
         crumbs: browse::crumbs_to_parent(&path),
-        url: browse::edit_url(&path),
+        // De herkomst blijft in het adres staan, ook na het opslaan: het
+        // formulier post naar deze URL, en de weg terug hoort daarna nog
+        // dezelfde te zijn.
+        url: if from_album {
+            browse::edit_url_from_album(&path)
+        } else {
+            browse::edit_url(&path)
+        },
+        back_url: if from_album {
+            browse::album_url(parent)
+        } else {
+            browse::url_for(parent)
+        },
+        back_label: if from_album {
+            "Terug naar de albumweergave".to_string()
+        } else {
+            "Terug naar de map".to_string()
+        },
         raw_url: browse::raw_tags_url(&path),
         art_url: browse::art_url(&path),
         has_art: track.art.is_some(),

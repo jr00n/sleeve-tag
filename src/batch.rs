@@ -1443,7 +1443,9 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
                 .disc
                 .map(|number| number.to_string())
                 .unwrap_or_else(|| EMPTY.to_string()),
-            edit_url: track.edit_url.clone(),
+            // Met de herkomst erbij: wie hiervandaan een bestand bewerkt, wil
+            // terug naar deze weergave en niet naar de kale maplijst.
+            edit_url: crate::browse::edit_url_from_album(&track.path),
         })
         .collect();
 
