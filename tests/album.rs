@@ -62,8 +62,15 @@ fn the_album_view_opens_with_everything_selected() {
     assert!(is_ticked(&page, "een.mp3"), "{page}");
     assert!(is_ticked(&page, "twee.mp3"), "{page}");
 
-    // Alle vijf de gedeelde velden uit FR-8 staan er.
-    for label in ["Albumartiest", "Album", "Jaar", "Genre", "Discnummer"] {
+    // Alle gedeelde velden uit FR-8 staan er.
+    for label in [
+        "Albumartiest",
+        "Album",
+        "Jaar",
+        "Genre",
+        "Discnummer",
+        "Aantal discs",
+    ] {
         assert!(page.contains(label), "veld '{label}' ontbreekt:\n{page}");
     }
 }
@@ -305,7 +312,16 @@ fn the_helper_actions_are_offered_on_the_page() {
     let page = server.get("/album/Album");
 
     assert_ok(&page);
-    for action in ["hernummer", "artiest", "hoofdletters", "herstel"] {
+    for action in [
+        "hernummer",
+        "hernummer-disc",
+        "disc",
+        "disctotaal",
+        "titelnaam",
+        "artiest",
+        "hoofdletters",
+        "herstel",
+    ] {
         assert!(
             page.contains(&format!("name=\"actie\" value=\"{action}\"")),
             "hulpactie '{action}' ontbreekt:\n{page}"
@@ -419,7 +435,16 @@ fn only_the_preview_route_writes() {
     assert_ok(&page);
 
     // AC #4: ook een hulpactie vult alleen de invoervelden.
-    for action in ["hernummer", "artiest", "hoofdletters", "herstel"] {
+    for action in [
+        "hernummer",
+        "hernummer-disc",
+        "disc",
+        "disctotaal",
+        "titelnaam",
+        "artiest",
+        "hoofdletters",
+        "herstel",
+    ] {
         let page = server.post_form(
             "/album/Album",
             &[
@@ -435,6 +460,88 @@ fn only_the_preview_route_writes() {
         let now = std::fs::read(album.join(name)).expect("bestand moet leesbaar zijn");
         assert_eq!(now, original, "{name} is aangeraakt en dat hoort niet");
     }
+}
+
+/// Een map met bestanden zonder tags, maar met sprekende namen.
+///
+/// Daarmee is te zien wat de vier hulpacties rond schijven en bestandsnamen
+/// doen: er staat nog nergens een discnummer, en de titel staat alleen nog in
+/// de naam.
+fn library_with_untagged_names() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "01-Eerste_stuk.mp3", "untagged.mp3");
+    place_fixture(&album, "02-Tweede_stuk.mp3", "untagged.mp3");
+
+    root
+}
+
+#[test]
+fn a_title_can_be_read_from_the_file_name() {
+    // AC #4: zonder titeltag is de bestandsnaam de enige plek waar hij staat.
+    let server = Server::start_in(library_with_untagged_names(), &[]);
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "titelnaam"),
+            ("bestand", "01-Eerste_stuk.mp3"),
+            ("bestand", "02-Tweede_stuk.mp3"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(
+        is_proposed(&page, "titel:01-Eerste_stuk.mp3", "Eerste stuk"),
+        "{page}"
+    );
+    assert!(
+        is_proposed(&page, "titel:02-Tweede_stuk.mp3", "Tweede stuk"),
+        "{page}"
+    );
+    assert!(page.contains("Er is niets opgeslagen"), "{page}");
+}
+
+#[test]
+fn a_disc_number_and_a_disc_total_are_one_click_away() {
+    // AC #2 en #3: het nummer staat vooraf op de knop, en het totaal geldt voor
+    // de hele map.
+    let server = Server::start_in(library_with_untagged_names(), &[]);
+
+    let page = server.get("/album/Album");
+    assert_ok(&page);
+    // Er is nog geen schijf in gebruik, dus de eerstvolgende vrije is 1.
+    assert!(page.contains("Deze schijf nummer 1 geven"), "{page}");
+
+    let numbered = server.post_form(
+        "/album/Album",
+        &[("actie", "disc"), ("bestand", "01-Eerste_stuk.mp3")],
+    );
+    assert_ok(&numbered);
+    assert!(
+        numbered.contains("Schijf 1 staat als voorstel"),
+        "{numbered}"
+    );
+    assert!(
+        numbered.contains("Discnummer wordt “1” in 1 bestand."),
+        "{numbered}"
+    );
+
+    let totals = server.post_form(
+        "/album/Album",
+        &[("actie", "disctotaal"), ("bestand", "01-Eerste_stuk.mp3")],
+    );
+    assert_ok(&totals);
+    assert!(
+        totals.contains("Aantal discs wordt “1” in 2 bestanden."),
+        "{totals}"
+    );
+    // De actie geldt voor de hele map, dus alles staat aangevinkt.
+    assert!(
+        totals.contains("2 van 2 bestanden geselecteerd"),
+        "{totals}"
+    );
 }
 
 /// De velden die samen een batch beschrijven, klaar om te posten.

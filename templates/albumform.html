@@ -52,6 +52,12 @@
     <span class="hulpacties__kop">Hulpacties</span>
     <span class="batch__knoppen">
       <button class="knop" type="submit" name="actie" value="hernummer">Hernummeren</button>
+      <button class="knop" type="submit" name="actie" value="hernummer-disc">Hernummeren per schijf</button>
+      {# Het nummer staat in het opschrift: wat er gaat gebeuren hoort te lezen
+         te zijn voordat er geklikt wordt. #}
+      <button class="knop" type="submit" name="actie" value="disc">Deze schijf nummer {{ page.disc_suggestion }} geven</button>
+      <button class="knop" type="submit" name="actie" value="disctotaal">Disctotalen invullen</button>
+      <button class="knop" type="submit" name="actie" value="titelnaam">Titel uit bestandsnaam</button>
       <button class="knop" type="submit" name="actie" value="artiest">Artiest → albumartiest</button>
       <button class="knop" type="submit" name="actie" value="hoofdletters">Hoofdletters normaliseren</button>
       <button class="knop" type="submit" name="actie" value="herstel">Invoer leegmaken</button>

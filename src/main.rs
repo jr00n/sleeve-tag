@@ -14,6 +14,7 @@ mod cover;
 mod edit;
 mod fs;
 mod health;
+mod naming;
 mod startup;
 mod tags;
 mod web;

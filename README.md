@@ -298,6 +298,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
 | `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand en de hulpacties |
 | `casing` | Hoofdlettergebruik van een tagwaarde normaliseren; kent geen tags en geen bestanden |
+| `naming` | De titel lezen die in een bestandsnaam staat; kent geen tags en geen bestanden |
 | `cover` | De hoespagina van één bestand: formaat, afmetingen en grootte als leesbare tekst, en wat een upload opleverde |
 | `web` | Axum-router, handlers en askama-templates |
 
@@ -575,8 +576,8 @@ de bevestiging te bewaren.
 
 Bestand voor bestand corrigeren is te traag voor een heel album. "Meerdere
 bestanden bewerken" in de maplijst opent `/album/<pad>`: dezelfde bestanden,
-maar dan als tabel met een vinkje per rij en de vijf velden die een album deelt
-— albumartiest, album, jaar, genre en discnummer.
+maar dan als tabel met een vinkje per rij en de zes velden die een album deelt
+— albumartiest, album, jaar, genre, discnummer en aantal discs.
 
 Bij het openen is alles geselecteerd; met "Alles selecteren" en "Niets
 selecteren" is dat in één klik terug te zetten. De selectie, de ingevulde velden
@@ -605,11 +606,16 @@ zet er per bestand een eigen waarde in.
 
 #### Hulpacties
 
-Drie correcties die met de hand te veel werk zijn, en één om ze terug te draaien:
+Zeven correcties die met de hand te veel werk zijn, en één om ze terug te
+draaien:
 
 | Knop | Wat hij doet |
 |------|--------------|
 | Hernummeren | Nummert de selectie opeenvolgend, in de volgorde van de tabel — niet in die van de bestaande tracknummers, want juist die kloppen niet |
+| Hernummeren per schijf | Hetzelfde, maar elke schijf begint weer bij 1; bestanden zonder discnummer vormen samen één reeks |
+| Deze schijf nummer N geven | Zet de selectie in één keer op hetzelfde discnummer. Welk nummer dat is staat op de knop: staat de selectie al op één schijf, dan die, en anders de eerstvolgende die in deze map nog vrij is |
+| Disctotalen invullen | Zet het aantal schijven dat de map bevat in "aantal discs" — voor álle bestanden in de map, want zonder dat totaal weten spelers niet dat een set compleet is |
+| Titel uit bestandsnaam | Leest voor bestanden zónder titel de titel uit de naam; een bestand dat al een titel heeft, wordt niet overschreven |
 | Artiest → albumartiest | Zet per bestand de artiest als albumartiest klaar; een bestand zonder artiest wordt overgeslagen |
 | Hoofdletters normaliseren | Stelt een leesbare schrijfwijze voor van titel en albumartiest per bestand, en van album en genre wanneer de hele selectie er dezelfde waarde heeft |
 | Invoer leegmaken | Haalt alles wat er ingevuld of voorgesteld is weer weg; de selectie blijft staan |
@@ -619,6 +625,21 @@ niets geschreven: wat de actie voorstelt staat daarna gewoon in de velden, is me
 de hand aan te passen, en gaat met "Invoer leegmaken" in één klik weer weg. Een
 voorstel dat gelijk is aan wat er al staat, wordt niet ingevuld — dat is geen
 voorstel.
+
+"Disctotalen invullen" is de enige die ook de selectie aanraakt: die vinkt de
+hele map aan. Dat is de actie zelf en geen bijwerking — het aantal schijven van
+een set hoort in élk bestand van die set te staan. Hoeveel schijven de map
+bevat, is het aantal verschillende discnummers dat erin voorkomt; bestanden
+zonder discnummer maken er geen schijf bij, want waar ze bij horen valt niet te
+zeggen, en staat er nergens een discnummer, dan is het er één.
+
+Wat er uit een bestandsnaam te lezen valt, bepaalt `naming`. De extensie gaat
+eraf, underscores worden spaties en een leidend tracknummer met zijn
+scheidingsteken verdwijnt: `03 - Kind of Blue.flac` levert `Kind of Blue`. Vier
+cijfers is geen tracknummer maar een jaartal (`2001 A Space Odyssey` blijft
+heel), en een cijfer dat aan een woord vastzit hoort bij dat woord
+(`12Stones`). Bestaat de naam alleen uit een tracknummer, dan valt er niets te
+lezen en blijft het veld leeg.
 
 Het normaliseren zelf zit in `casing`. Elk woord krijgt een hoofdletter, behalve
 de kleine woorden (`de`, `van`, `the`, `at`, …) middenin. Wat er níét gebeurt is

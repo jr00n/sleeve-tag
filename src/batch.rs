@@ -8,9 +8,10 @@
 //! één bestand en zijn daarom in de tabel zelf in te tikken; zo'n override wint
 //! van een gedeelde waarde voor datzelfde bestand.
 //!
-//! De hulpacties uit FR-10 horen hier ook: hernummeren, artiest → albumartiest
-//! en hoofdletters normaliseren vullen invoervelden van datzelfde formulier en
-//! doen verder niets.
+//! De hulpacties uit FR-10 horen hier ook: hernummeren (over de selectie of per
+//! schijf), een schijf een nummer geven, de disctotalen invullen, de titel uit
+//! de bestandsnaam lezen, artiest → albumartiest en hoofdletters normaliseren
+//! vullen invoervelden van datzelfde formulier en doen verder niets.
 //!
 //! Er wordt hier niets geschreven en er gaat geen bestand open: in en uit gaan
 //! een [`Listing`] en een [`Form`]. Ook [`preview`] stelt alleen voor — het
@@ -24,6 +25,7 @@ use percent_encoding::percent_decode_str;
 use crate::browse::{self, Crumb, Listing, TrackSummary};
 use crate::casing;
 use crate::edit;
+use crate::naming;
 use crate::tags::Tags;
 
 /// Wat er in een invoerveld staat waar de selectie niets te melden heeft.
@@ -40,16 +42,18 @@ pub enum SharedField {
     Year,
     Genre,
     Disc,
+    DiscTotal,
 }
 
 impl SharedField {
     /// Alle gedeelde velden, in de volgorde waarin ze op het scherm staan.
-    pub const ALL: [SharedField; 5] = [
+    pub const ALL: [SharedField; 6] = [
         SharedField::AlbumArtist,
         SharedField::Album,
         SharedField::Year,
         SharedField::Genre,
         SharedField::Disc,
+        SharedField::DiscTotal,
     ];
 
     /// De naam waaronder het veld in het formulier staat.
@@ -60,6 +64,7 @@ impl SharedField {
             SharedField::Year => "year",
             SharedField::Genre => "genre",
             SharedField::Disc => "disc",
+            SharedField::DiscTotal => "disc_total",
         }
     }
 
@@ -76,12 +81,13 @@ impl SharedField {
             SharedField::Year => "Jaar",
             SharedField::Genre => "Genre",
             SharedField::Disc => "Discnummer",
+            SharedField::DiscTotal => "Aantal discs",
         }
     }
 
     /// Of er een getal in hoort; bepaalt de controle en het toetsenbord.
     pub fn is_numeric(self) -> bool {
-        matches!(self, SharedField::Disc)
+        matches!(self, SharedField::Disc | SharedField::DiscTotal)
     }
 
     /// Wat er voor dit veld in één bestand staat.
@@ -95,6 +101,7 @@ impl SharedField {
             SharedField::Year => tags.year.clone(),
             SharedField::Genre => tags.genre.clone(),
             SharedField::Disc => tags.disc.map(|number| number.to_string()),
+            SharedField::DiscTotal => tags.disc_total.map(|number| number.to_string()),
         }
     }
 
@@ -106,6 +113,7 @@ impl SharedField {
             SharedField::Year => 2,
             SharedField::Genre => 3,
             SharedField::Disc => 4,
+            SharedField::DiscTotal => 5,
         }
     }
 }
@@ -215,6 +223,18 @@ pub enum Action {
     /// De selectie opeenvolgend nummeren, in de volgorde van de tabel.
     Renumber,
 
+    /// Per schijf een eigen reeks vanaf 1, in de volgorde van de tabel.
+    RenumberPerDisc,
+
+    /// De hele selectie op hetzelfde discnummer zetten.
+    SetDisc,
+
+    /// Het aantal schijven van deze map in het veld "aantal discs" zetten.
+    FillDiscTotals,
+
+    /// Voor bestanden zonder titel de titel uit de bestandsnaam voorstellen.
+    TitleFromName,
+
     /// Per bestand de artiest als albumartiest voorstellen.
     CopyArtist,
 
@@ -237,6 +257,10 @@ impl Action {
             "alles" => Action::All,
             "niets" => Action::None,
             "hernummer" => Action::Renumber,
+            "hernummer-disc" => Action::RenumberPerDisc,
+            "disc" => Action::SetDisc,
+            "disctotaal" => Action::FillDiscTotals,
+            "titelnaam" => Action::TitleFromName,
             "artiest" => Action::CopyArtist,
             "hoofdletters" => Action::Capitalize,
             "herstel" => Action::Reset,
@@ -299,10 +323,10 @@ pub struct Form {
 
     /// De ingetikte waarde per gedeeld veld, in de volgorde van
     /// [`SharedField::ALL`].
-    values: [String; 5],
+    values: [String; 6],
 
     /// Of het wissen-vinkje aan stond, in dezelfde volgorde.
-    clear: [bool; 5],
+    clear: [bool; 6],
 
     /// De ingetikte overrides, per bestandsnaam (FR-9).
     ///
@@ -484,11 +508,15 @@ impl Form {
     ///
     /// De zin die terugkomt vertelt wat de actie gedaan heeft; zonder
     /// hulpactie is er niets te melden.
-    fn applied(&self, chosen: &[&TrackSummary]) -> (Form, Option<String>) {
+    fn applied(&self, listing: &Listing, chosen: &[&TrackSummary]) -> (Form, Option<String>) {
         let mut form = self.clone();
 
         let notice = match self.action {
             Action::Renumber => Some(form.renumber(chosen)),
+            Action::RenumberPerDisc => Some(form.renumber_per_disc(chosen)),
+            Action::SetDisc => Some(form.set_disc(listing, chosen)),
+            Action::FillDiscTotals => Some(form.fill_disc_totals(listing)),
+            Action::TitleFromName => Some(form.title_from_name(chosen)),
             Action::CopyArtist => Some(form.copy_artist(chosen)),
             Action::Capitalize => Some(form.capitalize(chosen)),
             Action::Reset => {
@@ -524,6 +552,181 @@ impl Form {
                 "De selectie is genummerd van 1 tot en met {count}; de nummers staan als voorstel in de tabel."
             ),
         }
+    }
+
+    /// Nummert de selectie per schijf, elke schijf vanaf 1.
+    ///
+    /// Doorgeteld over de hele selectie begint de tweede schijf bij 13 in
+    /// plaats van bij 1; dat is wat deze actie rechtzet. De volgorde binnen een
+    /// schijf is die van de tabel, net als bij [`Form::renumber`]. Bestanden
+    /// zonder discnummer horen bij elkaar en vormen samen één reeks: er valt
+    /// niets anders over te zeggen dan dat ze niet bij een genummerde schijf
+    /// zijn ondergebracht.
+    ///
+    /// Een bestand dat al op het voorgestelde nummer staat, krijgt geen
+    /// voorstel: dat zou geen voorstel zijn.
+    fn renumber_per_disc(&mut self, chosen: &[&TrackSummary]) -> String {
+        let mut positions: BTreeMap<Option<u32>, u32> = BTreeMap::new();
+        let mut proposals = 0;
+
+        for track in chosen {
+            let position = positions.entry(track.tags.disc).or_default();
+            *position += 1;
+
+            let proposal = position.to_string();
+            let keep = track.tags.track != Some(*position);
+
+            self.set_override(
+                &track.name,
+                RowField::Track,
+                if keep { proposal } else { String::new() },
+            );
+            proposals += usize::from(keep);
+        }
+
+        if chosen.is_empty() {
+            return "Er is niets geselecteerd om te hernummeren.".to_string();
+        }
+
+        let discs = positions.len();
+        let schijven = if discs == 1 {
+            "1 schijf".to_string()
+        } else {
+            format!("{discs} schijven")
+        };
+
+        match proposals {
+            0 => format!(
+                "De selectie beslaat {schijven} en staat daarbinnen al doorlopend genummerd."
+            ),
+            1 => format!(
+                "De selectie is per schijf genummerd vanaf 1 ({schijven}); 1 veld heeft een voorstel gekregen."
+            ),
+            count => format!(
+                "De selectie is per schijf genummerd vanaf 1 ({schijven}); {count} velden hebben een voorstel gekregen."
+            ),
+        }
+    }
+
+    /// Zet de hele selectie op hetzelfde discnummer.
+    ///
+    /// Welk nummer dat is, volgt uit wat er al ligt — zie
+    /// [`disc_suggestion`] — zodat de knop het vooraf kan tonen. Staat de
+    /// selectie er al op, dan valt er niets voor te stellen.
+    fn set_disc(&mut self, listing: &Listing, chosen: &[&TrackSummary]) -> String {
+        if chosen.is_empty() {
+            return "Er is niets geselecteerd om op een schijf te zetten.".to_string();
+        }
+
+        let number = disc_suggestion(listing, chosen);
+
+        if let Current::Same(current) = Current::of(SharedField::Disc, chosen)
+            && current == number.to_string()
+        {
+            self.values[SharedField::Disc.index()] = String::new();
+            return format!("De selectie staat al op schijf {number}.");
+        }
+
+        self.values[SharedField::Disc.index()] = number.to_string();
+
+        format!(
+            "Schijf {number} staat als voorstel bij Discnummer; het geldt voor de geselecteerde bestanden."
+        )
+    }
+
+    /// Zet het aantal schijven van deze map in het veld "aantal discs".
+    ///
+    /// Het totaal hoort in élk bestand van de set te staan — zonder dat totaal
+    /// weten spelers niet dat de set compleet is. Daarom gaat deze actie over
+    /// de hele map en niet over een deel ervan; [`resolve_selection`] vinkt
+    /// daarom alles aan.
+    fn fill_disc_totals(&mut self, listing: &Listing) -> String {
+        if listing.tracks.is_empty() {
+            return "Deze map bevat geen bewerkbare bestanden.".to_string();
+        }
+
+        let discs = disc_count(listing);
+        let schijven = if discs == 1 {
+            "1 schijf".to_string()
+        } else {
+            format!("{discs} schijven")
+        };
+
+        if listing
+            .tracks
+            .iter()
+            .all(|track| track.tags.disc_total == Some(discs))
+        {
+            self.values[SharedField::DiscTotal.index()] = String::new();
+            return format!("Elk bestand in deze map heeft het aantal discs al op {discs} staan.");
+        }
+
+        self.values[SharedField::DiscTotal.index()] = discs.to_string();
+
+        let unnumbered = listing
+            .tracks
+            .iter()
+            .filter(|track| track.tags.disc.is_none())
+            .count();
+
+        let mut notice = format!(
+            "Deze map bevat {schijven}; dat aantal staat als voorstel bij Aantal discs, voor alle bestanden in de map."
+        );
+
+        if unnumbered > 0 {
+            notice.push_str(&format!(
+                " {unnumbered} bestanden hebben zelf nog geen discnummer."
+            ));
+        }
+
+        notice
+    }
+
+    /// Stelt voor bestanden zonder titel de bestandsnaam als titel voor.
+    ///
+    /// Alleen voor bestanden die geen titel hebben: waar er wel één staat, is
+    /// de tag betrouwbaarder dan de bestandsnaam, en die wordt dus niet
+    /// overschreven. Wat er uit de naam te lezen valt, bepaalt
+    /// [`crate::naming`]; valt er niets uit te halen, dan blijft het veld leeg.
+    fn title_from_name(&mut self, chosen: &[&TrackSummary]) -> String {
+        let mut proposals = 0;
+        let mut titled = 0;
+        let mut empty_handed = 0;
+
+        for track in chosen {
+            if track.tags.title.is_some() {
+                titled += 1;
+                continue;
+            }
+
+            match naming::title_from_filename(&track.name) {
+                Some(title) => {
+                    self.set_override(&track.name, RowField::Title, title);
+                    proposals += 1;
+                }
+                None => empty_handed += 1,
+            }
+        }
+
+        let mut notice = match proposals {
+            0 => "Er valt geen titel uit een bestandsnaam te halen.".to_string(),
+            1 => "Bij 1 bestand staat de titel uit de bestandsnaam in de tabel.".to_string(),
+            count => {
+                format!("Bij {count} bestanden staat de titel uit de bestandsnaam in de tabel.")
+            }
+        };
+
+        if titled > 0 {
+            notice.push_str(&format!(" {titled} met een titel zijn ongemoeid gelaten."));
+        }
+
+        if empty_handed > 0 {
+            notice.push_str(&format!(
+                " Uit {empty_handed} bestandsnamen viel geen titel te lezen."
+            ));
+        }
+
+        notice
     }
 
     /// Zet per bestand de artiest als albumartiest klaar.
@@ -615,6 +818,61 @@ impl Form {
             ),
         }
     }
+}
+
+/// Welk discnummer de selectie in één klik zou krijgen (FR-10).
+///
+/// Staat de selectie al op één schijf, dan die: dan is de actie een bevestiging
+/// en geen verplaatsing. Anders de eerstvolgende die in deze map nog niet in
+/// gebruik is, want een nieuwe schijf hoort een nummer te krijgen dat nog vrij
+/// is. Bestanden zonder discnummer tellen daarbij niet mee — die zitten juist
+/// op geen enkele schijf.
+///
+/// Publiek omdat de knop het nummer vooraf toont: wat er gaat gebeuren hoort te
+/// lezen te zijn voordat er geklikt wordt (AC #2).
+pub fn disc_suggestion(listing: &Listing, chosen: &[&TrackSummary]) -> u32 {
+    let mut in_selection: BTreeSet<u32> = BTreeSet::new();
+    for track in chosen {
+        if let Some(number) = track.tags.disc {
+            in_selection.insert(number);
+        }
+    }
+
+    if let [only] = in_selection
+        .iter()
+        .copied()
+        .collect::<Vec<u32>>()
+        .as_slice()
+    {
+        return *only;
+    }
+
+    let in_use: BTreeSet<u32> = listing
+        .tracks
+        .iter()
+        .filter_map(|track| track.tags.disc)
+        .collect();
+
+    (1u32..)
+        .find(|number| !in_use.contains(number))
+        .unwrap_or(1)
+}
+
+/// Hoeveel schijven deze map bevat.
+///
+/// Het aantal verschillende discnummers dat erin voorkomt. Bestanden zonder
+/// discnummer maken er geen schijf bij: waar ze bij horen is niet te zeggen, en
+/// er een extra schijf van maken zou een set van twee cd's stilzwijgend op drie
+/// zetten. Staat er nergens een discnummer, dan is het één schijf — dat is wat
+/// een gewoon album is.
+fn disc_count(listing: &Listing) -> u32 {
+    let discs: BTreeSet<u32> = listing
+        .tracks
+        .iter()
+        .filter_map(|track| track.tags.disc)
+        .collect();
+
+    discs.len().max(1) as u32
 }
 
 /// Leest de sleutel van een override: welk veld, en van welk bestand.
@@ -872,6 +1130,7 @@ fn set_field(tags: &mut Tags, field: &str, value: Option<&str>) -> Result<(), St
         "genre" => tags.genre = text(),
         "track" => tags.track = number(value, RowField::Track.label())?,
         "disc" => tags.disc = number(value, SharedField::Disc.label())?,
+        "disc_total" => tags.disc_total = number(value, SharedField::DiscTotal.label())?,
         other => {
             // De sleutels komen uit `SharedField` en `RowField`; iets anders
             // kan hier niet binnenkomen. Stil negeren zou een schrijffout
@@ -901,7 +1160,7 @@ pub fn intents(listing: &Listing, form: &Form) -> Vec<FileIntent> {
 
     // Een hulpactie vult velden, en die gevulde velden horen bij het plan; de
     // pagina en het plan komen zo van hetzelfde formulier.
-    let (form, _) = form.applied(&chosen_tracks(listing, &selected));
+    let (form, _) = form.applied(listing, &chosen_tracks(listing, &selected));
 
     let shared: BTreeMap<&'static str, Intent> = SharedField::ALL
         .into_iter()
@@ -1288,7 +1547,7 @@ pub fn preview(listing: &Listing, form: &Form) -> Preview {
 /// velden stond, en precies dat hoort mee te gaan.
 fn hidden_fields(listing: &Listing, form: &Form) -> Vec<HiddenField> {
     let selected = resolve_selection(listing, form);
-    let (form, _) = form.applied(&chosen_tracks(listing, &selected));
+    let (form, _) = form.applied(listing, &chosen_tracks(listing, &selected));
 
     let mut fields: Vec<HiddenField> = selected
         .iter()
@@ -1436,8 +1695,14 @@ pub struct AlbumPage {
 
     pub rows: Vec<Row>,
 
-    /// De vijf gedeelde velden, in vaste volgorde.
+    /// De gedeelde velden, in vaste volgorde.
     pub fields: Vec<SharedInput>,
+
+    /// Het discnummer dat "deze schijf nummer N geven" zou voorstellen.
+    ///
+    /// Staat in het opschrift van die knop: wat er gaat gebeuren hoort te lezen
+    /// te zijn voordat er geklikt wordt (AC #2).
+    pub disc_suggestion: u32,
 
     /// Hoeveel bestanden er geselecteerd zijn.
     pub selected: usize,
@@ -1521,7 +1786,7 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
 
     // Een hulpactie vult invoervelden en verandert verder niets: vanaf hier
     // wordt de pagina met het aangevulde formulier opgebouwd (FR-10).
-    let (form, helper_notice) = form.applied(&chosen);
+    let (form, helper_notice) = form.applied(listing, &chosen);
     let form = &form;
 
     let rows: Vec<Row> = listing
@@ -1603,6 +1868,7 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         total: rows.len(),
         rows,
         fields,
+        disc_suggestion: disc_suggestion(listing, &chosen),
         problems,
         overridden,
         changed_files: intents(listing, form).len(),
@@ -1615,9 +1881,14 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
 ///
 /// Een naam die niet (meer) in de map staat, verdwijnt vanzelf: er wordt alleen
 /// tegen de bestanden uit de listing aan gekeken.
+///
+/// "Disctotalen invullen" selecteert alles, en dat is geen uitzondering op de
+/// regel eronder maar de actie zelf: het aantal schijven van een set hoort in
+/// elk bestand van die set te staan, en niet in het deel dat toevallig
+/// aangevinkt stond.
 fn resolve_selection(listing: &Listing, form: &Form) -> BTreeSet<String> {
     match form.action {
-        Action::All => listing
+        Action::All | Action::FillDiscTotals => listing
             .tracks
             .iter()
             .map(|track| track.name.clone())
@@ -2357,6 +2628,259 @@ mod tests {
         assert!(row_of(&page, "twee.mp3").selected);
         assert!(!row_of(&page, "een.mp3").selected);
         assert_eq!(page.changed_files, 1);
+    }
+
+    /// Een set van twee schijven, met één bestand dat nergens bij hoort.
+    ///
+    /// De tracknummers tellen door over beide schijven — precies de fout die
+    /// "hernummeren per schijf" rechtzet.
+    ///
+    /// Elke hulpactie wordt met een expliciete selectie aangeroepen: `actie`
+    /// draagt de hulpactie, dus "alles selecteren" kan er niet naast.
+    fn everything_in(listing: &Listing) -> String {
+        listing
+            .tracks
+            .iter()
+            .map(|track| format!("&bestand={}", track.name))
+            .collect()
+    }
+
+    fn set_of_two_discs() -> Listing {
+        listing_of(vec![
+            track_with(
+                "01 - Eerste.mp3",
+                Tags {
+                    title: Some("Eerste".to_string()),
+                    track: Some(1),
+                    disc: Some(1),
+                    ..Tags::default()
+                },
+            ),
+            track_with(
+                "02 - Tweede.mp3",
+                Tags {
+                    title: Some("Tweede".to_string()),
+                    track: Some(2),
+                    disc: Some(1),
+                    ..Tags::default()
+                },
+            ),
+            track_with(
+                "03 - Derde.mp3",
+                Tags {
+                    title: Some("Derde".to_string()),
+                    track: Some(3),
+                    disc: Some(2),
+                    ..Tags::default()
+                },
+            ),
+            track_with(
+                "04 - Vierde.mp3",
+                Tags {
+                    title: Some("Vierde".to_string()),
+                    track: Some(4),
+                    ..Tags::default()
+                },
+            ),
+        ])
+    }
+
+    #[test]
+    fn renumbering_per_disc_starts_every_disc_at_one() {
+        // AC #1: elke schijf zijn eigen reeks; doortellen is juist de fout.
+        let listing = set_of_two_discs();
+        let page = album(
+            &listing,
+            &Form::parse(&format!("actie=hernummer-disc{}", everything_in(&listing))),
+        );
+
+        assert_eq!(row_of(&page, "01 - Eerste.mp3").track_input, "");
+        assert_eq!(row_of(&page, "02 - Tweede.mp3").track_input, "");
+        // De tweede schijf begon bij 3 en hoort bij 1 te beginnen.
+        assert_eq!(row_of(&page, "03 - Derde.mp3").track_input, "1");
+        // Zonder discnummer: samen één reeks, dus ook vanaf 1.
+        assert_eq!(row_of(&page, "04 - Vierde.mp3").track_input, "1");
+
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("3 schijven"), "{notice}");
+    }
+
+    #[test]
+    fn renumbering_per_disc_leaves_a_number_that_is_already_right_alone() {
+        // AC #6: een voorstel dat gelijk is aan wat er staat, is geen voorstel.
+        let listing = listing_of(vec![
+            track_with(
+                "een.mp3",
+                Tags {
+                    track: Some(1),
+                    disc: Some(1),
+                    ..Tags::default()
+                },
+            ),
+            track_with(
+                "twee.mp3",
+                Tags {
+                    track: Some(1),
+                    disc: Some(2),
+                    ..Tags::default()
+                },
+            ),
+        ]);
+        let page = album(
+            &listing,
+            &Form::parse(&format!("actie=hernummer-disc{}", everything_in(&listing))),
+        );
+
+        assert!(!page.changes_anything());
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("al doorlopend genummerd"), "{notice}");
+    }
+
+    #[test]
+    fn the_suggested_disc_is_the_one_the_selection_already_sits_on() {
+        // AC #2: staat de selectie al op één schijf, dan die.
+        let listing = set_of_two_discs();
+        let form = Form::parse("bestand=03 - Derde.mp3");
+        let page = album(&listing, &form);
+
+        assert_eq!(page.disc_suggestion, 2);
+    }
+
+    #[test]
+    fn the_suggested_disc_is_the_first_free_one_otherwise() {
+        // Schijf 1 en 2 zijn in gebruik in deze map, dus 3 is de eerstvolgende.
+        let page = album(&set_of_two_discs(), &Form::select_all());
+
+        assert_eq!(page.disc_suggestion, 3);
+    }
+
+    #[test]
+    fn setting_the_disc_fills_the_shared_field_with_that_number() {
+        let listing = set_of_two_discs();
+        let page = album(&listing, &Form::parse("actie=disc&bestand=04 - Vierde.mp3"));
+
+        assert_eq!(field_of(&page, SharedField::Disc).value, "3");
+
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("Schijf 3"), "{notice}");
+    }
+
+    #[test]
+    fn setting_the_disc_proposes_nothing_when_the_selection_is_already_there() {
+        // AC #6, en de reden dat de knop het nummer vooraf toont.
+        let listing = set_of_two_discs();
+        let form = Form::parse("actie=disc&bestand=01 - Eerste.mp3&bestand=02 - Tweede.mp3");
+        let page = album(&listing, &form);
+
+        assert_eq!(field_of(&page, SharedField::Disc).value, "");
+        assert!(!page.changes_anything());
+
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("staat al op schijf 1"), "{notice}");
+    }
+
+    #[test]
+    fn filling_the_disc_totals_covers_the_whole_folder() {
+        // AC #3: het totaal hoort in élk bestand van de set te staan.
+        let listing = set_of_two_discs();
+        let page = album(
+            &listing,
+            &Form::parse("actie=disctotaal&bestand=01 - Eerste.mp3"),
+        );
+
+        assert_eq!(page.selected, 4);
+        assert_eq!(field_of(&page, SharedField::DiscTotal).value, "2");
+        assert_eq!(page.changed_files, 4);
+
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("2 schijven"), "{notice}");
+        // Eén bestand heeft nog geen discnummer, en dat hoort erbij te staan.
+        assert!(notice.contains("nog geen discnummer"), "{notice}");
+    }
+
+    #[test]
+    fn filling_the_disc_totals_proposes_nothing_when_they_are_already_right() {
+        // AC #6.
+        let listing = listing_of(vec![track_with(
+            "een.mp3",
+            Tags {
+                disc: Some(1),
+                disc_total: Some(1),
+                ..Tags::default()
+            },
+        )]);
+        let page = album(&listing, &Form::parse("actie=disctotaal"));
+
+        assert_eq!(field_of(&page, SharedField::DiscTotal).value, "");
+        assert!(!page.changes_anything());
+    }
+
+    #[test]
+    fn a_disc_total_reaches_the_plan_as_a_number() {
+        let plan = intents(&set_of_two_discs(), &Form::parse("actie=disctotaal"));
+
+        assert_eq!(plan.len(), 4, "{plan:?}");
+        assert_eq!(
+            plan[0].fields.get("disc_total"),
+            Some(&Intent::Set("2".to_string()))
+        );
+
+        let wanted = plan[0]
+            .wanted(&Tags::default())
+            .expect("een getal hoort door de controle te komen");
+        assert_eq!(wanted.disc_total, Some(2));
+    }
+
+    #[test]
+    fn a_title_is_read_from_the_file_name_only_where_there_is_none() {
+        // AC #4: een bestaande titel is betrouwbaarder dan een bestandsnaam.
+        let listing = listing_of(vec![
+            track_with(
+                "01 - Kind of Blue.flac",
+                Tags {
+                    title: Some("Kind of Blue".to_string()),
+                    ..Tags::default()
+                },
+            ),
+            track_with("02 - So What.flac", Tags::default()),
+            track_with("03.flac", Tags::default()),
+        ]);
+        let page = album(
+            &listing,
+            &Form::parse(&format!("actie=titelnaam{}", everything_in(&listing))),
+        );
+
+        // Heeft al een titel: niets voorstellen.
+        assert_eq!(row_of(&page, "01 - Kind of Blue.flac").title_input, "");
+        assert_eq!(row_of(&page, "02 - So What.flac").title_input, "So What");
+        // Uit een naam die alleen een tracknummer is, valt niets te halen.
+        assert_eq!(row_of(&page, "03.flac").title_input, "");
+
+        let notice = page.helper_notice.expect("de actie hoort iets te melden");
+        assert!(notice.contains("Bij 1 bestand"), "{notice}");
+        assert!(notice.contains("1 met een titel"), "{notice}");
+        assert!(notice.contains("Uit 1 bestandsnamen"), "{notice}");
+    }
+
+    #[test]
+    fn a_title_from_a_file_name_is_a_proposal_and_nothing_more() {
+        // AC #5: alleen invoervelden, en met "Invoer leegmaken" weer weg.
+        let listing = listing_of(vec![track_with("07 - So What.flac", Tags::default())]);
+
+        let filled = album(
+            &listing,
+            &Form::parse("actie=titelnaam&bestand=07 - So What.flac"),
+        );
+        assert!(filled.changes_anything());
+        assert_eq!(filled.overridden, 1);
+
+        let restored = album(
+            &listing,
+            &Form::parse("actie=herstel&bestand=07 - So What.flac&titel:07 - So What.flac=So+What"),
+        );
+        assert_eq!(restored.selected, 1);
+        assert_eq!(restored.overridden, 0);
+        assert!(!restored.changes_anything());
     }
 
     fn file_in<'a>(preview: &'a Preview, name: &str) -> &'a FileDiff {

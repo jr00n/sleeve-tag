@@ -67,16 +67,20 @@ de conventies vast waar code zich aan houdt.
   wat er per bestand gebeurt — toevoegen of vervangen — komt doordat dat uit de
   huidige inhoud volgt en niet uit de nieuwe afbeelding. Alleen dat ene
   formulier is `multipart`; al het andere blijft urlencoded en klein.
-- **Een hulpactie vult alleen invoervelden.** Hernummeren, artiest → albumartiest
-  en hoofdletters normaliseren zetten een voorstel in het formulier en verder
-  niets: geen bestand gaat open, geen tag wordt geschreven. Wat een actie
-  voorstelt is met de hand aan te passen en met "Invoer leegmaken" in één klik
-  terug te draaien. Een voorstel dat gelijk is aan wat er al staat, wordt niet
-  ingevuld.
-- **Hoofdletterlogica staat in `casing::`.** Die module kent geen tags en geen
-  bestanden: in en uit gaat tekst. Ze raadt, en wat ze raadt hoort zichtbaar en
-  terug te draaien te zijn — vandaar dat de uitkomst een voorstel in een veld is
-  en nooit een schrijfactie.
+- **Een hulpactie vult alleen invoervelden.** Hernummeren (over de selectie of
+  per schijf), een schijf een nummer geven, de disctotalen invullen, de titel
+  uit de bestandsnaam lezen, artiest → albumartiest en hoofdletters
+  normaliseren zetten een voorstel in het formulier en verder niets: geen
+  bestand gaat open, geen tag wordt geschreven. Wat een actie voorstelt is met
+  de hand aan te passen en met "Invoer leegmaken" in één klik terug te draaien.
+  Een voorstel dat gelijk is aan wat er al staat, wordt niet ingevuld.
+  "Disctotalen invullen" is de enige hulpactie die ook de selectie aanraakt, en
+  dat is de actie zelf: het aantal schijven van een set hoort in élk bestand van
+  die set te staan en niet in het deel dat toevallig aangevinkt stond.
+- **Hoofdletterlogica staat in `casing::`, titels uit bestandsnamen in
+  `naming::`.** Die modules kennen geen tags en geen bestanden: in en uit gaat
+  tekst. Ze raden, en wat ze raden hoort zichtbaar en terug te draaien te zijn —
+  vandaar dat de uitkomst een voorstel in een veld is en nooit een schrijfactie.
 - **Schrijven is atomisch, en loopt via `atomic::replace`.** Naar een tijdelijk
   bestand in dezelfde map, hervalideren door opnieuw in te lezen, en pas dan
   hernoemen over het origineel. Bij een fout blijft het origineel onaangetast.
