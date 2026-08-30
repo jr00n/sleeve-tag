@@ -512,6 +512,47 @@ Er is bewust geen bibliotheek-index: de tags worden per map gelezen op het momen
 dat de pagina wordt opgevraagd. Dat lezen is blokkerende I/O en gebeurt daarom in
 `spawn_blocking`, buiten de async-runtime.
 
+### Mappen als kaarten
+
+De submappen van de huidige map staan als kaarten in een raster. Elke kaart
+noemt de naam, wat erin staat en — als er bestanden zijn — in welke formaten.
+Het raster vult zichzelf met `auto-fill` en heeft geen breekpunt nodig: is het
+scherm smaller dan één kaart, dan wordt de kolom 100% en valt alles onder
+elkaar. De hele kaart is de link naar de map.
+
+Wat er op een kaart staat, hangt af van wat erin zit:
+
+| In de map | Op de kaart |
+|---|---|
+| bewerkbare bestanden | `12 bestanden`, met een label per formaat |
+| alleen submappen | `12 submappen`, zonder formaten |
+| bestanden én submappen | `3 bestanden · 2 submappen` |
+| niets bewerkbaars | `Geen bewerkbare bestanden` |
+
+Een map zonder bewerkbare bestanden krijgt nooit `0 bestanden` te zien: naast
+een artiestmap vol albums leest dat als een lege map.
+
+Een kaart toont uitsluitend wat uit de mapinhoud zelf volgt — namen, extensies,
+aantallen. Er wordt geen enkel bestand geopend om de bibliotheek te tonen, en er
+staat daarom ook geen signalering op een kaart ("3 zonder tracknummer"): die
+telling is alleen te maken door elk bestand in elke submap te openen en de tags
+te lezen, en op een NAS met een grote bibliotheek zou de startpagina daar
+merkbaar traag van worden. De signalering blijft waar ze is: in de map die je
+opent.
+
+Twee dingen volgen daaruit. De telling gaat één niveau diep — een artiestmap
+telt zijn albums en niet de tracks daarin, want dat zou voor één pagina de hele
+bibliotheek aflopen. En het formaat komt van de extensie: een bestand dat
+`track.mp3` heet maar geen MP3 is, telt op de kaart mee en valt pas weg zodra
+je de map opent en de tags werkelijk gelezen worden.
+
+Het tellen zelf is `fs::Library::summarize`: één `read_dir` per getoonde map,
+alleen voor de mappen die het zoekfilter overleven. Elke gevonden symlink wordt
+net als in `list_directory` gevolgd en tegen `MUSIC_ROOT` gehouden, zodat een
+kaart nooit meetelt wat de app niet mag openen. `browse::Folder` maakt daar de
+tekst van; het raster staat in `templates/folders.html`, dat binnen het
+HTMX-fragment valt omdat het zoekveld ook op mapnaam filtert.
+
 ### Album art in de lijst
 
 De embedded hoes van een bestand komt van `/art/<pad>`:

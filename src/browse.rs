@@ -26,6 +26,9 @@ const ROOT_NAME: &str = "Bibliotheek";
 /// Wat er staat waar een tag ontbreekt.
 const MISSING: &str = "—";
 
+/// Wat er op de kaart van een map staat waarin niets te bewerken valt.
+const NOTHING_EDITABLE: &str = "Geen bewerkbare bestanden";
+
 /// Waarde van de `size`-parameter waarmee om de verkleinde hoes wordt gevraagd.
 ///
 /// Staat hier omdat de URL's hier worden opgebouwd; het endpoint in
@@ -99,11 +102,70 @@ pub struct Crumb {
     pub url: String,
 }
 
-/// Een submap zoals de browser hem toont.
+/// Een submap zoals de browser hem toont: één kaart in het raster.
+///
+/// De tellingen komen uit [`Library::summarize`] en dus uit de mapinhoud zelf —
+/// namen, extensies, aantallen. Er wordt geen bestand geopend om de bibliotheek
+/// te kunnen tonen, en er staat daarom ook geen signalering op een kaart: die
+/// zou elk bestand in elke submap moeten lezen, en op een NAS met een grote
+/// bibliotheek is dat het verschil tussen een pagina die er staat en een pagina
+/// waar je op wacht. De signalering blijft in de map die je opent.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Folder {
     pub name: String,
     pub url: String,
+
+    /// Aantal bewerkbare bestanden dat direct in deze map staat.
+    pub files: usize,
+
+    /// Aantal submappen dat direct in deze map staat.
+    pub subfolders: usize,
+
+    /// De formaten die tussen die bestanden voorkomen, bijvoorbeeld `MP3`.
+    ///
+    /// Leeg wanneer er geen bewerkbare bestanden zijn; dan valt er ook geen
+    /// formaat te noemen.
+    pub formats: Vec<String>,
+}
+
+impl Folder {
+    /// Wat er in deze map staat, in één regel.
+    ///
+    /// Bevat de map geen bewerkbare bestanden, dan staat er geen bestandstelling
+    /// in: "0 bestanden" naast een map vol albums leest als een lege map. Er
+    /// staat dan wat er wél is — het aantal submappen — of, als ook dat er niet
+    /// is, dat er niets te bewerken valt.
+    pub fn contents_label(&self) -> String {
+        let mut parts = Vec::new();
+
+        if self.files > 0 {
+            parts.push(count_label(self.files, "bestand", "bestanden"));
+        }
+
+        if self.subfolders > 0 {
+            parts.push(count_label(self.subfolders, "submap", "submappen"));
+        }
+
+        if parts.is_empty() {
+            return NOTHING_EDITABLE.to_string();
+        }
+
+        parts.join(" · ")
+    }
+
+    /// Of er formaten te tonen zijn; zonder bestanden zijn die er niet.
+    pub fn has_files(&self) -> bool {
+        self.files > 0
+    }
+}
+
+/// "1 bestand", "12 bestanden".
+fn count_label(count: usize, singular: &str, plural: &str) -> String {
+    if count == 1 {
+        format!("{count} {singular}")
+    } else {
+        format!("{count} {plural}")
+    }
 }
 
 /// Eén regel in de bestandslijst.
@@ -302,9 +364,19 @@ pub fn listing(library: &Library, relative: &str, filter: &Filter) -> Result<Lis
         .directories
         .iter()
         .filter(|entry| needle.is_empty() || entry.name.to_lowercase().contains(&needle))
-        .map(|entry| Folder {
-            url: url_for(&join(&path, &entry.name)),
-            name: entry.name.clone(),
+        .map(|entry| {
+            // Eén `read_dir` per getoonde map, en alleen voor de mappen die het
+            // filter overleven. Er gaat geen bestand open: wat op de kaart komt
+            // volgt uit de namen in de map.
+            let summary = library.summarize(&entry.path);
+
+            Folder {
+                url: url_for(&join(&path, &entry.name)),
+                name: entry.name.clone(),
+                files: summary.files,
+                subfolders: summary.directories,
+                formats: summary.formats,
+            }
         })
         .collect();
 
@@ -646,6 +718,9 @@ mod tests {
             vec![Folder {
                 name: "Artiest".to_string(),
                 url: "/map/Artiest".to_string(),
+                files: 0,
+                subfolders: 1,
+                formats: Vec::new(),
             }]
         );
         assert!(root.tracks.is_empty());
@@ -1126,6 +1201,153 @@ mod tests {
         assert!(
             elapsed < Duration::from_secs(1),
             "dertig tracks kostten {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn a_folder_card_counts_what_is_in_the_directory() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "een.mp3", testfixtures::MP3_WITH_TAGS);
+        place(&library, "twee.mp3", testfixtures::MP3_WITHOUT_TAGS);
+        place(&library, "drie.flac", testfixtures::FLAC_WITH_TAGS);
+
+        let artist = listing(&library, "Artiest", &Filter::default())
+            .expect("de artiestmap moet te tonen zijn");
+        let album = artist.folders.first().expect("er moet één kaart staan");
+
+        assert_eq!(album.name, "Album");
+        assert_eq!(album.files, 3);
+        assert_eq!(album.subfolders, 0);
+        assert_eq!(album.formats, vec!["MP3".to_string(), "FLAC".to_string()]);
+        assert!(album.has_files());
+        assert_eq!(album.contents_label(), "3 bestanden");
+    }
+
+    #[test]
+    fn a_card_of_a_directory_with_only_subdirectories_counts_those() {
+        // Een artiestmap bevat albums en geen bestanden. "0 bestanden" zou daar
+        // lezen als een lege map; er hoort te staan wat er wél is.
+        let (_tempdir, library) = library_with_album();
+        std::fs::create_dir(library.root().join("Artiest").join("Tweede album"))
+            .expect("map moet aan te maken zijn");
+
+        let root = listing(&library, "", &Filter::default()).expect("de root moet te tonen zijn");
+        let artist = root.folders.first().expect("er moet één kaart staan");
+
+        assert_eq!(artist.files, 0);
+        assert_eq!(artist.subfolders, 2);
+        assert!(!artist.has_files(), "er valt geen formaat te noemen");
+        assert!(artist.formats.is_empty());
+        assert_eq!(artist.contents_label(), "2 submappen");
+    }
+
+    #[test]
+    fn a_card_of_an_empty_directory_says_so() {
+        let (_tempdir, library) = library_with_album();
+        std::fs::create_dir(library.root().join("Nog niets")).expect("map moet aan te maken zijn");
+
+        let root = listing(&library, "", &Filter::default()).expect("de root moet te tonen zijn");
+        let empty = root
+            .folders
+            .iter()
+            .find(|folder| folder.name == "Nog niets")
+            .expect("de lege map moet een kaart hebben");
+
+        assert_eq!(empty.contents_label(), NOTHING_EDITABLE);
+        assert!(!empty.has_files());
+    }
+
+    #[test]
+    fn a_card_counts_one_file_in_the_singular() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "enige.flac", testfixtures::FLAC_WITH_TAGS);
+        std::fs::create_dir(library.root().join("Artiest").join("Bonus"))
+            .expect("map moet aan te maken zijn");
+
+        let artist = listing(&library, "Artiest", &Filter::default())
+            .expect("de artiestmap moet te tonen zijn");
+
+        let album = artist
+            .folders
+            .iter()
+            .find(|folder| folder.name == "Album")
+            .expect("de albummap moet een kaart hebben");
+        assert_eq!(album.contents_label(), "1 bestand");
+        assert_eq!(album.formats, vec!["FLAC".to_string()]);
+
+        let bonus = artist
+            .folders
+            .iter()
+            .find(|folder| folder.name == "Bonus")
+            .expect("de bonusmap moet een kaart hebben");
+        assert_eq!(bonus.contents_label(), NOTHING_EDITABLE);
+    }
+
+    #[test]
+    fn a_card_names_both_files_and_subdirectories() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "los.mp3", testfixtures::MP3_WITH_TAGS);
+        std::fs::create_dir(
+            library
+                .root()
+                .join("Artiest")
+                .join("Album")
+                .join("Schijf 2"),
+        )
+        .expect("map moet aan te maken zijn");
+
+        let artist = listing(&library, "Artiest", &Filter::default())
+            .expect("de artiestmap moet te tonen zijn");
+        let album = artist.folders.first().expect("er moet één kaart staan");
+
+        assert_eq!(album.contents_label(), "1 bestand · 1 submap");
+    }
+
+    #[test]
+    fn a_card_only_counts_what_the_app_may_open() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "echt.mp3", testfixtures::MP3_WITH_TAGS);
+
+        let album = library.root().join("Artiest").join("Album");
+        std::fs::write(album.join("hoes.jpg"), b"geen audio")
+            .expect("bestand moet te schrijven zijn");
+        std::fs::write(album.join(".verborgen.mp3"), b"rommel")
+            .expect("bestand moet te schrijven zijn");
+
+        let outside = tempfile::tempdir().expect("tweede tempdir moet aan te maken zijn");
+        std::fs::write(outside.path().join("geheim.mp3"), b"niet voor de app")
+            .expect("bestand moet te schrijven zijn");
+        std::os::unix::fs::symlink(outside.path().join("geheim.mp3"), album.join("geleend.mp3"))
+            .expect("symlink moet aan te maken zijn");
+
+        let artist = listing(&library, "Artiest", &Filter::default())
+            .expect("de artiestmap moet te tonen zijn");
+        let card = artist.folders.first().expect("er moet één kaart staan");
+
+        assert_eq!(card.files, 1, "alleen het echte bestand telt mee");
+    }
+
+    #[test]
+    fn a_library_with_many_folders_stays_quick() {
+        // AC #7: de kaarten kosten één `read_dir` per map en openen geen enkel
+        // bestand. Wordt dat ooit een recursieve telling of een tagleesactie,
+        // dan loopt deze test als eerste vast.
+        let (_tempdir, library) = library_with_album();
+        for number in 1..=200 {
+            let folder = library.root().join(format!("Artiest {number:03}"));
+            std::fs::create_dir(&folder).expect("map moet aan te maken zijn");
+            std::fs::write(folder.join("track.mp3"), b"placeholder")
+                .expect("bestand moet te schrijven zijn");
+        }
+
+        let start = std::time::Instant::now();
+        let root = listing(&library, "", &Filter::default()).expect("de root moet te tonen zijn");
+        let elapsed = start.elapsed();
+
+        assert_eq!(root.folders.len(), 201);
+        assert!(
+            elapsed < Duration::from_secs(1),
+            "tweehonderd kaarten kostten {elapsed:?}"
         );
     }
 }

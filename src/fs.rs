@@ -66,6 +66,31 @@ pub struct DirectoryContents {
     pub files: Vec<DirEntry>,
 }
 
+/// Wat er direct in een map staat, geteld zonder één bestand te openen.
+///
+/// Genoeg voor de kaart die de bibliotheek van een map toont: hoeveel
+/// bewerkbare bestanden erin zitten, hoeveel submappen, en welke formaten
+/// tussen die bestanden voorkomen. Alles volgt uit de namen en extensies in de
+/// map zelf — er wordt geen tag gelezen.
+///
+/// De telling gaat één niveau diep en niet dieper. Recursief tellen zou voor
+/// één startpagina de hele bibliotheek moeten aflopen, en juist op een NAS is
+/// dat het verschil tussen een pagina die er meteen staat en een pagina waar je
+/// op wacht.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DirectorySummary {
+    /// Bestanden met een bewerkbare extensie, direct in deze map.
+    pub files: usize,
+
+    /// Submappen, direct in deze map.
+    pub directories: usize,
+
+    /// De formaten die tussen die bestanden voorkomen, in hoofdletters en in de
+    /// vaste volgorde van [`EDITABLE_EXTENSIONS`]; leeg wanneer er geen
+    /// bewerkbare bestanden zijn.
+    pub formats: Vec<String>,
+}
+
 /// De muziekbibliotheek: alles onder de geconfigureerde `MUSIC_ROOT`.
 #[derive(Debug, Clone)]
 pub struct Library {
@@ -212,6 +237,92 @@ impl Library {
         })
     }
 
+    /// Telt wat er direct in `directory` staat, zonder een bestand te openen.
+    ///
+    /// `directory` is een pad dat al door [`Library::resolve`] of
+    /// [`Library::list_directory`] is gekomen; er wordt hier nog een keer tegen
+    /// de root gehouden, want een telling die buiten de bibliotheek kijkt zou
+    /// verraden wat daar staat.
+    ///
+    /// Een map die niet te lezen is levert een lege telling op en geen fout: de
+    /// kaart van zo'n map hoort te vermelden dat er niets bewerkbaars in staat,
+    /// niet de hele pagina tegen te houden.
+    pub fn summarize(&self, directory: &Path) -> DirectorySummary {
+        let mut summary = DirectorySummary::default();
+
+        if !directory.starts_with(&self.root) {
+            return summary;
+        }
+
+        let Ok(entries) = std::fs::read_dir(directory) else {
+            return summary;
+        };
+
+        // Welke extensies er langskwamen; de volgorde van de uitkomst komt
+        // hieronder uit `EDITABLE_EXTENSIONS` en niet uit het filesystem.
+        let mut seen: Vec<&'static str> = Vec::new();
+
+        for entry in entries.flatten() {
+            let Some(name) = entry.file_name().to_str().map(str::to_string) else {
+                continue;
+            };
+
+            if name.starts_with('.') {
+                continue;
+            }
+
+            let Ok(kind) = entry.file_type() else {
+                continue;
+            };
+
+            // Het type uit `read_dir` volstaat voor een gewone entry; dat
+            // scheelt een `stat` per bestand, en een tellinkje mag de
+            // startpagina niet trager maken. Alleen een symlink kan de
+            // bibliotheek uit wijzen, en die wordt daarom wél gevolgd en
+            // getoetst — precies zoals `list_directory` dat doet.
+            let is_directory = if kind.is_symlink() {
+                let Ok(target) = std::fs::canonicalize(entry.path()) else {
+                    continue;
+                };
+
+                if !target.starts_with(&self.root) {
+                    continue;
+                }
+
+                target.is_dir()
+            } else if kind.is_dir() {
+                true
+            } else if kind.is_file() {
+                false
+            } else {
+                continue;
+            };
+
+            if is_directory {
+                summary.directories += 1;
+                continue;
+            }
+
+            let Some(extension) = editable_extension(Path::new(&name)) else {
+                continue;
+            };
+
+            summary.files += 1;
+
+            if !seen.contains(&extension) {
+                seen.push(extension);
+            }
+        }
+
+        summary.formats = EDITABLE_EXTENSIONS
+            .iter()
+            .filter(|extension| seen.contains(*extension))
+            .map(|extension| extension.to_ascii_uppercase())
+            .collect();
+
+        summary
+    }
+
     /// Weigert padcomponenten die buiten de bibliotheek kunnen wijzen.
     ///
     /// Dit gebeurt vóór canonicalisatie, dus zonder het filesystem aan te raken.
@@ -270,10 +381,21 @@ pub fn is_editable(path: &Path) -> bool {
 /// Apart van [`is_editable`], omdat een maplijst hiermee eerst goedkoop kan
 /// filteren voordat er bestanden geopend worden.
 pub fn has_editable_extension(path: &Path) -> bool {
-    path.extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase())
-        .is_some_and(|ext| EDITABLE_EXTENSIONS.contains(&ext.as_str()))
+    editable_extension(path).is_some()
+}
+
+/// De bewerkbare extensie van een bestandsnaam, in de schrijfwijze van
+/// [`EDITABLE_EXTENSIONS`].
+///
+/// Geeft de constante terug en niet wat er in de naam stond, zodat `.MP3` en
+/// `.mp3` één formaat zijn en de telling ze niet dubbel opsomt.
+fn editable_extension(path: &Path) -> Option<&'static str> {
+    let extension = path.extension()?.to_str()?.to_ascii_lowercase();
+
+    EDITABLE_EXTENSIONS
+        .iter()
+        .copied()
+        .find(|known| *known == extension)
 }
 
 #[cfg(test)]
@@ -614,5 +736,143 @@ mod tests {
                 "melding bevat een pad-achtige tekst: {message}"
             );
         }
+    }
+
+    /// Bouwt een map met de opgegeven namen erin: een naam met een extensie
+    /// wordt een bestand, een naam zonder een submap.
+    fn fill(directory: &Path, names: &[&str]) {
+        std::fs::create_dir_all(directory).expect("map moet aan te maken zijn");
+
+        for name in names {
+            let child = directory.join(name);
+            if Path::new(name).extension().is_some() {
+                std::fs::write(child, b"inhoud").expect("bestand moet te schrijven zijn");
+            } else {
+                std::fs::create_dir_all(child).expect("submap moet aan te maken zijn");
+            }
+        }
+    }
+
+    #[test]
+    fn summarizes_files_and_formats_of_a_directory() {
+        let (_tempdir, library) = library_with_album();
+        let album = library.root().join("Artiest").join("Album");
+
+        // Naast de twee fixtures uit `library_with_album`: nog een MP3, en
+        // rommel die niet mee hoort te tellen.
+        fill(
+            &album,
+            &[
+                "tweede.MP3",
+                "hoes.jpg",
+                "notities.txt",
+                ".DS_Store",
+                "Bonus",
+                ".verborgen",
+            ],
+        );
+
+        let summary = library.summarize(&album);
+
+        assert_eq!(summary.files, 3, "twee MP3's en één FLAC");
+        assert_eq!(summary.directories, 1, "alleen de zichtbare submap telt");
+        assert_eq!(
+            summary.formats,
+            vec!["MP3".to_string(), "FLAC".to_string()],
+            "een formaat telt één keer, ongeacht de schrijfwijze van de extensie"
+        );
+    }
+
+    #[test]
+    fn summarizes_a_directory_with_only_subdirectories() {
+        let (_tempdir, library) = library_with_album();
+        let artist = library.root().join("Artiest");
+
+        let summary = library.summarize(&artist);
+
+        assert_eq!(summary.files, 0);
+        assert_eq!(summary.directories, 1);
+        assert!(
+            summary.formats.is_empty(),
+            "zonder bestanden is er geen formaat te noemen"
+        );
+    }
+
+    #[test]
+    fn summarizes_an_empty_directory() {
+        let (_tempdir, library) = library_with_album();
+        let empty = library.root().join("Leeg");
+        std::fs::create_dir(&empty).expect("map moet aan te maken zijn");
+
+        assert_eq!(library.summarize(&empty), DirectorySummary::default());
+    }
+
+    #[test]
+    fn a_summary_stays_within_the_library() {
+        let (_tempdir, library) = library_with_album();
+
+        let outside = tempfile::tempdir().expect("tweede tempdir moet aan te maken zijn");
+        std::fs::write(outside.path().join("geheim.mp3"), b"niet voor de app")
+            .expect("bestand moet te schrijven zijn");
+
+        // Een symlink naar buiten telt niet mee: de kaart zou anders verraden
+        // hoeveel er buiten de bibliotheek staat.
+        std::os::unix::fs::symlink(outside.path(), library.root().join("ontsnapping"))
+            .expect("symlink moet aan te maken zijn");
+        std::os::unix::fs::symlink(
+            outside.path().join("geheim.mp3"),
+            library.root().join("geleend.mp3"),
+        )
+        .expect("symlink moet aan te maken zijn");
+
+        let root = library.summarize(library.root());
+        assert_eq!(root.files, 0);
+        assert_eq!(root.directories, 1, "alleen Artiest");
+
+        // En een map buiten de bibliotheek wordt helemaal niet geteld.
+        assert_eq!(
+            library.summarize(outside.path()),
+            DirectorySummary::default()
+        );
+    }
+
+    #[test]
+    fn a_summary_follows_a_symlink_inside_the_library() {
+        let (_tempdir, library) = library_with_album();
+
+        std::os::unix::fs::symlink(
+            library.root().join("Artiest").join("Album"),
+            library.root().join("Snelkoppeling"),
+        )
+        .expect("symlink moet aan te maken zijn");
+
+        let root = library.summarize(library.root());
+
+        assert_eq!(
+            root.directories, 2,
+            "een symlink binnen de bibliotheek is gewoon een map"
+        );
+    }
+
+    #[test]
+    fn a_summary_of_an_unreadable_path_is_empty() {
+        let (_tempdir, library) = library_with_album();
+
+        // Geen map maar een bestand, en een pad dat niet bestaat: allebei
+        // leveren een lege telling op en geen paniek.
+        assert_eq!(
+            library.summarize(
+                &library
+                    .root()
+                    .join("Artiest")
+                    .join("Album")
+                    .join("tagged.mp3")
+            ),
+            DirectorySummary::default()
+        );
+        assert_eq!(
+            library.summarize(&library.root().join("bestaat-niet")),
+            DirectorySummary::default()
+        );
     }
 }
