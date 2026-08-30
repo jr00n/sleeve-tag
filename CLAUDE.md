@@ -96,6 +96,17 @@ de conventies vast waar code zich aan houdt.
   "Disctotalen invullen" is de enige hulpactie die ook de selectie aanraakt, en
   dat is de actie zelf: het aantal schijven van een set hoort in élk bestand van
   die set te staan en niet in het deel dat toevallig aangevinkt stond.
+- **Het selecteren met de muis zet alleen vinkjes.** Klikken op een regel,
+  shift-klikken voor een reeks en ctrl- of cmd-klikken voor één erbij zijn een
+  toevoeging in `static/app.js` en verder niets: ze zetten dezelfde vinkjes die
+  er al waren en laten het formulier één keer posten. De selectie blijft dus
+  server-state en er is geen tweede waarheid over wat er geselecteerd staat.
+  Een reeks volgt de volgorde waarin de regels in de tabel staan — daarom draagt
+  elke regel haar bestandsnaam in `data-bestand`. De vinkjes blijven wat ze
+  waren: zonder JavaScript doen zij het werk, en ze zijn de weg voor wie geen
+  muis gebruikt. Dat er te klikken valt, laat het script zelf zien met een
+  klasse op de tabel; de template belooft niets wat ze zonder script niet
+  waarmaakt.
 - **Hoofdletterlogica staat in `casing::`, titels uit bestandsnamen in
   `naming::`.** Die modules kennen geen tags en geen bestanden: in en uit gaat
   tekst. Ze raden, en wat ze raden hoort zichtbaar en terug te draaien te zijn —

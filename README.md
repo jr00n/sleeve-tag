@@ -406,6 +406,7 @@ toevoeging: valt het weg, dan werkt elk formulier zoals het altijd deed.
 | **Idem op het hoesje** | op de bewerkpagina is het hoesje zelf ook een doel; daar verschijnt dan één knop, "In dit bestand zetten" |
 | **Idem voor een selectie** | in de voorbeeldweergave van een batch, voor de bestanden die je hebt aangevinkt |
 | **Idem in het hoespaneel** | naast de bestandslijst; wat je daar kiest, staat in de voorbeeldweergave klaar |
+| **Een reeks selecteren** | klikken op een regel selecteert die, shift-klikken alles ertussen, ctrl of cmd haalt er één bij |
 | **Donker of licht** | de keuze in de kopbalk, onthouden in de browser; zonder keuze geldt de systeemvoorkeur |
 
 Slepen verandert niets aan wat er daarna gebeurt: de vinkjes en de knoppen
@@ -433,6 +434,33 @@ afbeelding en zet hem in de voorbeeldweergave in het veld dat wél meegaat. Zond
 JavaScript staat dat veld er niet eens — dan is het paneel een knop naar de
 voorbeeldweergave, waar het bestandsveld thuishoort. In beide gevallen gaat de
 afbeelding precies één keer over de lijn, in de stap die schrijft.
+
+Een **reeks selecteren** gaat zoals in een bestandsbeheerder: klikken op een
+regel selecteert dat ene bestand, shift-klikken selecteert alles tussen die
+regel en de vorige klik, en ctrl- of cmd-klikken haalt er één bij of weg zonder
+de rest aan te tasten. Twintig tracks van een schijf aanvinken is daarmee twee
+klikken in plaats van twintig.
+
+Het script doet daarbij niets anders dan wat een mens met de hand zou doen: het
+zet dezelfde vinkjes en laat het formulier één keer posten. De selectie blijft
+dus server-state, en er ontstaat geen tweede waarheid over wat er geselecteerd
+staat. Een reeks volgt de volgorde waarin de regels in de tabel staan — dat is
+de lijst zoals hij op dat moment te zien is, ook wanneer hij per schijf
+gegroepeerd is. Levert een klik dezelfde selectie op als er al staat, dan gaat
+er geen verzoek uit.
+
+De vinkjes blijven wat ze waren: één klik zet één bestand aan of uit, ze zijn de
+weg voor wie geen muis gebruikt, en zonder JavaScript doen ze het werk in hun
+eentje. Shift werkt ook op een vinkje — dan gaat de stand die het zojuist kreeg
+over de hele reeks vanaf de vorige klik, en dat is meteen de toetsenbordweg,
+want shift+spatie op een vinkje is een klik met shift. Een klik in een
+invoerveld, op een link of op een knop laat de selectie met rust: die hebben
+hun eigen werk, en een selectie die onder het intikken vandaan verschuift zit
+dat in de weg.
+
+Dat er op een regel te klikken valt, is te zien aan het aanwijzen — en alleen
+wanneer het script draait: het zet daarvoor een klasse op de tabel, die niet in
+de template staat. Zonder JavaScript ziet een regel er dus ook niet naar uit.
 
 Het hoesje op de bewerkpagina is een snelkoppeling naar de gewone route en geen
 tweede manier om te schrijven: het formulier eromheen post naar dezelfde

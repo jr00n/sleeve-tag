@@ -1266,6 +1266,31 @@ a.bestandskop__hoes {
   background: color-mix(in srgb, var(--accent) 10%, var(--vlak));
 }
 
+/* Aanwijzen dat er op een regel te klikken valt — maar alleen wanneer dat ook
+   zo is: `app.js` zet `batchtabel--selecteerbaar` op de tabel. Zonder script
+   staat die klasse er niet, en ziet een regel er dus ook niet naar uit.
+
+   Geen `cursor: pointer`: een regel is geen link. Het aanwijzen is de hint, en
+   de tekst blijft gewoon te selecteren zolang er geen shift bij komt. */
+.batchtabel--selecteerbaar .batchtabel__rij:hover {
+  background: color-mix(in srgb, var(--accent) 5%, transparent);
+}
+
+/* De eerste kolom staat stil terwijl de rest scrollt en heeft daarom een eigen
+   ondergrond; zonder deze regel zou die bij het aanwijzen achterblijven. */
+.batchtabel--selecteerbaar .batchtabel__rij:hover .batchtabel__kies {
+  background: color-mix(in srgb, var(--accent) 5%, var(--vlak));
+}
+
+/* Een gekozen regel blijft bij het aanwijzen zichtbaar gekozen. */
+.batchtabel--selecteerbaar .batchtabel__rij--gekozen:hover {
+  background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+
+.batchtabel--selecteerbaar .batchtabel__rij--gekozen:hover .batchtabel__kies {
+  background: color-mix(in srgb, var(--accent) 15%, var(--vlak));
+}
+
 .batchtabel__titel {
   color: var(--tekst);
 }

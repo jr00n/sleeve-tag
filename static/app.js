@@ -1,6 +1,7 @@
 // De toevoegingen die de UI in de browser krijgt: laten zien dat een
-// schrijfactie bezig is, een hoes kunnen neerslepen, en kunnen kiezen tussen
-// een donkere en een lichte weergave.
+// schrijfactie bezig is, een hoes kunnen neerslepen, een reeks bestanden in
+// twee klikken kunnen selecteren, en kunnen kiezen tussen een donkere en een
+// lichte weergave.
 //
 // Waarom dit nodig is: een tagwijziging in een FLAC van enkele gigabytes duurt
 // minuten. `atomic::replace` kopieert eerst het hele bestand, en dat is geen
@@ -713,6 +714,269 @@
 
     verbergGekozen(form);
     meld(form, null);
+  }
+
+  // ──────────────────────────────────────────────────────────────────────────
+  // Een reeks bestanden selecteren
+  //
+  // Twintig tracks van een schijf aanvinken is twintig klikken. Klikken op een
+  // regel selecteert er één, shift-klikken alles ertussen, en ctrl- of
+  // cmd-klikken haalt er één bij of weg — zoals in een bestandsbeheerder.
+  //
+  // Wat er hier gebeurt, is precies wat een mens met de hand zou doen: dezelfde
+  // vinkjes worden gezet, en daarna post het formulier één keer. De selectie
+  // blijft dus server-state, en er is geen tweede waarheid over wat er
+  // geselecteerd staat. Zonder dit bestand blijven de vinkjes wat ze waren.
+  //
+  // Een reeks volgt de volgorde waarin de regels in de tabel staan, en niets
+  // anders: die volgorde ís de lijst zoals hij er op dat moment uitziet, ook
+  // wanneer hij per schijf gegroepeerd is.
+  // ──────────────────────────────────────────────────────────────────────────
+
+  /** Een regel in de albumtabel; de kop van een schijf hoort er niet bij. */
+  var RIJ = "tr.batchtabel__rij";
+
+  /** Het selectievinkje in zo'n regel. */
+  var VAKJE = "input[name=bestand]";
+
+  /** De markering waaraan een gekozen regel te zien is. */
+  var GEKOZEN_KLASSE = "batchtabel__rij--gekozen";
+
+  /**
+   * Zet het script op de tabel, zodat de opmaak weet dat er te klikken valt.
+   *
+   * De klasse komt hier vandaan en staat niet in de template: zonder dit
+   * bestand hoort een regel er niet uit te zien alsof een klik erop iets doet.
+   */
+  var SELECTEERBAAR = "batchtabel--selecteerbaar";
+
+  /**
+   * De bestandsnaam waar de vorige klik viel: het beginpunt van een reeks.
+   *
+   * Als naam en niet als element, want de tabel wordt bij elke klik door htmx
+   * vervangen — het element van zojuist bestaat dan niet meer. Staat de naam
+   * niet meer in de tabel (een andere map), dan telt een shift-klik als een
+   * gewone klik.
+   */
+  var anker = null;
+
+  document.addEventListener("DOMContentLoaded", function () {
+    maakSelecteerbaar(document);
+  });
+
+  document.addEventListener("htmx:load", function (event) {
+    var wortel = (event.detail && event.detail.elt) || event.target;
+    if (wortel && wortel.querySelectorAll) {
+      maakSelecteerbaar(wortel);
+    }
+  });
+
+  /** Merkt de albumtabellen in dit stuk pagina als aanklikbaar. */
+  function maakSelecteerbaar(wortel) {
+    var tabellen = wortel.querySelectorAll(".batchtabel");
+    for (var i = 0; i < tabellen.length; i++) {
+      tabellen[i].classList.add(SELECTEERBAAR);
+    }
+  }
+
+  document.addEventListener("click", function (event) {
+    var doel = event.target;
+    if (!(doel instanceof Element)) {
+      return;
+    }
+
+    var rij = doel.closest(RIJ);
+    if (!rij) {
+      return;
+    }
+
+    var vakje = rij.querySelector(VAKJE);
+    var lijst = regels(rij);
+    if (!vakje || lijst.length === 0) {
+      return;
+    }
+
+    // Het vinkje zelf, of het label eromheen: dat blijft doen wat het deed —
+    // één bestand aan of uit, met zijn eigen verzoek. Alleen shift doet er iets
+    // bij: de stand die het vinkje zojuist kreeg, gaat over de hele reeks vanaf
+    // het anker. Dat is meteen de toetsenbordweg, want shift+spatie op een
+    // vinkje geeft een klik met `shiftKey`.
+    if (doel.closest("label.vinkje")) {
+      if (event.shiftKey) {
+        // Het vinkje post zelf, en neemt het hele formulier mee; wat hier
+        // gezet wordt reist dus in datzelfde ene verzoek mee.
+        toepassen(lijst, reeks(lijst, rij, vakje.checked));
+      } else {
+        anker = rij.getAttribute("data-bestand");
+      }
+      return;
+    }
+
+    // Een invoerveld, een link, een knop: die hebben hun eigen werk, en een
+    // selectie die onder het intikken vandaan verschuift zit dat in de weg.
+    if (doel.closest("input, textarea, select, button, a")) {
+      return;
+    }
+
+    var stand = gewenst(lijst, rij, event);
+    if (!event.shiftKey) {
+      // Bij shift blijft het anker staan: zo rekt een tweede shift-klik
+      // dezelfde reeks op in plaats van er een nieuwe te beginnen.
+      anker = rij.getAttribute("data-bestand");
+    }
+
+    // De klik viel op de regel en niet op iets wat zelf iets doet; hij hoort
+    // de tekst eronder niet te selecteren.
+    event.preventDefault();
+
+    if (!toepassen(lijst, stand)) {
+      // Deze klik levert de selectie op die er al staat. Dan is er niets te
+      // vragen, en gaat er geen verzoek uit.
+      return;
+    }
+
+    verstuur(rij);
+  });
+
+  // Shift-klikken selecteert in een browser de tekst tussen twee punten, en dat
+  // is hier niet wat er bedoeld wordt. Alleen tegenhouden waar de klik ook
+  // werkelijk een reeks maakt: in een invoerveld blijft shift gewoon selecteren.
+  document.addEventListener("mousedown", function (event) {
+    if (!event.shiftKey) {
+      return;
+    }
+
+    var doel = event.target;
+    if (!(doel instanceof Element) || !doel.closest(RIJ)) {
+      return;
+    }
+
+    if (doel.closest("input, textarea, select")) {
+      return;
+    }
+
+    event.preventDefault();
+  });
+
+  /** De regels van de tabel waarin deze regel staat, in de volgorde van de lijst. */
+  function regels(rij) {
+    var tabel = rij.closest("table");
+    return tabel ? Array.prototype.slice.call(tabel.querySelectorAll(RIJ)) : [];
+  }
+
+  /** Het vinkje van een regel. */
+  function vakjeVan(rij) {
+    return rij.querySelector(VAKJE);
+  }
+
+  /** Waar in de lijst het bestand met deze naam staat, of `-1`. */
+  function plaatsVan(lijst, naam) {
+    for (var i = 0; i < lijst.length; i++) {
+      if (lijst[i].getAttribute("data-bestand") === naam) {
+        return i;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Welke regels er na deze klik geselecteerd horen te staan.
+   *
+   * Kaal klikken selecteert dit ene bestand en niets anders, ctrl of cmd haalt
+   * het erbij of eraf en laat de rest staan, en shift maakt van de reeks tussen
+   * het anker en hier de selectie.
+   */
+  function gewenst(lijst, rij, event) {
+    var hier = lijst.indexOf(rij);
+
+    if (event.shiftKey) {
+      var vanaf = anker === null ? -1 : plaatsVan(lijst, anker);
+      if (vanaf !== -1) {
+        return lijst.map(function (_, i) {
+          return i >= Math.min(vanaf, hier) && i <= Math.max(vanaf, hier);
+        });
+      }
+      // Zonder anker valt er niets uit te strekken; dan is dit de eerste klik.
+    }
+
+    if (event.metaKey || event.ctrlKey) {
+      return lijst.map(function (regel, i) {
+        var aan = vakjeVan(regel).checked;
+        return i === hier ? !aan : aan;
+      });
+    }
+
+    return lijst.map(function (_, i) {
+      return i === hier;
+    });
+  }
+
+  /**
+   * Dezelfde stand over de reeks van het anker tot deze regel, en de rest zoals
+   * hij stond.
+   *
+   * Dit is wat shift bij een vinkje doet: het vinkje bepaalt of de reeks aan of
+   * uit gaat, en wat erbuiten valt blijft staan. Zonder anker verandert er
+   * niets buiten het vinkje zelf.
+   */
+  function reeks(lijst, rij, aan) {
+    var hier = lijst.indexOf(rij);
+    var vanaf = anker === null ? hier : plaatsVan(lijst, anker);
+    if (vanaf === -1) {
+      vanaf = hier;
+    }
+
+    var begin = Math.min(vanaf, hier);
+    var eind = Math.max(vanaf, hier);
+
+    return lijst.map(function (regel, i) {
+      return i >= begin && i <= eind ? aan : vakjeVan(regel).checked;
+    });
+  }
+
+  /**
+   * Zet de vinkjes op de gevraagde stand; `false` wanneer er niets te doen viel.
+   *
+   * De markering op de regel gaat mee: het antwoord van de server komt pas over
+   * een moment, en tot die tijd hoort te kloppen wat er staat.
+   */
+  function toepassen(lijst, stand) {
+    var veranderd = false;
+
+    for (var i = 0; i < lijst.length; i++) {
+      var vakje = vakjeVan(lijst[i]);
+      if (!vakje || vakje.checked === stand[i]) {
+        continue;
+      }
+
+      vakje.checked = stand[i];
+      lijst[i].classList.toggle(GEKOZEN_KLASSE, stand[i]);
+      veranderd = true;
+    }
+
+    return veranderd;
+  }
+
+  /**
+   * Laat het formulier zich versturen, zoals een vinkje dat ook doet.
+   *
+   * Via `requestSubmit` en niet via `submit`, want alleen dan komt er een
+   * `submit`-event — en daar hangt htmx aan, dat het antwoord in de pagina
+   * zet in plaats van ernaartoe te navigeren. Kan een browser dat niet, dan
+   * wordt het een gewone POST en komt de hele pagina terug: trager, maar met
+   * dezelfde uitkomst.
+   */
+  function verstuur(rij) {
+    var form = rij.closest("form");
+    if (!form) {
+      return;
+    }
+
+    if (typeof form.requestSubmit === "function") {
+      form.requestSubmit();
+    } else {
+      form.submit();
+    }
   }
 
   /** Een bestandsomvang zoals een mens hem leest. */

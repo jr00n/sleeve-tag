@@ -116,7 +116,12 @@
           </th>
         </tr>
         {% endif %}
-        <tr class="batchtabel__rij{% if row.selected %} batchtabel__rij--gekozen{% endif %}{% if row.has_problems() %} batchtabel__rij--fout{% endif %}">
+        {# `data-bestand` is de greep voor `app.js`: daaraan ziet het script om
+           welk bestand deze regel gaat, en de volgorde waarin de regels hier
+           staan is de volgorde die een reeks volgt. Zonder script betekent het
+           attribuut niets en verandert er niets. #}
+        <tr class="batchtabel__rij{% if row.selected %} batchtabel__rij--gekozen{% endif %}{% if row.has_problems() %} batchtabel__rij--fout{% endif %}"
+            data-bestand="{{ row.name }}">
           <td class="batchtabel__kies">
             {# Het label is de bestandsnaam: op een telefoon is een vinkje van
                een paar pixels geen doel, en zo is de hele cel aanklikbaar. #}
