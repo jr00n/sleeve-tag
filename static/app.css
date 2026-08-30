@@ -1293,9 +1293,9 @@ a.bestandskop__hoes {
   color: var(--tekst-zacht);
 }
 
-/* Titel en tracknummer worden in de tabel zelf ingetikt (FR-9). Het veld is
-   even hoog als een knop, zodat het op een telefoon met een duim te raken is,
-   en 16px groot omdat Safari op iOS anders inzoomt bij het focussen. */
+/* Wat per bestand verschilt, wordt in de tabel zelf ingetikt (FR-9). Het veld
+   is even hoog als een knop, zodat het op een telefoon met een duim te raken
+   is, en 16px groot omdat Safari op iOS anders inzoomt bij het focussen. */
 /* In de tabel valt een veld pas op zodra de muis erboven staat of erin wordt
    getikt: tien velden met elk een eigen kadertje maken van een lijst een
    formulier, en de lijst is waar deze pagina over gaat. */
@@ -1323,13 +1323,6 @@ a.bestandskop__hoes {
   width: 4.5rem;
   text-align: right;
   font-variant-numeric: tabular-nums;
-}
-
-.rijveld--titel {
-  /* Breed genoeg voor een gewone titel, maar de kolom mag de tabel niet
-     opblazen: die scrollt toch al binnen zijn eigen rand. */
-  width: 100%;
-  min-width: 14rem;
 }
 
 .rijveld[aria-invalid="true"] {
@@ -1724,4 +1717,47 @@ html {
   letter-spacing: 0.04em;
   line-height: 1.5;
   white-space: nowrap;
+}
+
+/* ── Albumtabel: zeven invulbare kolommen (FR-9) ────────────────────────── */
+
+/*
+ * Artiest, album, jaar en genre zijn per bestand in te tikken, naast titel,
+ * tracknummer en albumartiest. Zeven invoervelden naast elkaar passen alleen
+ * als ze niet allemaal even breed zijn: een jaartal heeft aan vier tekens
+ * genoeg, een titel niet. De breedteklasse komt uit `RowField::size`, zodat de
+ * kolom niet in twee bestanden apart bepaald wordt.
+ */
+.rijveld--tekst {
+  width: 100%;
+  min-width: 11rem;
+}
+
+.rijveld--middel {
+  width: 100%;
+  min-width: 8rem;
+}
+
+.rijveld--kort {
+  /* Een jaartal is vier tekens, maar het tagmodel laat een volledige datum toe
+     (`2024-05-01`); daar past dit veld nog net op. */
+  width: 6.5rem;
+}
+
+/*
+ * De tabel is met deze kolommen ruim breder dan een telefoonscherm. Hij moet
+ * binnen zijn eigen rand blijven scrollen en de pagina niet meenemen: zonder
+ * `min-width: 0` mag een flexitem breder worden dan zijn container, en dan
+ * scrolt het venster alsnog mee.
+ */
+.tabelrand {
+  min-width: 0;
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+}
+
+/* De melding staat in de cel van het veld waar hij over gaat. In een
+   getalkolom staat de tekst rechts uitgelijnd, en dat leest niet. */
+.batchtabel__nummer .rijveld__fout {
+  text-align: left;
 }

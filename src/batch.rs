@@ -4,9 +4,10 @@
 //! Waar [`crate::edit`] één bestand bedient, gaat het hier om een map vol
 //! bestanden tegelijk. Deze module vertaalt tussen het verstuurde formulier en
 //! een weergavemodel dat de templates rechtstreeks kunnen renderen, en bepaalt
-//! per veld wat er met de selectie zou gebeuren. Titel en tracknummer horen bij
-//! één bestand en zijn daarom in de tabel zelf in te tikken; zo'n override wint
-//! van een gedeelde waarde voor datzelfde bestand.
+//! per veld wat er met de selectie zou gebeuren. Tracknummer, titel, artiest,
+//! albumartiest, album, jaar en genre kunnen per bestand verschillen en zijn
+//! daarom in de tabel zelf in te tikken; zo'n override wint van een gedeelde
+//! waarde voor datzelfde bestand.
 //!
 //! De hulpacties uit FR-10 horen hier ook: hernummeren (over de selectie of per
 //! schijf), een schijf een nummer geven, de disctotalen invullen, de titel uit
@@ -33,8 +34,10 @@ const EMPTY: &str = "—";
 
 /// Een veld dat een heel album deelt (PRD FR-8).
 ///
-/// Titel en tracknummer horen hier bewust níét bij: die verschillen per
-/// bestand en krijgen hun eigen kolom in de tabel.
+/// Titel, artiest en tracknummer horen hier bewust níét bij: die verschillen
+/// per bestand. Wat hier wél staat, staat óók als kolom in de tabel — behalve
+/// het discnummer en het aantal discs, die voor een hele schijf gelden en niet
+/// voor één bestand.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SharedField {
     AlbumArtist,
@@ -121,28 +124,47 @@ impl SharedField {
 /// Een veld dat per bestand verschilt en daarom in de tabel zelf staat (FR-9).
 ///
 /// De tegenhanger van [`SharedField`]: waar dat veld één waarde voor de hele
-/// selectie zet, hoort hier per rij iets anders te kunnen staan.
-/// Albumartiest staat in beide lijstjes, en dat is geen vergissing: hij is
-/// meestal voor het hele album gelijk, maar de hulpactie "artiest →
-/// albumartiest" (FR-10) zet er per bestand een eigen waarde in. Waar ze elkaar
-/// raken wint de rij; [`intents`] legt die volgorde vast.
+/// selectie zet, hoort hier per rij iets anders te kunnen staan. Een
+/// compilatie waarin elke track een andere artiest heeft, is anders alleen
+/// bestand voor bestand recht te zetten — terwijl de tabel er al staat.
+///
+/// Albumartiest, album, jaar en genre staan in beide lijstjes, en dat is geen
+/// vergissing: ze zijn meestal voor het hele album gelijk, en dan is het
+/// gedeelde veld de kortste weg. Waar ze elkaar raken wint de rij; [`intents`]
+/// legt die volgorde vast.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowField {
     Track,
     Title,
+    Artist,
     AlbumArtist,
+    Album,
+    Year,
+    Genre,
 }
 
 impl RowField {
-    /// Alle drie de velden, in de volgorde waarin ze in de tabel staan.
-    pub const ALL: [RowField; 3] = [RowField::Track, RowField::Title, RowField::AlbumArtist];
+    /// Alle velden, in de volgorde waarin ze in de tabel staan.
+    pub const ALL: [RowField; 7] = [
+        RowField::Track,
+        RowField::Title,
+        RowField::Artist,
+        RowField::AlbumArtist,
+        RowField::Album,
+        RowField::Year,
+        RowField::Genre,
+    ];
 
     /// De naam van het veld in het tagmodel; ook de sleutel in een [`FileIntent`].
     pub fn field_name(self) -> &'static str {
         match self {
             RowField::Track => "track",
             RowField::Title => "title",
+            RowField::Artist => "artist",
             RowField::AlbumArtist => "album_artist",
+            RowField::Album => "album",
+            RowField::Year => "year",
+            RowField::Genre => "genre",
         }
     }
 
@@ -156,26 +178,70 @@ impl RowField {
     }
 
     /// Het voorvoegsel van de formuliersleutel.
+    ///
+    /// Bewust niet gelijk aan [`SharedField::name`]: de rijen en de gedeelde
+    /// velden zitten in dezelfde body, en `album` mag daar niet twee dingen
+    /// betekenen. Vandaar `albumtitel` voor de kolom en `album` voor het
+    /// gedeelde veld.
     fn prefix(self) -> &'static str {
         match self {
             RowField::Track => "nummer",
             RowField::Title => "titel",
+            RowField::Artist => "artiest",
             RowField::AlbumArtist => "albumartiest",
+            RowField::Album => "albumtitel",
+            RowField::Year => "jaar",
+            RowField::Genre => "genre",
         }
     }
 
-    /// Het opschrift boven de kolom.
+    /// De volledige naam van het veld, zoals hij in een melding staat.
     pub fn label(self) -> &'static str {
         match self {
             RowField::Track => "Tracknummer",
             RowField::Title => "Titel",
+            RowField::Artist => "Artiest",
             RowField::AlbumArtist => "Albumartiest",
+            RowField::Album => "Album",
+            RowField::Year => "Jaar",
+            RowField::Genre => "Genre",
+        }
+    }
+
+    /// Het opschrift boven de kolom.
+    ///
+    /// Korter dan [`RowField::label`] waar dat kan: een kolomkop staat boven
+    /// een smalle kolom, en "#" zegt boven een tracknummer genoeg.
+    pub fn column(self) -> &'static str {
+        match self {
+            RowField::Track => "#",
+            other => other.label(),
         }
     }
 
     /// Of er een getal in hoort; bepaalt de controle en het toetsenbord.
+    ///
+    /// Het jaar hoort er níét bij, hoe getalachtig het er ook uitziet: in het
+    /// tagmodel is het tekst, omdat ID3v2.4 en Vorbis er een volledige datum
+    /// in kunnen zetten. Er een `u32` van eisen zou een bestaande
+    /// `2024-05-01` onbewerkbaar maken. Het gedeelde veld Jaar leest om
+    /// dezelfde reden vrij.
     pub fn is_numeric(self) -> bool {
         matches!(self, RowField::Track)
+    }
+
+    /// Hoe breed het invoerveld in de tabel is; het achtervoegsel van de
+    /// CSS-klasse.
+    ///
+    /// Zeven invoervelden naast elkaar passen alleen als ze niet allemaal even
+    /// breed zijn: een jaartal heeft aan vier tekens genoeg, een titel niet.
+    pub fn size(self) -> &'static str {
+        match self {
+            RowField::Track => "nummer",
+            RowField::Year => "kort",
+            RowField::Genre => "middel",
+            RowField::Title | RowField::Artist | RowField::AlbumArtist | RowField::Album => "tekst",
+        }
     }
 
     /// Wat er voor dit veld in één bestand staat.
@@ -183,7 +249,11 @@ impl RowField {
         match self {
             RowField::Track => tags.track.map(|number| number.to_string()),
             RowField::Title => tags.title.clone(),
+            RowField::Artist => tags.artist.clone(),
             RowField::AlbumArtist => tags.album_artist.clone(),
+            RowField::Album => tags.album.clone(),
+            RowField::Year => tags.year.clone(),
+            RowField::Genre => tags.genre.clone(),
         }
     }
 
@@ -192,7 +262,11 @@ impl RowField {
         match self {
             RowField::Track => 0,
             RowField::Title => 1,
-            RowField::AlbumArtist => 2,
+            RowField::Artist => 2,
+            RowField::AlbumArtist => 3,
+            RowField::Album => 4,
+            RowField::Year => 5,
+            RowField::Genre => 6,
         }
     }
 }
@@ -204,7 +278,7 @@ impl RowField {
 /// tekst in het veld.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct Override {
-    values: [String; 3],
+    values: [String; 7],
 }
 
 /// Wat er met de selectie moet gebeuren voordat de pagina wordt opgebouwd.
@@ -475,8 +549,8 @@ impl Form {
     /// Wat er bij het opslaan met dit veld van dit ene bestand zou gebeuren.
     ///
     /// Dezelfde regel als bij een gedeeld veld: leeg laat het bestand houden
-    /// wat het heeft. Wissen kan hier niet — titel en tracknummer weghalen is
-    /// geen batch-actie, en dat hoort in het bewerkformulier van het bestand
+    /// wat het heeft. Wissen kan hier niet — een veld van één bestand weghalen
+    /// is geen batch-actie, en dat hoort in het bewerkformulier van dat bestand
     /// zelf te gebeuren.
     pub fn row_intent(&self, file: &str, field: RowField) -> Result<Intent, String> {
         let value = self.override_value(file, field).trim();
@@ -998,6 +1072,42 @@ pub struct SharedInput {
     pub effect: String,
 }
 
+/// Eén invoerveld in één rij van de tabel (FR-9).
+///
+/// De tegenhanger van [`SharedInput`]: waar dat veld één waarde over de hele
+/// selectie zet, gaat dit over dit ene bestand. Wat er nú in het bestand staat,
+/// staat als grijze tekst in het veld en niet als waarde — precies zoals bij
+/// een gedeeld veld, zodat leeg overal hetzelfde betekent: ongemoeid laten.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RowInput {
+    /// De naam in het formulier: het veld en de bestandsnaam.
+    pub name: String,
+
+    /// Wat een schermlezer voorleest.
+    ///
+    /// De kolomkop staat er al boven, maar in een tabel vol invoervelden hoort
+    /// elk veld ook te zeggen bij welk bestand het hoort.
+    pub label: String,
+
+    /// Wat de gebruiker heeft ingetikt; leeg bij het openen van de pagina.
+    pub value: String,
+
+    /// Wat er nu in het bestand staat; een streepje wanneer de tag ontbreekt.
+    pub placeholder: String,
+
+    /// Of er een getal in hoort.
+    pub numeric: bool,
+
+    /// Het achtervoegsel van de breedteklasse; zie [`RowField::size`].
+    pub size: String,
+
+    /// Wat er aan déze invoer mankeert.
+    ///
+    /// Bij het veld zelf en niet bij de rij als geheel: met zeven kolommen is
+    /// "er klopt iets niet in deze rij" geen bruikbare melding meer.
+    pub problem: Option<String>,
+}
+
 /// Eén regel in de albumtabel.
 ///
 /// De waarden zijn hier al tekst: de tabel toont ze rechtstreeks, en een
@@ -1010,54 +1120,50 @@ pub struct Row {
     /// Of dit bestand geselecteerd is.
     pub selected: bool,
 
-    pub track: String,
-    pub title: String,
-    pub artist: String,
-    pub album_artist: String,
-    pub album: String,
-    pub year: String,
-    pub genre: String,
+    /// De invulbare velden van deze rij, in de volgorde van [`RowField::ALL`].
+    pub inputs: Vec<RowInput>,
+
+    /// Het discnummer zoals het in het bestand staat.
+    ///
+    /// Als tekst en niet als invoerveld: een schijfnummer geldt voor een hele
+    /// schijf, en staat daarom bij de gedeelde velden en bij de hulpacties.
     pub disc: String,
 
     /// Naar het bewerkformulier van dit ene bestand.
     pub edit_url: String,
-
-    /// De naam van het tracknummerveld van deze rij in het formulier.
-    pub track_name: String,
-
-    /// De naam van het titelveld van deze rij in het formulier.
-    pub title_name: String,
-
-    /// De naam van het albumartiestveld van deze rij in het formulier.
-    pub album_artist_name: String,
-
-    /// Wat er voor deze rij is ingetikt; leeg bij het openen van de pagina.
-    pub track_input: String,
-    pub title_input: String,
-    pub album_artist_input: String,
-
-    /// Wat er aan de invoer van déze rij mankeert.
-    ///
-    /// Een fout hier blijft bij deze rij: de andere rijen en de gedeelde velden
-    /// blijven gewoon opgeslagen kunnen worden.
-    pub problems: Vec<String>,
 }
 
 impl Row {
+    /// Het invoerveld van dit veld in deze rij.
+    ///
+    /// Het template loopt over [`Row::inputs`] en heeft deze weg niet nodig;
+    /// een test wel, want die wijst juist één bepaalde kolom aan.
+    #[cfg(test)]
+    pub fn input(&self, field: RowField) -> &RowInput {
+        &self.inputs[field.index()]
+    }
+
     /// Of er iets in deze rij is ingetikt.
     pub fn is_overridden(&self) -> bool {
-        [
-            &self.track_input,
-            &self.title_input,
-            &self.album_artist_input,
-        ]
-        .iter()
-        .any(|value| !value.trim().is_empty())
+        self.inputs
+            .iter()
+            .any(|input| !input.value.trim().is_empty())
+    }
+
+    /// Wat er aan de invoer van deze rij mankeert.
+    ///
+    /// Een fout blijft bij de rij waar hij gemaakt is: de andere rijen en de
+    /// gedeelde velden blijven gewoon opgeslagen kunnen worden.
+    pub fn problems(&self) -> Vec<String> {
+        self.inputs
+            .iter()
+            .filter_map(|input| input.problem.clone())
+            .collect()
     }
 
     /// Of deze rij zo niet opgeslagen kan worden.
     pub fn has_problems(&self) -> bool {
-        !self.problems.is_empty()
+        self.inputs.iter().any(|input| input.problem.is_some())
     }
 
     /// Of hier iets is ingetikt dat niet wordt opgeslagen omdat de rij niet
@@ -1239,8 +1345,8 @@ pub fn intents_with_selection(listing: &Listing, form: &Form) -> Vec<FileIntent>
 /// De velden die een batch kan aanraken, in de volgorde van de tabel.
 ///
 /// Afgeleid uit [`RowField`] en [`SharedField`], zodat er geen tweede lijst
-/// ontstaat die uit de pas kan gaan lopen. Albumartiest staat in allebei en
-/// hoort er maar één keer in.
+/// ontstaat die uit de pas kan gaan lopen. Wat in allebei staat — albumartiest,
+/// album, jaar en genre — hoort er maar één keer in.
 fn touched_fields() -> Vec<&'static str> {
     let mut fields: Vec<&'static str> = RowField::ALL
         .into_iter()
@@ -1537,7 +1643,7 @@ pub fn preview(listing: &Listing, form: &Form) -> Preview {
         page.rows
             .iter()
             .filter(|row| row.selected)
-            .flat_map(|row| row.problems.clone()),
+            .flat_map(Row::problems),
     );
     problems.extend(files.iter().filter_map(|file| file.problem.clone()));
 
@@ -1711,6 +1817,13 @@ pub struct AlbumPage {
 
     pub rows: Vec<Row>,
 
+    /// De koppen van de invulbare kolommen, in dezelfde volgorde als de velden
+    /// in elke rij.
+    ///
+    /// Afgeleid uit [`RowField::ALL`], zodat kop en cel niet uit de pas kunnen
+    /// gaan lopen wanneer er een kolom bij komt.
+    pub columns: Vec<String>,
+
     /// De gedeelde velden, in vaste volgorde.
     pub fields: Vec<SharedInput>,
 
@@ -1730,7 +1843,7 @@ pub struct AlbumPage {
     /// klopt. Wat er aan een rij mankeert, staat bij die rij.
     pub problems: Vec<String>,
 
-    /// Hoeveel geselecteerde rijen een eigen titel of tracknummer gekregen
+    /// Hoeveel geselecteerde rijen een eigen waarde uit de tabel gekregen
     /// hebben.
     pub overridden: usize,
 
@@ -1846,30 +1959,21 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         .iter()
         .map(|track| Row {
             selected: selected.contains(&track.name),
-            track_name: RowField::Track.input_name(&track.name),
-            title_name: RowField::Title.input_name(&track.name),
-            track_input: form
-                .override_value(&track.name, RowField::Track)
-                .to_string(),
-            title_input: form
-                .override_value(&track.name, RowField::Title)
-                .to_string(),
-            album_artist_name: RowField::AlbumArtist.input_name(&track.name),
-            album_artist_input: form
-                .override_value(&track.name, RowField::AlbumArtist)
-                .to_string(),
-            problems: RowField::ALL
+            inputs: RowField::ALL
                 .into_iter()
-                .filter_map(|field| form.row_intent(&track.name, field).err())
+                .map(|field| RowInput {
+                    name: field.input_name(&track.name),
+                    label: format!("{} van {}", field.label(), track.name),
+                    value: form.override_value(&track.name, field).to_string(),
+                    placeholder: field
+                        .value_of(&track.tags)
+                        .unwrap_or_else(|| EMPTY.to_string()),
+                    numeric: field.is_numeric(),
+                    size: field.size().to_string(),
+                    problem: form.row_intent(&track.name, field).err(),
+                })
                 .collect(),
             name: track.name.clone(),
-            track: track.track_label(),
-            title: track.title_label().to_string(),
-            artist: track.artist_label().to_string(),
-            album_artist: cell(&track.tags.album_artist),
-            album: cell(&track.tags.album),
-            year: cell(&track.tags.year),
-            genre: cell(&track.tags.genre),
             disc: track
                 .tags
                 .disc
@@ -1919,6 +2023,10 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         selected: chosen.len(),
         total: rows.len(),
         rows,
+        columns: RowField::ALL
+            .into_iter()
+            .map(|field| field.column().to_string())
+            .collect(),
         fields,
         disc_suggestion: disc_suggestion(listing, &chosen),
         problems,
@@ -1964,11 +2072,6 @@ fn chosen_tracks<'a>(listing: &'a Listing, selected: &BTreeSet<String>) -> Vec<&
         .iter()
         .filter(|track| selected.contains(&track.name))
         .collect()
-}
-
-/// Een tagwaarde als tabelcel, met een streepje waar niets staat.
-fn cell(value: &Option<String>) -> String {
-    value.clone().unwrap_or_else(|| EMPTY.to_string())
 }
 
 /// Decodeert één sleutel of waarde uit een urlencoded body.
@@ -2338,17 +2441,158 @@ mod tests {
 
     #[test]
     fn the_table_offers_a_field_per_row_with_the_current_value_as_a_hint() {
-        // AC #1: titel en tracknummer zijn per rij in te tikken.
+        // AC #1: elk veld dat per bestand kan verschillen, is per rij in te
+        // tikken.
         let page = album(&album_with_two_albums(), &Form::select_all());
         let row = row_of(&page, "een.mp3");
 
-        assert_eq!(row.track_name, "nummer:een.mp3");
-        assert_eq!(row.title_name, "titel:een.mp3");
+        assert_eq!(row.inputs.len(), RowField::ALL.len());
+        assert_eq!(row.input(RowField::Track).name, "nummer:een.mp3");
+        assert_eq!(row.input(RowField::Title).name, "titel:een.mp3");
+        assert_eq!(row.input(RowField::Artist).name, "artiest:een.mp3");
+        assert_eq!(row.input(RowField::Album).name, "albumtitel:een.mp3");
+        assert_eq!(row.input(RowField::Year).name, "jaar:een.mp3");
+        assert_eq!(row.input(RowField::Genre).name, "genre:een.mp3");
+
         // Niets voorgevuld: leeg betekent hier hetzelfde als bij een gedeeld
-        // veld, namelijk ongemoeid laten.
-        assert_eq!(row.track_input, "");
-        assert_eq!(row.title_input, "");
+        // veld, namelijk ongemoeid laten. Wat er in het bestand staat, staat
+        // als grijze tekst in het veld.
+        assert!(row.inputs.iter().all(|input| input.value.is_empty()));
+        assert_eq!(row.input(RowField::Album).placeholder, "Eerste");
+        assert_eq!(row.input(RowField::Genre).placeholder, EMPTY);
         assert!(!row.is_overridden());
+
+        // En de koppen komen uit hetzelfde lijstje als de velden.
+        assert_eq!(page.columns.len(), RowField::ALL.len());
+        assert_eq!(page.columns[0], "#");
+        assert_eq!(page.columns[1], "Titel");
+    }
+
+    #[test]
+    fn artist_album_year_and_genre_are_typed_in_the_row_itself() {
+        // AC #1 en #2: de vier nieuwe kolommen lopen door dezelfde keten als
+        // titel en tracknummer, en gelden voor dat ene bestand.
+        let form = Form::parse(
+            "actie=alles&artiest:een.mp3=Een+Ander&albumtitel:een.mp3=Eigen+album\
+             &jaar:een.mp3=1999&genre:een.mp3=Jazz",
+        );
+        let page = album(&album_with_two_albums(), &form);
+
+        let row = row_of(&page, "een.mp3");
+        assert_eq!(row.input(RowField::Artist).value, "Een Ander");
+        assert_eq!(row.input(RowField::Album).value, "Eigen album");
+        assert_eq!(row.input(RowField::Year).value, "1999");
+        assert_eq!(row.input(RowField::Genre).value, "Jazz");
+        assert!(row.is_overridden());
+        assert_eq!(page.overridden, 1);
+
+        // Alleen dit ene bestand; de rest van de tabel blijft leeg.
+        assert!(!row_of(&page, "twee.mp3").is_overridden());
+
+        let plan = intents(&album_with_two_albums(), &form);
+        let first = plan
+            .iter()
+            .find(|file| file.name == "een.mp3")
+            .expect("het bestand hoort in het plan te staan");
+
+        assert_eq!(
+            first.fields.get("artist"),
+            Some(&Intent::Set("Een Ander".to_string()))
+        );
+        assert_eq!(
+            first.fields.get("album"),
+            Some(&Intent::Set("Eigen album".to_string()))
+        );
+        assert_eq!(
+            first.fields.get("year"),
+            Some(&Intent::Set("1999".to_string()))
+        );
+        assert_eq!(
+            first.fields.get("genre"),
+            Some(&Intent::Set("Jazz".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_row_field_beats_the_shared_field_of_the_same_name() {
+        // AC #2: album, jaar en genre staan in beide, en dan wint de rij — maar
+        // alleen voor het bestand waar iets is ingetikt.
+        let form = Form::parse(
+            "actie=alles&album=Gedeeld+album&year=2001&genre=Ambient\
+             &albumtitel:een.mp3=Eigen+album&jaar:een.mp3=1999",
+        );
+        let plan = intents(&album_with_two_albums(), &form);
+
+        let first = plan
+            .iter()
+            .find(|file| file.name == "een.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(
+            first.fields.get("album"),
+            Some(&Intent::Set("Eigen album".to_string()))
+        );
+        assert_eq!(
+            first.fields.get("year"),
+            Some(&Intent::Set("1999".to_string()))
+        );
+        // Waar de rij niets zegt, geldt het gedeelde veld gewoon.
+        assert_eq!(
+            first.fields.get("genre"),
+            Some(&Intent::Set("Ambient".to_string()))
+        );
+
+        let second = plan
+            .iter()
+            .find(|file| file.name == "twee.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(
+            second.fields.get("album"),
+            Some(&Intent::Set("Gedeeld album".to_string()))
+        );
+        assert_eq!(
+            second.fields.get("year"),
+            Some(&Intent::Set("2001".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_row_field_beats_a_shared_field_that_is_being_cleared() {
+        // AC #2: ook het wissen-vinkje is iets wat de gedeelde velden voor dit
+        // bestand zouden doen, en dus wint de rij er ook van.
+        let form = Form::parse("actie=alles&wis_genre=aan&genre:een.mp3=Jazz");
+        let plan = intents(&album_with_two_albums(), &form);
+
+        let first = plan
+            .iter()
+            .find(|file| file.name == "een.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(
+            first.fields.get("genre"),
+            Some(&Intent::Set("Jazz".to_string()))
+        );
+
+        let second = plan
+            .iter()
+            .find(|file| file.name == "twee.mp3")
+            .expect("het bestand hoort in het plan te staan");
+        assert_eq!(second.fields.get("genre"), Some(&Intent::Clear));
+    }
+
+    #[test]
+    fn a_year_may_be_a_full_date_because_the_tag_model_allows_one() {
+        // Het jaar is in het tagmodel tekst: ID3v2.4 en Vorbis kunnen er een
+        // volledige datum in zetten. Er een getal van eisen zou een bestaande
+        // waarde onbewerkbaar maken.
+        let form = Form::parse("actie=alles&jaar:een.mp3=2024-05-01");
+
+        assert!(!RowField::Year.is_numeric());
+        assert_eq!(
+            form.row_intent("een.mp3", RowField::Year),
+            Ok(Intent::Set("2024-05-01".to_string()))
+        );
+
+        let page = album(&album_with_two_albums(), &form);
+        assert!(!row_of(&page, "een.mp3").has_problems());
     }
 
     #[test]
@@ -2359,7 +2603,7 @@ mod tests {
         let page = album(&album_with_two_albums(), &form);
 
         let row = row_of(&page, "een.mp3");
-        assert_eq!(row.title_input, "Nieuwe titel");
+        assert_eq!(row.input(RowField::Title).value, "Nieuwe titel");
         assert!(row.is_overridden());
         // Maar niet geselecteerd, dus er gebeurt niets mee — en dat staat er.
         assert!(row.is_ignored());
@@ -2423,17 +2667,26 @@ mod tests {
 
     #[test]
     fn bad_input_in_a_row_is_reported_there_and_blocks_only_that_row() {
-        // AC #4: één typefout mag de rest van de tabel niet ophouden.
-        let form = Form::parse("actie=alles&nummer:een.mp3=drie&titel:twee.mp3=Wel+dit");
+        // AC #4: één typefout mag de rest van de tabel niet ophouden. De rij
+        // met de fout heeft ook goede velden; ook die gaan mee de fout in,
+        // want half uitvoeren van een plan voor één bestand is erger dan niets
+        // doen.
+        let form = Form::parse(
+            "actie=alles&nummer:een.mp3=drie&genre:een.mp3=Jazz&titel:twee.mp3=Wel+dit",
+        );
         let page = album(&album_with_two_albums(), &form);
 
         let broken = row_of(&page, "een.mp3");
         assert!(broken.has_problems());
         assert!(
-            broken.problems[0].starts_with("Tracknummer"),
+            broken.problems()[0].starts_with("Tracknummer"),
             "{:?}",
             broken
         );
+        // De melding staat bij het veld waarin hij is ingetikt, en niet bij de
+        // zes andere kolommen van dezelfde rij.
+        assert!(broken.input(RowField::Track).problem.is_some());
+        assert!(broken.input(RowField::Genre).problem.is_none());
 
         let fine = row_of(&page, "twee.mp3");
         assert!(!fine.has_problems());
@@ -2609,9 +2862,9 @@ mod tests {
             &Form::parse("actie=hernummer&bestand=een.mp3&bestand=twee.mp3&bestand=drie.mp3"),
         );
 
-        assert_eq!(row_of(&page, "een.mp3").track_input, "1");
-        assert_eq!(row_of(&page, "twee.mp3").track_input, "2");
-        assert_eq!(row_of(&page, "drie.mp3").track_input, "3");
+        assert_eq!(row_of(&page, "een.mp3").input(RowField::Track).value, "1");
+        assert_eq!(row_of(&page, "twee.mp3").input(RowField::Track).value, "2");
+        assert_eq!(row_of(&page, "drie.mp3").input(RowField::Track).value, "3");
 
         let notice = page.helper_notice.expect("de actie hoort iets te melden");
         assert!(notice.contains("1 tot en met 3"), "{notice}");
@@ -2622,9 +2875,9 @@ mod tests {
         let form = Form::parse("actie=hernummer&bestand=een.mp3&bestand=drie.mp3");
         let page = album(&album_that_needs_help(), &form);
 
-        assert_eq!(row_of(&page, "een.mp3").track_input, "1");
-        assert_eq!(row_of(&page, "drie.mp3").track_input, "2");
-        assert_eq!(row_of(&page, "twee.mp3").track_input, "");
+        assert_eq!(row_of(&page, "een.mp3").input(RowField::Track).value, "1");
+        assert_eq!(row_of(&page, "drie.mp3").input(RowField::Track).value, "2");
+        assert_eq!(row_of(&page, "twee.mp3").input(RowField::Track).value, "");
     }
 
     #[test]
@@ -2636,13 +2889,19 @@ mod tests {
         );
 
         assert_eq!(
-            row_of(&page, "een.mp3").album_artist_input,
+            row_of(&page, "een.mp3").input(RowField::AlbumArtist).value,
             "de testartiest"
         );
-        assert_eq!(row_of(&page, "twee.mp3").album_artist_input, "Een Ander");
+        assert_eq!(
+            row_of(&page, "twee.mp3").input(RowField::AlbumArtist).value,
+            "Een Ander"
+        );
         // Zonder artiest valt er niets te kopiëren; een lege albumartiest
         // voorstellen zou een verwijdering zijn.
-        assert_eq!(row_of(&page, "drie.mp3").album_artist_input, "");
+        assert_eq!(
+            row_of(&page, "drie.mp3").input(RowField::AlbumArtist).value,
+            ""
+        );
 
         let notice = page.helper_notice.expect("de actie hoort iets te melden");
         assert!(notice.contains("2 bestanden"), "{notice}");
@@ -2686,10 +2945,16 @@ mod tests {
             &Form::parse("actie=hoofdletters&bestand=een.mp3&bestand=twee.mp3&bestand=drie.mp3"),
         );
 
-        assert_eq!(row_of(&page, "een.mp3").title_input, "Stilte in D");
-        assert_eq!(row_of(&page, "twee.mp3").title_input, "Ruis in B");
+        assert_eq!(
+            row_of(&page, "een.mp3").input(RowField::Title).value,
+            "Stilte in D"
+        );
+        assert_eq!(
+            row_of(&page, "twee.mp3").input(RowField::Title).value,
+            "Ruis in B"
+        );
         // Wat al klopt, krijgt geen voorstel: dat zou geen voorstel zijn.
-        assert_eq!(row_of(&page, "drie.mp3").title_input, "");
+        assert_eq!(row_of(&page, "drie.mp3").input(RowField::Title).value, "");
     }
 
     #[test]
@@ -2724,7 +2989,10 @@ mod tests {
         let form = Form::parse("actie=hoofdletters&bestand=een.mp3&titel:een.mp3=EEN+ANDERE+TITEL");
         let page = album(&album_that_needs_help(), &form);
 
-        assert_eq!(row_of(&page, "een.mp3").title_input, "Een Andere Titel");
+        assert_eq!(
+            row_of(&page, "een.mp3").input(RowField::Title).value,
+            "Een Andere Titel"
+        );
     }
 
     #[test]
@@ -2850,12 +3118,30 @@ mod tests {
             &Form::parse(&format!("actie=hernummer-disc{}", everything_in(&listing))),
         );
 
-        assert_eq!(row_of(&page, "01 - Eerste.mp3").track_input, "");
-        assert_eq!(row_of(&page, "02 - Tweede.mp3").track_input, "");
+        assert_eq!(
+            row_of(&page, "01 - Eerste.mp3")
+                .input(RowField::Track)
+                .value,
+            ""
+        );
+        assert_eq!(
+            row_of(&page, "02 - Tweede.mp3")
+                .input(RowField::Track)
+                .value,
+            ""
+        );
         // De tweede schijf begon bij 3 en hoort bij 1 te beginnen.
-        assert_eq!(row_of(&page, "03 - Derde.mp3").track_input, "1");
+        assert_eq!(
+            row_of(&page, "03 - Derde.mp3").input(RowField::Track).value,
+            "1"
+        );
         // Zonder discnummer: samen één reeks, dus ook vanaf 1.
-        assert_eq!(row_of(&page, "04 - Vierde.mp3").track_input, "1");
+        assert_eq!(
+            row_of(&page, "04 - Vierde.mp3")
+                .input(RowField::Track)
+                .value,
+            "1"
+        );
 
         let notice = page.helper_notice.expect("de actie hoort iets te melden");
         assert!(notice.contains("3 schijven"), "{notice}");
@@ -3007,10 +3293,20 @@ mod tests {
         );
 
         // Heeft al een titel: niets voorstellen.
-        assert_eq!(row_of(&page, "01 - Kind of Blue.flac").title_input, "");
-        assert_eq!(row_of(&page, "02 - So What.flac").title_input, "So What");
+        assert_eq!(
+            row_of(&page, "01 - Kind of Blue.flac")
+                .input(RowField::Title)
+                .value,
+            ""
+        );
+        assert_eq!(
+            row_of(&page, "02 - So What.flac")
+                .input(RowField::Title)
+                .value,
+            "So What"
+        );
         // Uit een naam die alleen een tracknummer is, valt niets te halen.
-        assert_eq!(row_of(&page, "03.flac").title_input, "");
+        assert_eq!(row_of(&page, "03.flac").input(RowField::Title).value, "");
 
         let notice = page.helper_notice.expect("de actie hoort iets te melden");
         assert!(notice.contains("Bij 1 bestand"), "{notice}");
@@ -3290,7 +3586,9 @@ mod tests {
             .find(|row| row.name == "drie.mp3")
             .expect("de rij hoort er te zijn");
 
-        assert_eq!(row.album, EMPTY);
+        // In een invulbare kolom is het streepje de grijze tekst in het veld;
+        // het discnummer staat er als gewone cel.
+        assert_eq!(row.input(RowField::Album).placeholder, EMPTY);
         assert_eq!(row.disc, EMPTY);
     }
 }

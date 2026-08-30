@@ -298,6 +298,168 @@ fn a_bad_track_number_is_reported_at_the_row_it_was_typed_in() {
     );
 }
 
+/// De tabelrij van dit bestand, zodat een test iets over één rij kan zeggen.
+///
+/// De bestandsnaam staat in het selectievinkje van de rij, en dat vinkje staat
+/// er maar één keer per rij in.
+fn row_html<'a>(page: &'a str, name: &str) -> &'a str {
+    page.split("<tr")
+        .find(|chunk| chunk.contains(&format!("value=\"{name}\"")))
+        .unwrap_or_else(|| panic!("de rij van {name} hoort in de tabel te staan:\n{page}"))
+}
+
+/// Wat de voorbeeldweergave over dit ene bestand zegt.
+fn preview_html<'a>(page: &'a str, name: &str) -> &'a str {
+    page.split("voorbeeld__bestand")
+        .find(|chunk| chunk.contains(&format!(">{name}<")))
+        .unwrap_or_else(|| panic!("{name} hoort in het voorbeeld te staan:\n{page}"))
+}
+
+#[test]
+fn every_row_offers_the_columns_that_can_differ_per_file() {
+    // AC #1: artiest, album, jaar en genre zijn per bestand in de tabel zelf in
+    // te tikken, net als titel en tracknummer al waren.
+    let server = server();
+    let page = server.get("/album/Album");
+
+    assert_ok(&page);
+    for name in ["een.mp3", "twee.mp3"] {
+        for field in [
+            "nummer",
+            "titel",
+            "artiest",
+            "albumartiest",
+            "albumtitel",
+            "jaar",
+            "genre",
+        ] {
+            assert!(page.contains(&format!("name=\"{field}:{name}\"")), "{page}");
+        }
+    }
+
+    // AC #3: wat er nu in het bestand staat, staat als grijze tekst in het veld
+    // en niet als waarde — leeg laten verandert er dus niets aan.
+    let first = row_html(&page, "een.mp3");
+    for current in ["De Testartiest", ALBUM_IN_FIXTURE, "2024", "Ambient"] {
+        assert!(
+            first.contains(&format!("placeholder=\"{current}\"")),
+            "{first}"
+        );
+        assert!(!first.contains(&format!("value=\"{current}\"")), "{first}");
+    }
+
+    // AC #5: de tabel scrollt binnen zijn eigen rand en niet met de pagina mee.
+    assert!(page.contains("class=\"tabelrand\""), "{page}");
+}
+
+#[test]
+fn a_value_in_the_row_beats_the_shared_field_for_that_one_file() {
+    // AC #2, #6 en #7: het gedeelde veld geldt voor de selectie, de rij voor
+    // dat ene bestand. Dat hoort in de voorbeeldweergave te staan en daarna
+    // werkelijk in het bestand te belanden.
+    let server = server();
+    let batch: Vec<(&str, &str)> = vec![
+        ("bestand", "een.mp3"),
+        ("bestand", "twee.mp3"),
+        ("album", "Gedeeld album"),
+        ("genre", "Klassiek"),
+        ("albumtitel:een.mp3", "Eigen album"),
+        ("artiest:een.mp3", "Een Ander"),
+        ("jaar:een.mp3", "1999"),
+    ];
+
+    let mut fields = batch.clone();
+    fields.push(("actie", "voorbeeld"));
+    let page = server.post_form("/album/Album", &fields);
+
+    assert_ok(&page);
+    let first = preview_html(&page, "een.mp3");
+    assert!(first.contains("Eigen album"), "{first}");
+    assert!(first.contains("Een Ander"), "{first}");
+    assert!(first.contains("1999"), "{first}");
+    // Waar de rij niets zegt, geldt het gedeelde veld gewoon.
+    assert!(first.contains("Klassiek"), "{first}");
+    assert!(!first.contains("Gedeeld album"), "{first}");
+
+    let second = preview_html(&page, "twee.mp3");
+    assert!(second.contains("Gedeeld album"), "{second}");
+
+    let mut fields = batch.clone();
+    fields.push(("actie", "opslaan"));
+    let saved = server.post_form("/album/Album", &fields);
+
+    assert_ok(&saved);
+    assert!(saved.contains("2 bestanden bijgewerkt."), "{saved}");
+
+    // Een verse leesronde: elk bestand heeft gekregen wat het voorbeeld beloofde.
+    let fresh = server.get("/album/Album");
+    let first = row_html(&fresh, "een.mp3");
+    for current in ["Eigen album", "Een Ander", "1999", "Klassiek"] {
+        assert!(
+            first.contains(&format!("placeholder=\"{current}\"")),
+            "{first}"
+        );
+    }
+
+    let second = row_html(&fresh, "twee.mp3");
+    assert!(second.contains("placeholder=\"Gedeeld album\""), "{second}");
+}
+
+#[test]
+fn an_empty_column_leaves_the_file_as_it_is() {
+    // AC #3: leeg betekent in de tabel hetzelfde als bij een gedeeld veld —
+    // ongemoeid laten. Wissen blijft een aparte, expliciete keuze, en die is
+    // hier niet gemaakt.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "voorbeeld"),
+            ("bestand", "een.mp3"),
+            ("genre:een.mp3", "   "),
+            ("jaar:een.mp3", ""),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(page.contains("Er verandert niets"), "{page}");
+    assert!(!page.contains("wordt verwijderd"), "{page}");
+}
+
+#[test]
+fn a_mistake_in_one_row_leaves_the_other_columns_and_rows_alone() {
+    // AC #4: de melding staat bij het veld waarin hij is ingetikt, en houdt
+    // alleen die rij tegen — ook nu er zes invulbare kolommen naast staan.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "alles"),
+            ("nummer:een.mp3", "drie"),
+            ("genre:een.mp3", "Jazz"),
+            ("artiest:twee.mp3", "Een Ander"),
+        ],
+    );
+
+    assert_ok(&page);
+    let broken = row_html(&page, "een.mp3");
+    assert!(broken.contains("Tracknummer moet een getal"), "{broken}");
+    assert!(broken.contains("rijveld__fout"), "{broken}");
+    // Eén veld van deze rij is als onbruikbaar gemarkeerd, niet de hele rij.
+    assert_eq!(broken.matches("aria-invalid").count(), 1, "{broken}");
+    assert!(broken.contains("value=\"Jazz\""), "{broken}");
+
+    let fine = row_html(&page, "twee.mp3");
+    assert!(!fine.contains("aria-invalid"), "{fine}");
+    assert!(!fine.contains("rijveld__fout"), "{fine}");
+
+    // De goede rij telt gewoon mee.
+    assert!(
+        page.contains("1 bestand krijgt een eigen waarde uit de tabel."),
+        "{page}"
+    );
+}
+
 /// Of dit invoerveld deze waarde als voorstel draagt.
 ///
 /// Naam en waarde staan in het template op dezelfde regel, juist zodat een test

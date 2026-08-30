@@ -62,10 +62,13 @@ de conventies vast waar code zich aan houdt.
   fout in de invoer zelf houdt de hele batch tegen, want half uitvoeren van een
   plan dat niet klopt is erger dan niets doen. In een gedeeld veld betekent
   leeg daar "ongemoeid laten" en niet "verwijderen" — het veld wordt nooit
-  voorgevuld, en wissen is een aparte, expliciete keuze. Titel en tracknummer
-  zijn geen gedeeld veld maar een override per bestand; die wint van wat de
-  gedeelde velden voor datzelfde bestand zouden doen, en een fout in één rij
-  houdt alleen die rij tegen.
+  voorgevuld, en wissen is een aparte, expliciete keuze. Tracknummer, titel,
+  artiest, albumartiest, album, jaar en genre zijn daarnaast per bestand in de
+  tabel zelf in te tikken; zo'n override wint van wat de gedeelde velden voor
+  datzelfde bestand zouden doen — ook van een wissen-vinkje — en een fout in
+  één rij wordt bij het veld gemeld en houdt alleen die rij tegen. Het jaar
+  wordt niet als getal gelezen: in het tagmodel is het tekst, omdat ID3v2.4 en
+  Vorbis er een volledige datum in kunnen zetten.
 - **Een hoes reist alleen mee in de laatste stap.** De albumweergave post
   zichzelf bij elk vinkje opnieuw; een bestandsveld daar zou de afbeelding bij
   iedere klik opnieuw over de lijn sturen, en de server kan zo'n veld daarna

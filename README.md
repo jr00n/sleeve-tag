@@ -663,18 +663,55 @@ selectie staat, is als tekst onder het veld te lezen: één gedeelde waarde, lee
 of "verschillend" met de waarden die voorkomen. Onder het formulier staat per
 veld wat er bij het opslaan zou gebeuren.
 
-Titel, tracknummer en albumartiest horen bij het bestand en zijn daarom **in de
-tabel zelf** in te tikken: één invoerveld per rij, met de huidige waarde als
-grijze tekst erin. Dezelfde regel geldt er: leeg laten verandert niets. Een
-override is voor dat ene bestand bedoeld en wint daarom van wat de gedeelde
-velden ervoor zouden doen. De ingetikte waarden blijven staan bij het wisselen
-van selectie; wat in een niet-geselecteerde rij staat, zegt erbij dat het niet
-wordt opgeslagen. Een onleesbaar tracknummer wordt bij die rij gemeld en houdt
-alleen die rij tegen — de andere rijen en de gedeelde velden blijven bruikbaar.
+#### Per bestand invullen: de kolommen van de tabel
 
-Albumartiest staat zowel bij de gedeelde velden als in de tabel, en dat is geen
-vergissing: hij is meestal voor het hele album gelijk, maar de hulpactie hieronder
-zet er per bestand een eigen waarde in.
+Niet alles is voor een heel album gelijk. Een compilatie heeft per track een
+andere artiest, een verzamelbox per schijf een ander jaar. Daarom zijn **zeven
+kolommen in de tabel zelf in te tikken**: tracknummer, titel, artiest,
+albumartiest, album, jaar en genre. Eén invoerveld per rij per kolom, met de
+huidige waarde als grijze tekst erin.
+
+| Kolom | Formuliersleutel |
+|-------|------------------|
+| # (tracknummer) | `nummer:<bestandsnaam>` |
+| Titel | `titel:<bestandsnaam>` |
+| Artiest | `artiest:<bestandsnaam>` |
+| Albumartiest | `albumartiest:<bestandsnaam>` |
+| Album | `albumtitel:<bestandsnaam>` |
+| Jaar | `jaar:<bestandsnaam>` |
+| Genre | `genre:<bestandsnaam>` |
+
+De sleutel van de kolom Album is `albumtitel` en niet `album`: de rijen en de
+gedeelde velden zitten in dezelfde formulierbody, en `album` mag daar niet twee
+dingen betekenen.
+
+Dezelfde regel geldt in de tabel als bij een gedeeld veld: **leeg laten
+verandert niets**, en wissen blijft een aparte, expliciete keuze die alleen bij
+de gedeelde velden staat. Wat er per bestand wordt ingetikt is een override en
+**wint** daarom van wat de gedeelde velden voor datzelfde bestand zouden doen —
+ook van een wissen-vinkje. Waar de rij niets zegt, geldt het gedeelde veld
+gewoon.
+
+De ingetikte waarden blijven staan bij het wisselen van selectie; wat in een
+niet-geselecteerde rij staat, zegt erbij dat het niet wordt opgeslagen. Een
+onleesbaar tracknummer wordt **bij dat veld** gemeld en houdt alleen die rij
+tegen — de andere rijen en de gedeelde velden blijven bruikbaar. Het jaar wordt
+níét als getal gelezen, hoe getalachtig het er ook uitziet: in het tagmodel is
+het tekst, omdat ID3v2.4 en Vorbis er een volledige datum in kunnen zetten, en
+een bestaande `2024-05-01` hoort bewerkbaar te blijven.
+
+Albumartiest, album, jaar en genre staan zowel bij de gedeelde velden als in de
+tabel, en dat is geen vergissing: ze zijn meestal voor het hele album gelijk, en
+dan is het gedeelde veld de kortste weg. Het discnummer en het aantal discs
+staan alléén bij de gedeelde velden — die gelden voor een hele schijf, niet voor
+één bestand, en hebben hun eigen hulpacties.
+
+Met zeven invoervelden naast elkaar is de tabel ruim breder dan een
+telefoonscherm. Hij scrollt daarom binnen zijn eigen rand (`.tabelrand`) en
+neemt de pagina daar niet in mee; de kolom met de bestandsnaam blijft daarbij
+staan, want zonder die naam is niet te zien wat je aanvinkt. De velden zijn niet
+allemaal even breed: een jaartal heeft aan een paar tekens genoeg, een titel
+niet.
 
 #### Hulpacties
 
