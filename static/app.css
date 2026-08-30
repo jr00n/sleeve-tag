@@ -399,6 +399,81 @@ a {
   background: color-mix(in srgb, var(--tekst) 7%, transparent);
 }
 
+/* ── Filteren op wat aandacht vraagt ───────────────────────────────────── */
+
+.mapfilter {
+  margin: 0 0 1rem;
+}
+
+.mapfilter__schoon {
+  color: var(--tekst-zacht);
+  font-size: 0.9rem;
+}
+
+/*
+ * Dezelfde vorm als een signaallabel: omlijnd in het accent, want dit is de
+ * schakelaar bij diezelfde constateringen. Aan is hij gevuld, zodat in één
+ * oogopslag te zien is welke van de twee standen geldt.
+ */
+.filterknop {
+  /* Houdt de weggenomen tekst hieronder binnen de knop in plaats van bij de
+     eerste de beste voorouder die wél gepositioneerd is. */
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.3rem 0.7rem;
+  color: var(--accent);
+  text-decoration: none;
+  background: transparent;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 0.9rem;
+}
+
+.filterknop:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.filterknop--aan {
+  color: var(--achtergrond);
+  background: var(--accent);
+}
+
+.filterknop--aan:hover {
+  background: color-mix(in srgb, var(--accent) 85%, var(--tekst));
+}
+
+.filterknop__telling {
+  padding: 0 0.4rem;
+  border-radius: calc(var(--radius-md) * 0.75);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  font-variant-numeric: tabular-nums;
+}
+
+.filterknop--aan .filterknop__telling {
+  background: color-mix(in srgb, var(--achtergrond) 25%, transparent);
+}
+
+/*
+ * De stand staat er in woorden bij, maar hoort niet in beeld: de vulling van de
+ * knop zegt het al, en tweemaal hetzelfde maakt de regel alleen maar drukker.
+ * Wel voorleesbaar — een kleurverschil is geen boodschap voor wie de pagina
+ * laat voorlezen. Vandaar wegnemen uit de weergave en niet `display: none`.
+ */
+.filterknop__stand {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 /* ── Submappen ─────────────────────────────────────────────────────────── */
 
 .mappen,

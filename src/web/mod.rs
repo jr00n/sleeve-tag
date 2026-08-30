@@ -106,11 +106,25 @@ struct ListingTemplate {
     listing: Listing,
 }
 
-/// De zoekterm uit de querystring (FR-3).
+/// Wat de querystring over het versmallen van de lijst zegt.
+///
+/// `q` is de zoekterm (FR-3); `aandacht` zet het filter op wat een signalering
+/// heeft (FR-4). Beide staan in de URL, zodat een gefilterde lijst te delen en
+/// te bookmarken is en het ook zonder JavaScript werkt. Wat de waarden
+/// betekenen, beslist [`browse::Filter`] en niet deze handler.
 #[derive(Debug, Default, serde::Deserialize)]
 struct BrowseQuery {
     #[serde(default)]
     q: String,
+
+    #[serde(default)]
+    aandacht: String,
+}
+
+impl BrowseQuery {
+    fn filter(&self) -> browse::Filter {
+        browse::Filter::from_query(&self.q, &self.aandacht)
+    }
 }
 
 /// De bibliotheekwortel: het startpunt van elke bewerksessie.
@@ -119,7 +133,7 @@ async fn browse_root(
     Query(query): Query<BrowseQuery>,
     headers: HeaderMap,
 ) -> Result<Html<String>, WebError> {
-    render_listing(state, String::new(), query.q, &headers).await
+    render_listing(state, String::new(), query.filter(), &headers).await
 }
 
 /// Een map onder de wortel.
@@ -129,13 +143,13 @@ async fn browse_directory(
     Query(query): Query<BrowseQuery>,
     headers: HeaderMap,
 ) -> Result<Html<String>, WebError> {
-    render_listing(state, path, query.q, &headers).await
+    render_listing(state, path, query.filter(), &headers).await
 }
 
 async fn render_listing(
     state: AppState,
     path: String,
-    query: String,
+    filter: browse::Filter,
     headers: &HeaderMap,
 ) -> Result<Html<String>, WebError> {
     let library = Arc::clone(&state.library);
@@ -144,7 +158,7 @@ async fn render_listing(
     // async-runtime zou dat de worker vasthouden waarop ook andere verzoeken
     // moeten draaien.
     let listing =
-        tokio::task::spawn_blocking(move || browse::listing(&library, &path, &query)).await??;
+        tokio::task::spawn_blocking(move || browse::listing(&library, &path, &filter)).await??;
 
     // HTMX vraagt alleen het stuk op dat het vervangt. Elk ander verzoek — een
     // gedeelde link, een herlaadactie, een browser zonder JavaScript — krijgt de
@@ -382,7 +396,12 @@ async fn read_listing(state: &AppState, path: &str) -> Result<browse::Listing, W
 
     // Net als de maplijst: elk bestand in de map wordt geopend om zijn tags te
     // lezen, en dat hoort niet op de async-runtime.
-    Ok(tokio::task::spawn_blocking(move || browse::listing(&library, &wanted, "")).await??)
+    Ok(
+        tokio::task::spawn_blocking(move || {
+            browse::listing(&library, &wanted, &Default::default())
+        })
+        .await??,
+    )
 }
 
 fn render_page(page: AlbumPage, fragment: bool) -> Result<Html<String>, WebError> {

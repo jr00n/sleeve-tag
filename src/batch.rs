@@ -2059,6 +2059,8 @@ mod tests {
             tracks,
             folder_issues: Vec::new(),
             query: String::new(),
+            flagged_count: 0,
+            only_flagged: false,
         }
     }
 

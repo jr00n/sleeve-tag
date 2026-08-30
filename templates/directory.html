@@ -33,7 +33,40 @@
            autocomplete="off" />
     <button class="zoek__knop" type="submit">Zoek</button>
   </span>
+  {# Het aandachtsfilter reist mee met het zoeken. Zonder dit veld zou een
+     zoekopdracht het filter stilzwijgend uitzetten; de twee versmallen samen. #}
+  {% if listing.only_flagged %}
+  <input type="hidden" name="aandacht" value="1" />
+  {% endif %}
 </form>
+
+{# Het aandachtsfilter (FR-4): één klik toont alleen de bestanden waar iets aan
+   mankeert, nog een klik zet de lijst terug. Een gewone link, dus ook zonder
+   JavaScript een werkende schakelaar, en de stand staat in de URL zodat een
+   gefilterde lijst te delen en te bookmarken is. #}
+{% if listing.has_flagged() || listing.only_flagged %}
+<p class="mapfilter">
+  <a class="filterknop{% if listing.only_flagged %} filterknop--aan{% endif %}"
+     href="{{ listing.attention_url() }}">
+    {%- if listing.only_flagged %}<span class="filterknop__vink" aria-hidden="true">✓</span>{% endif -%}
+    <span class="filterknop__naam">Vraagt aandacht</span>
+    <span class="filterknop__telling">{{ listing.flagged_count }}</span>
+    {# De stand staat er ook in woorden bij: een kleur alleen is geen boodschap
+       voor wie de pagina laat voorlezen. #}
+    <span class="filterknop__stand">
+      {%- if listing.only_flagged -%}
+        filter staat aan — toon weer alles
+      {%- else -%}
+        filter staat uit — toon alleen deze
+      {%- endif -%}
+    </span>
+  </a>
+</p>
+{% else if !listing.tracks.is_empty() %}
+<p class="mapfilter">
+  <span class="mapfilter__schoon">Niets in deze map vraagt aandacht.</span>
+</p>
+{% endif %}
 
 {# De ingang naar de albumweergave (FR-8). Alleen wanneer er iets te bewerken
    valt: op een map met louter submappen is de knop een doodlopend spoor. #}

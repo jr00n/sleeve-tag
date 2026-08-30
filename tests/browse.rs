@@ -297,6 +297,155 @@ fn a_tidy_directory_shows_no_warnings() {
     );
 }
 
+/// Een map met één net bestand en twee waar van alles aan mankeert.
+fn library_with_a_mixed_album() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Gemengd album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "net.mp3", "tagged-with-art.mp3");
+    place_fixture(&album, "kaal-een.mp3", "untagged.mp3");
+    place_fixture(&album, "kaal-twee.flac", "untagged.flac");
+
+    root
+}
+
+#[test]
+fn the_directory_counts_what_needs_attention() {
+    let server = Server::start_in(library_with_a_mixed_album(), &[]);
+    let html = body(&server.get("/map/Gemengd%20album"));
+
+    assert!(
+        html.contains("Vraagt aandacht"),
+        "de telling ontbreekt in de kopbalk van de map:\n{html}"
+    );
+    assert!(
+        html.contains(r#"class="filterknop__telling">2<"#),
+        "twee van de drie bestanden vragen aandacht:\n{html}"
+    );
+
+    // Zonder JavaScript: een gewone link naar dezelfde pagina met de stand in
+    // de URL, zodat een gefilterde lijst te delen en te bookmarken is.
+    assert!(
+        html.contains(r#"href="/map/Gemengd%20album?aandacht=1""#),
+        "het filter hoort een gewone link met de stand in de URL te zijn:\n{html}"
+    );
+}
+
+#[test]
+fn the_attention_filter_narrows_the_list_and_switches_back() {
+    let server = Server::start_in(library_with_a_mixed_album(), &[]);
+
+    let filtered = body(&server.get("/map/Gemengd%20album?aandacht=1"));
+    for name in ["kaal-een.mp3", "kaal-twee.flac"] {
+        assert!(
+            filtered.contains(name),
+            "'{name}' vraagt aandacht en hoort te blijven staan:\n{filtered}"
+        );
+    }
+    assert!(
+        !filtered.contains("net.mp3"),
+        "een bestand zonder signalering hoort weg te vallen:\n{filtered}"
+    );
+
+    // De telling blijft over de hele map gaan, ook met het filter aan.
+    assert!(
+        filtered.contains(r#"class="filterknop__telling">2<"#),
+        "de telling hoort bij de map, niet bij wat er overblijft:\n{filtered}"
+    );
+
+    // En de knop laat zien dat hij aan staat, met de weg terug erin.
+    assert!(
+        filtered.contains("filterknop--aan"),
+        "de knop hoort te tonen dat het filter aan staat:\n{filtered}"
+    );
+    assert!(
+        filtered.contains(r#"href="/map/Gemengd%20album""#),
+        "nog een klik hoort de hele lijst terug te brengen:\n{filtered}"
+    );
+
+    // Diezelfde URL zonder de parameter toont weer alles.
+    let everything = body(&server.get("/map/Gemengd%20album"));
+    assert!(
+        everything.contains("net.mp3"),
+        "zonder filter hoort alles er te staan:\n{everything}"
+    );
+}
+
+#[test]
+fn the_attention_filter_and_the_search_term_narrow_together() {
+    let server = Server::start_in(library_with_a_mixed_album(), &[]);
+
+    // Allebei tegelijk: alleen wat aan beide voldoet blijft over.
+    let both = body(&server.get("/map/Gemengd%20album?q=twee&aandacht=1"));
+    assert!(
+        both.contains("kaal-twee.flac"),
+        "het bestand dat aan allebei voldoet ontbreekt:\n{both}"
+    );
+    for name in ["kaal-een.mp3", "net.mp3"] {
+        assert!(
+            !both.contains(name),
+            "'{name}' voldoet niet aan allebei en hoort weg te vallen:\n{both}"
+        );
+    }
+
+    // Het zoekveld houdt de stand vast, anders zou zoeken het filter uitzetten.
+    assert!(
+        both.contains(r#"name="aandacht" value="1""#),
+        "het zoekformulier hoort het filter mee te sturen:\n{both}"
+    );
+    assert!(
+        both.contains(r#"href="/map/Gemengd%20album?q=twee""#),
+        "de knop hoort de zoekterm te bewaren bij het uitzetten:\n{both}"
+    );
+
+    // Geen OR: een zoekterm die alleen het nette bestand vindt, houdt met het
+    // aandachtsfilter erbij niets over — met uitleg in plaats van een lege lijst.
+    let none = body(&server.get("/map/Gemengd%20album?q=net&aandacht=1"));
+    assert!(
+        !none.contains("net.mp3"),
+        "het aandachtsfilter hoort het nette bestand tegen te houden:\n{none}"
+    );
+    assert!(
+        none.contains("Niets wat aandacht vraagt komt overeen met"),
+        "een leeg resultaat hoort uitgelegd te worden:\n{none}"
+    );
+}
+
+#[test]
+fn a_directory_where_everything_is_in_order_says_so() {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Net album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+    place_fixture(&album, "enige.mp3", "tagged-with-art.mp3");
+
+    let server = Server::start_in(root, &[]);
+
+    // Zonder filter: geen knop die naar een lege lijst leidt, maar het bericht
+    // dat er niets te doen is.
+    let html = body(&server.get("/map/Net%20album"));
+    assert!(
+        html.contains("Niets in deze map vraagt aandacht."),
+        "een nette map hoort dat met zoveel woorden te zeggen:\n{html}"
+    );
+    assert!(
+        !html.contains("filterknop"),
+        "zonder iets om op te filteren hoort er geen knop te staan:\n{html}"
+    );
+
+    // En wie er tóch met het filter aan binnenkomt, krijgt uitleg in plaats
+    // van een lege lijst.
+    let filtered = body(&server.get("/map/Net%20album?aandacht=1"));
+    assert!(
+        filtered.contains("Niets in deze map vraagt aandacht."),
+        "ook met het filter aan hoort er uitleg te staan:\n{filtered}"
+    );
+    assert!(
+        !filtered.contains("enige.mp3"),
+        "het filter hoort ook hier te filteren:\n{filtered}"
+    );
+}
+
 #[test]
 fn marking_leaves_the_files_untouched() {
     // AC #5: de signalering is puur informatief. Na het bekijken van een map

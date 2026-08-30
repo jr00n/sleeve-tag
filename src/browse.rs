@@ -50,6 +50,48 @@ const PATH_ESCAPES: &AsciiSet = &CONTROLS
     .add(b'}')
     .add(b'%');
 
+/// Tekens die in een waarde ván een queryparameter gecodeerd moeten worden.
+///
+/// Ruimer dan [`PATH_ESCAPES`]: `&` en `=` scheiden hier de parameters, dus een
+/// zoekterm waar zo'n teken in staat zou de rest van de URL kapotmaken.
+const QUERY_ESCAPES: &AsciiSet = &PATH_ESCAPES.add(b'&').add(b'=').add(b'+').add(b'/');
+
+/// Naam van de queryparameter waarmee het aandachtsfilter aan staat.
+///
+/// De stand hoort in de URL: een gefilterde lijst moet te delen en te
+/// bookmarken zijn, en zonder JavaScript is een gewone link de enige manier om
+/// hem aan of uit te zetten.
+pub const ATTENTION_PARAM: &str = "aandacht";
+
+/// De waarde waarmee dat filter aan staat.
+pub const ATTENTION_ON: &str = "1";
+
+/// Waarop de lijst van één map versmald wordt.
+///
+/// De twee filters werken samen en vervangen elkaar niet: staat er een
+/// zoekterm én het aandachtsfilter, dan blijft over wat aan allebei voldoet.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Filter {
+    /// De zoekterm zoals de gebruiker hem heeft ingevuld (FR-3).
+    pub query: String,
+
+    /// Alleen de bestanden met ten minste één signalering (FR-4).
+    pub only_flagged: bool,
+}
+
+impl Filter {
+    /// Het filter zoals het uit de querystring komt.
+    ///
+    /// De parameterwaarde wordt hier op één plek geduid, zodat de handler geen
+    /// eigen idee kan krijgen over wat "aan" betekent.
+    pub fn from_query(query: &str, attention: &str) -> Filter {
+        Filter {
+            query: query.to_string(),
+            only_flagged: attention == ATTENTION_ON,
+        }
+    }
+}
+
 /// Eén stap in het broodkruimelpad.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Crumb {
@@ -124,6 +166,15 @@ impl TrackSummary {
         self.art.is_some()
     }
 
+    /// Of dit bestand ten minste één signalering heeft.
+    ///
+    /// Dit is wat het aandachtsfilter en de telling in de kopbalk tellen. De
+    /// signalering zelf blijft constateren: hier wordt niets voorgesteld en
+    /// niets gerepareerd, er wordt alleen geteld.
+    pub fn needs_attention(&self) -> bool {
+        !self.issues.is_empty()
+    }
+
     /// Het tracknummer, of een lege tekst wanneer het ontbreekt.
     ///
     /// Bewust leeg en niet `—`: in een smalle kolom vóór de titel is een streepje
@@ -183,17 +234,61 @@ pub struct Listing {
 
     /// De zoekterm zoals de gebruiker hem heeft ingevuld.
     pub query: String,
+
+    /// Hoeveel bestanden in deze map ten minste één signalering hebben.
+    ///
+    /// Over de héle map geteld, net als [`Listing::folder_issues`]: de telling
+    /// hoort bij de map die je bekijkt en niet bij wat er na het filteren
+    /// toevallig overblijft. Anders zou hij bij elke aanslag in het zoekveld
+    /// iets anders beweren.
+    pub flagged_count: usize,
+
+    /// Of de lijst tot die bestanden beperkt is.
+    pub only_flagged: bool,
+}
+
+impl Listing {
+    /// Of er in deze map iets aandacht vraagt.
+    pub fn has_flagged(&self) -> bool {
+        self.flagged_count > 0
+    }
+
+    /// De URL die het aandachtsfilter omzet en de zoekterm laat staan.
+    ///
+    /// Staat het filter aan, dan laat deze link de parameter weg en komt de
+    /// hele lijst terug; staat het uit, dan zet hij hem aan. Eén gewone link
+    /// dus, die het ook zonder JavaScript doet.
+    pub fn attention_url(&self) -> String {
+        let mut params: Vec<String> = Vec::new();
+
+        if !self.query.is_empty() {
+            params.push(format!(
+                "q={}",
+                utf8_percent_encode(&self.query, QUERY_ESCAPES)
+            ));
+        }
+
+        if !self.only_flagged {
+            params.push(format!("{ATTENTION_PARAM}={ATTENTION_ON}"));
+        }
+
+        if params.is_empty() {
+            self.url.clone()
+        } else {
+            format!("{}?{}", self.url, params.join("&"))
+        }
+    }
 }
 
 /// Bouwt het weergavemodel van één map.
 ///
 /// `relative` is het door de gebruiker aangeleverde pad en gaat ongewijzigd naar
-/// [`Library::list_directory`], die het controleert. `query` filtert binnen deze
-/// map op bestandsnaam of titel.
+/// [`Library::list_directory`], die het controleert. `filter` versmalt binnen
+/// deze map: op bestandsnaam of titel, op wat aandacht vraagt, of op allebei.
 ///
 /// Dit is blokkerende I/O: elk bestand wordt geopend om zijn tags te lezen. De
 /// aanroeper hoort dat buiten de async-runtime te doen.
-pub fn listing(library: &Library, relative: &str, query: &str) -> Result<Listing, PathError> {
+pub fn listing(library: &Library, relative: &str, filter: &Filter) -> Result<Listing, PathError> {
     let contents = library.list_directory(relative)?;
 
     let path = library
@@ -201,7 +296,7 @@ pub fn listing(library: &Library, relative: &str, query: &str) -> Result<Listing
         .map(to_url_path)
         .unwrap_or_default();
 
-    let needle = query.trim().to_lowercase();
+    let needle = filter.query.trim().to_lowercase();
 
     let folders: Vec<Folder> = contents
         .directories
@@ -224,11 +319,24 @@ pub fn listing(library: &Library, relative: &str, query: &str) -> Result<Listing
 
     let folder_issues = review(&mut tracks);
 
+    // Tellen vóór het filteren, en over alle bestanden: wat de kopbalk meldt
+    // gaat over de map, niet over wat er na een zoekterm van over is.
+    let flagged_count = tracks
+        .iter()
+        .filter(|track| track.needs_attention())
+        .count();
+
+    if filter.only_flagged {
+        tracks.retain(TrackSummary::needs_attention);
+    }
+
     tracks.retain(|track| matches_query(track, &needle));
     sort_tracks(&mut tracks);
 
     Ok(Listing {
         folder_issues,
+        flagged_count,
+        only_flagged: filter.only_flagged,
         name: name_of(&path),
         crumbs: crumbs_for(&path),
         url: url_for(&path),
@@ -236,7 +344,7 @@ pub fn listing(library: &Library, relative: &str, query: &str) -> Result<Listing
         path,
         folders,
         tracks,
-        query: query.trim().to_string(),
+        query: filter.query.trim().to_string(),
     })
 }
 
@@ -502,7 +610,8 @@ mod tests {
     }
 
     fn album_listing(library: &Library, query: &str) -> Listing {
-        listing(library, "Artiest/Album", query).expect("de albummap moet te tonen zijn")
+        listing(library, "Artiest/Album", &Filter::from_query(query, ""))
+            .expect("de albummap moet te tonen zijn")
     }
 
     #[test]
@@ -527,7 +636,7 @@ mod tests {
     fn shows_subdirectories_and_starts_at_the_root() {
         let (_tempdir, library) = library_with_album();
 
-        let root = listing(&library, "", "").expect("de root moet te tonen zijn");
+        let root = listing(&library, "", &Filter::default()).expect("de root moet te tonen zijn");
 
         assert_eq!(root.name, ROOT_NAME);
         assert_eq!(root.path, "");
@@ -642,7 +751,8 @@ mod tests {
         std::fs::create_dir(library.root().join("Andere artiest"))
             .expect("map moet aan te maken zijn");
 
-        let listing = listing(&library, "", "artiest").expect("de root moet te tonen zijn");
+        let listing = listing(&library, "", &Filter::from_query("artiest", ""))
+            .expect("de root moet te tonen zijn");
 
         assert_eq!(
             listing.folders.iter().map(|f| &f.name).collect::<Vec<_>>(),
@@ -654,7 +764,7 @@ mod tests {
     }
 
     fn listing_of_root(library: &Library, query: &str) -> Listing {
-        listing(library, "", query).expect("de root moet te tonen zijn")
+        listing(library, "", &Filter::from_query(query, "")).expect("de root moet te tonen zijn")
     }
 
     #[test]
@@ -796,12 +906,179 @@ mod tests {
         );
     }
 
+    /// De albummap met een uitgesproken filter.
+    fn album_listing_with(library: &Library, filter: &Filter) -> Listing {
+        listing(library, "Artiest/Album", filter).expect("de albummap moet te tonen zijn")
+    }
+
+    /// Een filter met zoekterm én aandachtsfilter.
+    fn attention_and(query: &str) -> Filter {
+        Filter {
+            query: query.to_string(),
+            only_flagged: true,
+        }
+    }
+
+    #[test]
+    fn counts_the_files_that_need_attention() {
+        let (_tempdir, library) = library_with_album();
+        // Compleet getagd, mét hoes: hier valt niets over te melden.
+        place(&library, "compleet.mp3", testfixtures::MP3_WITH_ART);
+        place(&library, "kaal.mp3", testfixtures::MP3_WITHOUT_TAGS);
+        place(&library, "ook-kaal.flac", testfixtures::FLAC_WITHOUT_TAGS);
+
+        let listing = album_listing(&library, "");
+
+        assert_eq!(
+            listing.flagged_count, 2,
+            "twee van de drie missen van alles"
+        );
+        assert!(listing.has_flagged());
+        assert!(!listing.only_flagged, "zonder filter staat de lijst open");
+        assert_eq!(listing.tracks.len(), 3, "ongefilterd staat alles er nog");
+    }
+
+    #[test]
+    fn a_tidy_directory_counts_nothing() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "hoes.mp3", testfixtures::MP3_WITH_ART);
+
+        let listing = album_listing(&library, "");
+
+        assert_eq!(listing.flagged_count, 0);
+        assert!(!listing.has_flagged());
+    }
+
+    #[test]
+    fn the_filter_keeps_only_what_needs_attention() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "compleet.mp3", testfixtures::MP3_WITH_ART);
+        place(&library, "kaal.mp3", testfixtures::MP3_WITHOUT_TAGS);
+
+        let listing = album_listing_with(&library, &attention_and(""));
+
+        assert!(listing.only_flagged);
+        assert_eq!(
+            listing.tracks.iter().map(|t| &t.name).collect::<Vec<_>>(),
+            vec!["kaal.mp3"]
+        );
+        assert_eq!(
+            listing.flagged_count, 1,
+            "de telling blijft over de hele map gaan"
+        );
+    }
+
+    #[test]
+    fn the_filter_and_the_search_term_narrow_together() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "compleet.mp3", testfixtures::MP3_WITH_ART);
+        place(&library, "kaal-een.mp3", testfixtures::MP3_WITHOUT_TAGS);
+        place(&library, "kaal-twee.flac", testfixtures::FLAC_WITHOUT_TAGS);
+
+        // Beide filters samen: alleen wat aan allebei voldoet blijft over.
+        let both = album_listing_with(&library, &attention_and("twee"));
+        assert_eq!(
+            both.tracks.iter().map(|t| &t.name).collect::<Vec<_>>(),
+            vec!["kaal-twee.flac"]
+        );
+
+        // Een zoekterm die alleen het nette bestand vindt, houdt met het
+        // aandachtsfilter erbij niets over — geen OR dus.
+        let none = album_listing_with(&library, &attention_and("compleet"));
+        assert!(none.tracks.is_empty(), "gevonden: {:?}", none.tracks);
+        assert_eq!(none.flagged_count, 2);
+
+        // Zonder het aandachtsfilter komt datzelfde bestand gewoon terug.
+        let search_only = album_listing(&library, "compleet");
+        assert_eq!(search_only.tracks.len(), 1);
+    }
+
+    #[test]
+    fn a_tidy_directory_has_nothing_left_under_the_filter() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "hoes.mp3", testfixtures::MP3_WITH_ART);
+
+        let listing = album_listing_with(&library, &attention_and(""));
+
+        assert!(listing.tracks.is_empty());
+        assert_eq!(listing.flagged_count, 0);
+        assert!(
+            listing.only_flagged,
+            "de weergave moet kunnen uitleggen waarom"
+        );
+    }
+
+    #[test]
+    fn folder_issues_survive_the_attention_filter() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "een.mp3", testfixtures::MP3_WITH_TAGS);
+        place(&library, "twee.flac", testfixtures::FLAC_WITH_TAGS);
+
+        let everything = album_listing(&library, "");
+        let filtered = album_listing_with(&library, &attention_and(""));
+
+        assert_eq!(
+            filtered.folder_issues, everything.folder_issues,
+            "aan de map verandert niets doordat de gebruiker filtert"
+        );
+    }
+
+    #[test]
+    fn the_attention_link_toggles_and_keeps_the_search_term() {
+        let (_tempdir, library) = library_with_album();
+        place(&library, "kaal.mp3", testfixtures::MP3_WITHOUT_TAGS);
+
+        // Uit: de link zet hem aan.
+        let off = album_listing(&library, "");
+        assert_eq!(off.attention_url(), "/map/Artiest/Album?aandacht=1");
+
+        // Aan: de link laat de parameter weg en toont weer alles.
+        let on = album_listing_with(&library, &attention_and(""));
+        assert_eq!(on.attention_url(), "/map/Artiest/Album");
+
+        // De zoekterm reist mee, in beide richtingen.
+        let searching = album_listing(&library, "kaal");
+        assert_eq!(
+            searching.attention_url(),
+            "/map/Artiest/Album?q=kaal&aandacht=1"
+        );
+        let both = album_listing_with(&library, &attention_and("kaal"));
+        assert_eq!(both.attention_url(), "/map/Artiest/Album?q=kaal");
+    }
+
+    #[test]
+    fn the_attention_link_escapes_the_search_term() {
+        let (_tempdir, library) = library_with_album();
+
+        let listing = album_listing(&library, "a&b=c d");
+
+        assert_eq!(
+            listing.attention_url(),
+            "/map/Artiest/Album?q=a%26b%3Dc%20d&aandacht=1",
+            "een zoekterm mag de rest van de URL niet kunnen kapotmaken"
+        );
+    }
+
+    #[test]
+    fn the_query_parameter_decides_what_is_on() {
+        assert_eq!(
+            Filter::from_query(" iets ", ATTENTION_ON),
+            Filter {
+                query: " iets ".to_string(),
+                only_flagged: true,
+            }
+        );
+        assert!(!Filter::from_query("", "").only_flagged);
+        assert!(!Filter::from_query("", "0").only_flagged);
+        assert_eq!(Filter::default(), Filter::from_query("", ""));
+    }
+
     #[test]
     fn refuses_a_path_outside_the_library() {
         let (_tempdir, library) = library_with_album();
 
         assert_eq!(
-            listing(&library, "../..", "").unwrap_err(),
+            listing(&library, "../..", &Filter::default()).unwrap_err(),
             PathError::OutsideLibrary
         );
     }

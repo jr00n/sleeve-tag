@@ -78,7 +78,18 @@
 </ul>
 {% endif %}
 
-{% if listing.folders.is_empty() && listing.tracks.is_empty() %}
+{# Met het aandachtsfilter aan is een lege lijst een uitkomst en geen
+   vergissing: dan is er niets waar iets aan mankeert. Dat hoort er met zoveel
+   woorden te staan. #}
+{% if listing.only_flagged && listing.tracks.is_empty() %}
+<p class="leeg">
+  {%- if listing.query.is_empty() -%}
+    Niets in deze map vraagt aandacht.
+  {%- else -%}
+    Niets wat aandacht vraagt komt overeen met “{{ listing.query }}”.
+  {%- endif -%}
+</p>
+{% else if listing.folders.is_empty() && listing.tracks.is_empty() %}
 <p class="leeg">
   {%- if listing.query.is_empty() -%}
     Deze map bevat geen submappen en geen bewerkbare bestanden.

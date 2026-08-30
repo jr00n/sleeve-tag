@@ -504,7 +504,9 @@ Het zoekveld filtert binnen de huidige map op bestandsnaam of titel, en op de
 naam van submappen. Met JavaScript ververst HTMX tijdens het typen alleen de
 lijst (de server geeft dan het fragment `templates/listing.html` terug, herkend
 aan de `HX-Request`-header); zonder JavaScript is het een gewone GET naar
-dezelfde URL met `?q=`, met hetzelfde resultaat als hele pagina.
+dezelfde URL met `?q=`, met hetzelfde resultaat als hele pagina. Naast het
+zoekveld staat het filter op wat aandacht vraagt; die twee werken samen en zijn
+[hieronder](#filteren-op-wat-aandacht-vraagt) beschreven.
 
 Er is bewust geen bibliotheek-index: de tags worden per map gelezen op het moment
 dat de pagina wordt opgevraagd. Dat lezen is blokkerende I/O en gebeurt daarom in
@@ -550,6 +552,35 @@ als inconsistent gelden.
 De labels zijn zichtbare tekst en geen tooltip: op een telefoon is er geen
 hover. De beoordeling loopt over de héle map, ook wanneer er gefilterd wordt —
 aan de map verandert niets doordat je zoekt.
+
+#### Filteren op wat aandacht vraagt
+
+Boven de lijst staat hoeveel bestanden in deze map ten minste één signalering
+hebben. Die knop zet het filter aan: dan blijven alleen die bestanden over. Nog
+een klik zet de lijst terug; de knop laat met een vulling en met tekst zien
+welke van de twee standen geldt. Staat er niets te melden, dan staat er geen
+knop maar het bericht dat er niets aandacht vraagt — een knop naar een lege
+lijst is een doodlopend spoor.
+
+De stand staat in de URL als `?aandacht=1`, naast een eventuele `?q=`:
+
+| URL | Wat je krijgt |
+|---|---|
+| `/map/Artiest/Album` | alles in de map |
+| `/map/Artiest/Album?aandacht=1` | alleen de bestanden met een signalering |
+| `/map/Artiest/Album?q=live` | alles wat op `live` matcht |
+| `/map/Artiest/Album?q=live&aandacht=1` | wat op `live` matcht **én** een signalering heeft |
+
+De twee versmallen dus samen en vervangen elkaar niet. Omdat de stand in de URL
+staat, overleeft hij het verversen van de pagina en is een gefilterde lijst te
+delen en te bookmarken. Het is een gewone link, dus ook zonder JavaScript een
+werkende schakelaar; het zoekformulier stuurt de stand mee, zodat zoeken het
+filter niet stilzwijgend uitzet.
+
+De telling gaat over de héle map en niet over wat er na het filteren overblijft:
+hij hoort bij de map die je bekijkt, en zou anders bij elke aanslag in het
+zoekveld iets anders beweren. Tellen en filteren gebeuren in `browse::`;
+`checks::` blijft alleen constateren en stelt nog steeds geen correcties voor.
 
 ### Bewerken
 
