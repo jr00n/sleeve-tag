@@ -1472,17 +1472,23 @@ pub struct HiddenField {
     pub value: String,
 }
 
-/// Bouwt de voorbeeldweergave: per bestand wat er verandert (FR-11).
+/// Wat er per bestand zou veranderen, gerekend vanuit wat er nú in staat.
 ///
-/// Er gaat hier geen bestand open. De huidige waarden komen uit de listing, en
-/// wat eruit komt is een voorstel: het schrijven gebeurt pas als de gebruiker
-/// het voorbeeld heeft gezien en op opslaan drukt.
-pub fn preview(listing: &Listing, form: &Form) -> Preview {
+/// Dit is de enige plek waar dat wordt uitgerekend. De voorbeeldweergave zet
+/// er de velden bij; de balk onder de albumweergave telt er alleen de
+/// veranderende bestanden uit. Zo kunnen die twee niet uiteenlopen: wat de balk
+/// belooft, is precies wat het voorbeeld erna laat zien.
+///
+/// Een ingevulde waarde die gelijk is aan wat er al staat, levert geen
+/// wijziging op — dat volgt uit [`changes_between`] en hoeft hier niet apart
+/// geregeld te worden.
+///
+/// Er gaat geen bestand open: de tags zitten al in de listing.
+fn diffs(listing: &Listing, form: &Form) -> Vec<FileDiff> {
     let plan = intents(listing, form);
-    let page = album(listing, form);
     let chosen = resolve_selection(listing, form);
 
-    let files: Vec<FileDiff> = listing
+    listing
         .tracks
         .iter()
         .map(|track| {
@@ -1511,7 +1517,17 @@ pub fn preview(listing: &Listing, form: &Form) -> Preview {
                 }),
             }
         })
-        .collect();
+        .collect()
+}
+
+/// Bouwt de voorbeeldweergave: per bestand wat er verandert (FR-11).
+///
+/// Er gaat hier geen bestand open. De huidige waarden komen uit de listing, en
+/// wat eruit komt is een voorstel: het schrijven gebeurt pas als de gebruiker
+/// het voorbeeld heeft gezien en op opslaan drukt.
+pub fn preview(listing: &Listing, form: &Form) -> Preview {
+    let page = album(listing, form);
+    let files = diffs(listing, form);
 
     // Wat de invoer tegenhoudt, staat op de albumpagina al per veld en per rij;
     // hier wordt het herhaald zodat de knop "Definitief opslaan" nooit boven een
@@ -1720,8 +1736,10 @@ pub struct AlbumPage {
 
     /// Hoeveel bestanden er bij het opslaan daadwerkelijk zouden veranderen.
     ///
-    /// Komt uit [`intents`], zodat het getal onder het formulier van dezelfde
-    /// berekening komt als het plan dat de voorbeeldweergave straks toont.
+    /// Komt uit [`diffs`] — dezelfde berekening als de voorbeeldweergave — en
+    /// wordt geteld zoals [`Preview::changing`] telt. Een ingevulde waarde die
+    /// gelijk is aan wat er al in het bestand staat, telt dus niet mee: dat
+    /// bestand verandert niet.
     pub changed_files: usize,
 
     /// Wat de zojuist aangeklikte hulpactie gedaan heeft (FR-10); leeg wanneer
@@ -1751,6 +1769,40 @@ impl AlbumPage {
     /// Of er ergens in de tabel een onbruikbare invoer staat.
     pub fn has_row_problems(&self) -> bool {
         self.rows.iter().any(Row::has_problems)
+    }
+
+    /// Of er iets openstaat: een selectie met invoer die nog nergens heen is.
+    ///
+    /// Niet hetzelfde als "er verandert iets". Wie invult wat er al staat, heeft
+    /// nog steeds iets openstaan: de voorbeeldweergave blijft bereikbaar, want
+    /// daar hangt ook de hoes aan, die ook een bestand met kloppende tags nog
+    /// iets te geven heeft. Hoeveel bestanden er werkelijk veranderen, staat als
+    /// getal in de balk — en dat mag nul zijn.
+    pub fn is_pending(&self) -> bool {
+        self.has_selection() && self.changes_anything()
+    }
+
+    /// Wat de balk onder de albumweergave zegt.
+    ///
+    /// Hetzelfde getal als de voorbeeldweergave straks toont, want het komt uit
+    /// dezelfde berekening; hier alleen geteld in plaats van uitgeschreven.
+    pub fn pending_summary(&self) -> String {
+        if !self.has_selection() {
+            return "Er is niets geselecteerd, dus er staat niets open.".to_string();
+        }
+
+        if !self.changes_anything() {
+            return "Er is nog niets ingevuld, dus er staat niets open.".to_string();
+        }
+
+        match self.changed_files {
+            // Het geval dat pas in de voorbeeldweergave zichtbaar was: wat er
+            // is ingevuld, staat er al.
+            0 => "Geen enkel bestand krijgt een wijziging: wat er is ingevuld, staat er al."
+                .to_string(),
+            1 => "1 bestand krijgt een wijziging.".to_string(),
+            count => format!("{count} bestanden krijgen een wijziging."),
+        }
     }
 
     /// Hoeveel bestanden er zouden veranderen, in één zin.
@@ -1871,7 +1923,13 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         disc_suggestion: disc_suggestion(listing, &chosen),
         problems,
         overridden,
-        changed_files: intents(listing, form).len(),
+        // Van dezelfde berekening als de voorbeeldweergave, en op dezelfde
+        // manier geteld: de balk onder het formulier en het voorbeeld erna
+        // kunnen zo niet uiteenlopen.
+        changed_files: diffs(listing, form)
+            .iter()
+            .filter(|file| file.changes_anything())
+            .count(),
         helper_notice,
         report: None,
     }
@@ -2410,6 +2468,102 @@ mod tests {
             page.overrides_effect(),
             "2 bestanden krijgen een eigen waarde uit de tabel."
         );
+    }
+
+    #[test]
+    fn the_bar_says_nothing_is_pending_until_something_is_filled_in() {
+        // AC #2: zonder invoer valt er niets voor te bereiden, en dan is er ook
+        // niets aan te klikken.
+        let empty = album(&album_with_two_albums(), &Form::select_all());
+
+        assert!(!empty.is_pending());
+        assert_eq!(
+            empty.pending_summary(),
+            "Er is nog niets ingevuld, dus er staat niets open."
+        );
+
+        let nothing_chosen = album(&album_with_two_albums(), &Form::parse("album=Nieuw"));
+
+        assert!(!nothing_chosen.is_pending());
+        assert_eq!(
+            nothing_chosen.pending_summary(),
+            "Er is niets geselecteerd, dus er staat niets open."
+        );
+    }
+
+    #[test]
+    fn the_bar_counts_the_files_that_get_a_change() {
+        // AC #1: het aantal staat er terwijl je bezig bent, en niet pas in de
+        // voorbeeldweergave.
+        let listing = album_with_two_albums();
+        let form = Form::parse("actie=alles&album=Nachtmuziek");
+        let page = album(&listing, &form);
+
+        assert!(page.is_pending());
+        assert_eq!(page.changed_files, 3);
+        assert_eq!(page.pending_summary(), "3 bestanden krijgen een wijziging.");
+    }
+
+    #[test]
+    fn a_value_that_is_already_there_changes_no_file() {
+        // De reden dat de balk uit de diff telt en niet uit het plan: wie
+        // invult wat er al staat, verandert niets — en dat hoort er meteen te
+        // staan, niet pas als het voorbeeld leeg blijkt.
+        let listing = listing_of(vec![
+            track("een.mp3", Some("Eerste"), Some(1)),
+            track("twee.mp3", Some("Eerste"), Some(1)),
+        ]);
+        let form = Form::parse("actie=alles&album=Eerste");
+        let page = album(&listing, &form);
+
+        // Er staat wél iets open — het voorbeeld blijft bereikbaar, want daar
+        // hangt ook de hoes aan — maar er verandert geen enkel bestand.
+        assert!(page.is_pending());
+        assert_eq!(page.changed_files, 0);
+        assert_eq!(
+            page.pending_summary(),
+            "Geen enkel bestand krijgt een wijziging: wat er is ingevuld, staat er al."
+        );
+        assert_eq!(
+            page.changed_files_effect(),
+            "Er verandert geen enkel bestand."
+        );
+
+        // Eén bestand dat wél iets nieuws krijgt, en de telling loopt mee.
+        let half = album(
+            &listing,
+            &Form::parse("actie=alles&album=Eerste&genre=Jazz"),
+        );
+        assert_eq!(half.changed_files, 2);
+        assert_eq!(half.pending_summary(), "2 bestanden krijgen een wijziging.");
+    }
+
+    #[test]
+    fn the_bar_and_the_preview_never_disagree() {
+        // De balk en het voorbeeld komen van dezelfde berekening; deze test
+        // houdt vast dat dat zo blijft.
+        let listing = album_with_two_albums();
+
+        for body in [
+            "actie=alles",
+            "actie=alles&album=Eerste",
+            "actie=alles&album=Nieuw",
+            "actie=alles&wis_genre=aan",
+            "actie=alles&titel:een.mp3=E%C3%A9n&nummer:twee.mp3=2",
+            "bestand=een.mp3&album=Nieuw",
+            // Een rij met een onbruikbaar nummer valt in allebei even hard weg.
+            "actie=alles&nummer:een.mp3=twee&album=Nieuw",
+        ] {
+            let form = Form::parse(body);
+            let page = album(&listing, &form);
+            let view = preview(&listing, &form);
+
+            assert_eq!(
+                page.changed_files,
+                view.changing(),
+                "balk en voorbeeld lopen uiteen bij “{body}”"
+            );
+        }
     }
 
     /// Een album waarin elk bestand zijn eigen artiest en titel heeft, en de

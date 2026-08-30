@@ -49,6 +49,13 @@ de conventies vast waar code zich aan houdt.
   `batch::preview` niet. Wat ermee gebeurt, beslist de gebruiker in de
   voorbeeldweergave; dat is de enige route waarlangs een batch wordt
   weggeschreven, en `actie=opslaan` is het enige verzoek dat schrijft.
+- **Wat er zou veranderen, wordt op één plek uitgerekend.** `batch::diffs` legt
+  het plan op de tags die al in de listing zitten en levert per bestand de
+  velden die verschillen. De voorbeeldweergave schrijft die verschillen uit; de
+  balk onder de albumweergave telt er alleen de bestanden uit die werkelijk iets
+  krijgen. Zo kunnen die twee niet uiteenlopen, en telt een ingevulde waarde die
+  gelijk is aan wat er al staat nergens als wijziging. De balk is een ingang en
+  geen route: ook zij komt niet verder dan de voorbeeldweergave.
 - **Een batch gaat bestand voor bestand.** Elk bestand wordt vlak voor het
   schrijven opnieuw ingelezen en het plan wordt op die verse inhoud toegepast.
   Een fout bij één bestand stopt de rest niet en wordt per bestand gemeld; een

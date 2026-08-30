@@ -225,10 +225,35 @@
   </div>
   {% endif %}
 
+  {# De balk: hoeveel bestanden er een wijziging krijgen, en waar je vandaan
+     opslaat. Het getal komt van dezelfde berekening als de voorbeeldweergave,
+     dus wat hier staat is wat je daar te zien krijgt — nul inbegrepen, als je
+     hebt ingevuld wat er al stond.
+
+     De balk schrijft zelf niets: "Voorbeeld en opslaan" gaat naar de
+     voorbeeldweergave, en dat blijft de enige stap die naar het schrijven
+     leidt. Zonder JavaScript zijn dit gewone submitknoppen en komt de telling
+     mee met de pagina die de server teruggeeft. #}
+  {% if page.total > 0 %}
+  <div class="balk">
+    <p class="balk__telling" role="status">{{ page.pending_summary() }}</p>
+
+    <span class="balk__knoppen">
+      {# Dezelfde knop als bij de hulpacties, en met opzet dezelfde: die staat
+         bij wat hij terugdraait, deze staat altijd in beeld. Hij blijft aan te
+         klikken — leegmaken wat al leeg is, doet niets en kan niets breken. #}
+      <button class="knop" type="submit" name="actie" value="herstel">Invoer leegmaken</button>
+
+      {# Staat er niets open, dan valt er niets voor te leggen. De waarde en het
+         `disabled` staan op dezelfde regel, net als bij het vinkje in de tabel:
+         zo kan een test er iets over zeggen. #}
+      <button class="knop knop--primair" type="submit"
+              name="actie" value="voorbeeld" {% if !page.is_pending() %}disabled{% endif %}>Voorbeeld en opslaan</button>
+    </span>
+  </div>
+  {% endif %}
+
   <div class="knoppen">
-    {% if page.has_selection() && page.changes_anything() %}
-    <button class="knop knop--primair" type="submit" name="actie" value="voorbeeld">Voorbeeld en opslaan</button>
-    {% endif %}
     <a class="knop" href="{{ page.back_url }}">Terug naar de map</a>
   </div>
 </form>
