@@ -394,3 +394,160 @@ fn the_page_stays_within_the_library() {
         "het absolute pad van de bibliotheek staat op de pagina:\n{html}"
     );
 }
+
+/// Bouwt een bibliotheek waarin elk soort kaart voorkomt (task-37).
+///
+/// `Artiest` bevat één album met drie bewerkbare bestanden in twee formaten en
+/// wat rommel die niet meetelt; `Zonder muziek` is leeg.
+fn library_with_folders() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Artiest").join("Het Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "een.mp3", "tagged.mp3");
+    place_fixture(&album, "twee.mp3", "untagged.mp3");
+    place_fixture(&album, "drie.flac", "tagged.flac");
+
+    place_fixture(&album, "folder.jpg", "cover.jpg");
+    std::fs::write(album.join("notities.txt"), b"tekst").expect("bestand moet te schrijven zijn");
+
+    std::fs::create_dir(root.path().join("Zonder muziek")).expect("map moet aan te maken zijn");
+
+    root
+}
+
+/// Het stuk HTML van één kaart, van de link tot en met het sluiten ervan.
+fn card(html: &str, name: &str) -> String {
+    let start = html
+        .find("<ul class=\"mapkaarten\"")
+        .unwrap_or_else(|| panic!("er staat geen kaartenraster op de pagina:\n{html}"));
+
+    html[start..]
+        .split("<a class=\"mapkaart\"")
+        .skip(1)
+        .map(|blok| {
+            let einde = blok.find("</a>").unwrap_or(blok.len());
+            blok[..einde].to_string()
+        })
+        .find(|blok| blok.contains(name))
+        .unwrap_or_else(|| panic!("er is geen kaart voor '{name}':\n{html}"))
+}
+
+#[test]
+fn the_library_shows_its_folders_as_cards() {
+    let server = Server::start_in(library_with_folders(), &[]);
+    let html = body(&server.get("/map/Artiest"));
+
+    // AC #2 en AC #4: de kaart noemt het aantal en de formaten, en de hele
+    // kaart is de link naar de map.
+    let album = card(&html, "Het Album");
+
+    assert!(
+        album.contains("href=\"/map/Artiest/Het%20Album\""),
+        "de kaart leidt niet naar de map:\n{album}"
+    );
+    assert!(
+        album.contains("3 bestanden"),
+        "de kaart noemt het aantal bewerkbare bestanden niet:\n{album}"
+    );
+    assert!(
+        album.contains(">MP3<") && album.contains(">FLAC<"),
+        "de kaart noemt de formaten niet:\n{album}"
+    );
+}
+
+#[test]
+fn a_card_of_a_folder_without_files_shows_no_count() {
+    let server = Server::start_in(library_with_folders(), &[]);
+    let html = body(&server.get("/"));
+
+    // AC #3: een map met alleen submappen telt die submappen, en een lege map
+    // zegt dat er niets te bewerken valt. Geen van beide toont "0 bestanden".
+    let artist = card(&html, "Artiest");
+    assert!(
+        artist.contains("1 submap"),
+        "de artiestmap noemt zijn albums niet:\n{artist}"
+    );
+
+    let empty = card(&html, "Zonder muziek");
+    assert!(
+        empty.contains("Geen bewerkbare bestanden"),
+        "de lege map zegt niet dat er niets te bewerken valt:\n{empty}"
+    );
+
+    for blok in [&artist, &empty] {
+        assert!(
+            !blok.contains("0 bestanden"),
+            "een misleidende telling op de kaart:\n{blok}"
+        );
+        assert!(
+            !blok.contains("mapkaart__formaat"),
+            "zonder bestanden valt er geen formaat te noemen:\n{blok}"
+        );
+    }
+}
+
+#[test]
+fn the_cards_survive_the_search_field() {
+    // Het zoekveld filtert ook op mapnaam, en HTMX vervangt alleen de lijst.
+    // Het raster hoort dus ook in dat fragment te zitten.
+    let server = Server::start_in(library_with_folders(), &[]);
+    let fragment = body(&server.get_with_headers("/?q=zonder", &[("HX-Request", "true")]));
+
+    assert!(
+        fragment.contains("mapkaarten"),
+        "het fragment bevat geen kaarten:\n{fragment}"
+    );
+    assert!(
+        fragment.contains("Zonder muziek") && !fragment.contains(">Artiest<"),
+        "het filter werkt niet op de kaarten:\n{fragment}"
+    );
+}
+
+#[test]
+fn showing_the_library_opens_no_file() {
+    // AC #5: de kaarten komen uit de mapinhoud. Een bestand met de juiste
+    // extensie maar onleesbare inhoud telt dus gewoon mee, en de pagina
+    // struikelt er niet over — precies het bewijs dat er niets geopend wordt.
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Artiest").join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+    std::fs::write(album.join("nep.mp3"), b"dit is geen audio")
+        .expect("bestand moet te schrijven zijn");
+
+    let server = Server::start_in(root, &[]);
+    let html = body(&server.get("/map/Artiest"));
+
+    let kaart = card(&html, "Album");
+    assert!(
+        kaart.contains("1 bestand"),
+        "de telling komt niet uit de mapinhoud:\n{kaart}"
+    );
+}
+
+#[test]
+fn a_library_with_many_folders_renders_quickly() {
+    // AC #7: een bibliotheek met veel mappen laadt niet merkbaar trager dan de
+    // lijst die er stond. Eén `read_dir` per kaart, geen bestand open.
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    for number in 1..=200 {
+        let folder = root.path().join(format!("Artiest {number:03}"));
+        std::fs::create_dir(&folder).expect("map moet aan te maken zijn");
+        std::fs::write(folder.join("track.mp3"), b"placeholder")
+            .expect("bestand moet te schrijven zijn");
+    }
+
+    let server = Server::start_in(root, &[]);
+
+    let start = std::time::Instant::now();
+    let response = server.get("/");
+    let elapsed = start.elapsed();
+
+    assert_ok(&response);
+    let html = body(&response);
+    assert!(html.contains("Artiest 200"), "niet alle mappen staan er");
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "tweehonderd kaarten kostten {elapsed:?}"
+    );
+}

@@ -16,18 +16,7 @@
 </aside>
 {% endif %}
 
-{% if !listing.folders.is_empty() %}
-<ul class="mappen">
-  {% for folder in listing.folders %}
-  <li>
-    <a class="map" href="{{ folder.url }}">
-      <span class="map__icoon" aria-hidden="true">▸</span>
-      <span class="map__naam">{{ folder.name }}</span>
-    </a>
-  </li>
-  {% endfor %}
-</ul>
-{% endif %}
+{% include "folders.html" %}
 
 {% if !listing.tracks.is_empty() %}
 <ul class="tracks">

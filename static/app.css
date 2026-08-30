@@ -399,9 +399,8 @@ a {
   background: color-mix(in srgb, var(--tekst) 7%, transparent);
 }
 
-/* ── Submappen ─────────────────────────────────────────────────────────── */
+/* ── Tracklijst ────────────────────────────────────────────────────────── */
 
-.mappen,
 .tracks {
   list-style: none;
   margin: 0 0 1rem;
@@ -420,14 +419,12 @@ a {
  * een regel kan zelf al een kleur dragen — gekozen, gewijzigd, mislukt — en die
  * hoort te blijven staan.
  */
-.mappen li,
 .tracks li,
 .voorbeeld__bestand,
 .resultaat__bestand {
   position: relative;
 }
 
-.mappen li + li::before,
 .tracks li + li::before,
 .voorbeeld__bestand + .voorbeeld__bestand::before,
 .resultaat__bestand + .resultaat__bestand::before {
@@ -437,26 +434,6 @@ a {
   height: 1px;
   background: var(--regel);
 }
-
-.map {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  /* Ruim genoeg om met een duim te raken. */
-  padding: 0.8rem 0.9rem;
-  color: var(--tekst);
-  text-decoration: none;
-}
-
-.map__icoon {
-  color: var(--accent);
-}
-
-.map__naam {
-  overflow-wrap: anywhere;
-}
-
-/* ── Tracklijst ────────────────────────────────────────────────────────── */
 
 /*
  * Rijen in plaats van een tabel: op een telefoon past een tabel met zes kolommen
@@ -1520,4 +1497,86 @@ a.bestandskop__hoes {
 
 .resultaat__bestand--fout .resultaat__uitkomst {
   color: var(--tekst);
+}
+
+
+/* ── Mappen als kaartenraster ──────────────────────────────────────────── */
+
+/*
+ * De instap van de bibliotheek: welke map ga je bewerken.
+ *
+ * Het raster vult zichzelf met `auto-fill`, dus het aantal kolommen volgt de
+ * schermbreedte zonder breekpunt. De `min()` in de kolommaat is wat er op een
+ * telefoon gebeurt: is het scherm smaller dan een kaart, dan wordt de kolom
+ * 100% en valt alles onder elkaar.
+ */
+.mapkaarten {
+  list-style: none;
+  margin: 0 0 1rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: var(--space-4);
+}
+
+.mapkaarten__vak {
+  display: flex;
+}
+
+/*
+ * De hele kaart is de link, en niet alleen de naam: er is maar één ding om te
+ * doen — deze map openen — en op een telefoon is een heel vlak een ruimer doel
+ * dan een regel tekst.
+ */
+.mapkaart {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-6);
+  border-radius: var(--radius-md);
+  background: var(--vlak);
+  box-shadow: var(--shadow-sm);
+  color: var(--tekst);
+  text-decoration: none;
+}
+
+.mapkaart:hover,
+.mapkaart:focus-visible {
+  box-shadow: var(--shadow-md);
+}
+
+.mapkaart__naam {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  letter-spacing: -0.015em;
+  overflow-wrap: anywhere;
+}
+
+.mapkaart__inhoud {
+  color: var(--tekst-zacht);
+  font-size: 0.9rem;
+}
+
+/* `margin-top: auto` houdt de formaten op de onderrand, zodat kaarten met een
+   naam van twee regels naast een kaart van één regel niet scheef staan. */
+.mapkaart__formaten {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
+.mapkaart__formaat {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--rand);
+  border-radius: calc(var(--radius-md) * 0.75);
+  color: var(--tekst-zacht);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  line-height: 1.5;
+  white-space: nowrap;
 }

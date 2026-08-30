@@ -1,0 +1,30 @@
+{# De mappen van de huidige map, als raster van kaarten.
+
+   Een eigen bestand en geen blok in `listing.html`, omdat het raster ook binnen
+   het HTMX-fragment moet blijven werken: het zoekveld filtert ook op mapnaam.
+
+   Wat op een kaart staat, volgt uit de mapinhoud zelf — namen, extensies,
+   aantallen. Er wordt geen bestand geopend om de bibliotheek te tonen, dus er
+   staat hier geen signalering; die hoort in de map die je opent. #}
+
+{% if !listing.folders.is_empty() %}
+<ul class="mapkaarten">
+  {% for folder in listing.folders %}
+  <li class="mapkaarten__vak">
+    {# De hele kaart is de link: op een telefoon is dat een ruim doel, en er is
+       maar één ding om te doen — deze map openen. #}
+    <a class="mapkaart" href="{{ folder.url }}">
+      <span class="mapkaart__naam">{{ folder.name }}</span>
+      <span class="mapkaart__inhoud">{{ folder.contents_label() }}</span>
+      {% if folder.has_files() %}
+      <span class="mapkaart__formaten">
+        {% for format in folder.formats %}
+        <span class="mapkaart__formaat">{{ format }}</span>
+        {% endfor %}
+      </span>
+      {% endif %}
+    </a>
+  </li>
+  {% endfor %}
+</ul>
+{% endif %}
