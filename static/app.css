@@ -19,30 +19,157 @@
   display: none !important;
 }
 
+/*
+ * Ontwerptokens — het design system "Nocturne".
+ *
+ * De kleuren, tonenreeksen, ruimtematen, hoeken en schaduwen hieronder komen
+ * uit dat systeem en zijn de enige plek waar een kleurwaarde staat. De rest van
+ * dit bestand noemt alleen tokens; wie de vormgeving wil bijstellen, hoeft
+ * daarvoor geen componentregel aan te raken.
+ *
+ * Het lettertype van het systeem is Inter. Dat wordt niet opgehaald: de NAS
+ * heeft geen internetverbinding, dus Inter wordt alleen gebruikt als hij op het
+ * apparaat staat en er wordt anders teruggevallen op de systeemletter.
+ */
 :root {
-  --achtergrond: #14161a;
-  --vlak: #1d2026;
-  --rand: #2c313a;
-  --tekst: #e8eaed;
-  --tekst-zacht: #a3a9b4;
-  --accent: #7aa2f7;
+  color-scheme: dark;
+
+  --color-bg: #161826;
+  --color-surface: #232532;
+  --color-text: #e9e9ed;
+  --color-accent: #9184d9;
+  --color-divider: color-mix(in srgb, #e9e9ed 16%, transparent);
+
+  /* Tonenreeksen, in OKLCH op één gedeelde lichtheidsschaal afgeleid: dezelfde
+     stap van de ene reeks weegt visueel even zwaar als van de andere. */
+  --color-neutral-100: #f3f5fe;
+  --color-neutral-200: #e4e7f5;
+  --color-neutral-300: #cfd3e5;
+  --color-neutral-400: #b2b6ca;
+  --color-neutral-500: #9397ab;
+  --color-neutral-600: #75798c;
+  --color-neutral-700: #595d6c;
+  --color-neutral-800: #3f424d;
+  --color-neutral-900: #292b31;
+
+  --color-accent-100: #f5f4ff;
+  --color-accent-200: #e7e5fe;
+  --color-accent-300: #d2cefd;
+  --color-accent-400: #b5abfc;
+  --color-accent-500: #968ae0;
+  --color-accent-600: #796cbf;
+  --color-accent-700: #5d5294;
+  --color-accent-800: #423a6a;
+  --color-accent-900: #2b2741;
+
+  --font-heading: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-heading-weight: 500;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+
+  --space-1: 2.8px;
+  --space-2: 5.6px;
+  --space-3: 8.4px;
+  --space-4: 11.2px;
+  --space-6: 16.8px;
+  --space-8: 22.4px;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --radius-lg: 14px;
+
+  /* Hoogte, afgeleid van de ondergrond: op donker een haarlijn plus omgevende
+     duisternis, op licht een inktschaduw. */
+  --shadow-sm: 0 0 0 1px var(--color-neutral-800);
+  --shadow-md: 0 0 0 1px var(--color-neutral-700), 0 6px 18px rgba(0, 0, 0, 0.55);
+  --shadow-lg: 0 0 0 1px var(--color-neutral-500), 0 16px 40px rgba(0, 0, 0, 0.65);
+
+  /*
+   * De lichte kant van het ontwerp. De waarden staan hier één keer; de twee
+   * blokken hieronder zetten ze aan — één keer op de systeemvoorkeur en één
+   * keer op een uitgesproken keuze. Zo kunnen die twee routes niet uit elkaar
+   * gaan lopen.
+   */
+  --licht-bg: #eef0fa;
+  --licht-surface: #f8f9ff;
+  --licht-text: #292b31;
+  --licht-accent: #5d5294;
+  --licht-divider: color-mix(in srgb, #292b31 18%, transparent);
+  --licht-shadow-sm: 0 0 0 1px color-mix(in srgb, #292b31 12%, transparent);
+  --licht-shadow-md: 0 0 0 1px color-mix(in srgb, #292b31 12%, transparent),
+    0 6px 18px rgba(41, 43, 49, 0.12);
+  --licht-shadow-lg: 0 0 0 1px color-mix(in srgb, #292b31 14%, transparent),
+    0 16px 40px rgba(41, 43, 49, 0.18);
+
+  /*
+   * Signaalkleuren. Nocturne kent ze niet: het systeem heeft één accent en
+   * verder neutralen. Een constatering (FR-4) draagt daarom de accentkleur,
+   * net als in het ontwerp; alleen een werkelijke fout wijkt af, en dan met
+   * een eigen tint die zich niet voor een accent kan uitgeven.
+   */
   --waarschuwing: #e0af68;
-  --waarschuwing-rand: #6a552e;
-  --goed: #7ec699;
+  --waarschuwing-rand: color-mix(in srgb, var(--waarschuwing) 45%, transparent);
+  --goed: #86c9a4;
+
+  /*
+   * Namen zoals de rest van dit bestand ze gebruikt. Ze wijzen naar de tokens
+   * hierboven; een thema wisselt alleen die tokens en de aliassen volgen.
+   */
+  --achtergrond: var(--color-bg);
+  --vlak: var(--color-surface);
+  --rand: var(--color-divider);
+  --tekst: var(--color-text);
+  --tekst-zacht: color-mix(in srgb, var(--color-text) 60%, transparent);
+  --accent: var(--color-accent);
+
+  /*
+   * De scheidingsregel van Nocturne vloeit aan beide uiteinden uit in plaats
+   * van er droog af te breken. Als achtergrond te gebruiken op een rij of een
+   * blok: `background: var(--regel) no-repeat bottom / 100% 1px`.
+   */
+  --regel: linear-gradient(
+    to right,
+    transparent,
+    var(--color-divider) 48px,
+    var(--color-divider) calc(100% - 48px),
+    transparent
+  );
 }
 
+/* Geen opgeslagen keuze: de systeemvoorkeur beslist. Een uitgesproken keuze
+   voor donker houdt dit blok tegen. */
 @media (prefers-color-scheme: light) {
-  :root {
-    --achtergrond: #f6f7f9;
-    --vlak: #ffffff;
-    --rand: #dfe3e8;
-    --tekst: #1c1f24;
-    --tekst-zacht: #5b626d;
-    --accent: #2f5fd0;
+  :root:not([data-thema="dark"]) {
+    color-scheme: light;
+
+    --color-bg: var(--licht-bg);
+    --color-surface: var(--licht-surface);
+    --color-text: var(--licht-text);
+    --color-accent: var(--licht-accent);
+    --color-divider: var(--licht-divider);
+    --shadow-sm: var(--licht-shadow-sm);
+    --shadow-md: var(--licht-shadow-md);
+    --shadow-lg: var(--licht-shadow-lg);
     --waarschuwing: #8a5a00;
-    --waarschuwing-rand: #e3c98d;
     --goed: #2f7d52;
   }
+}
+
+/* Een uitgesproken keuze, in beide richtingen: donker staat al op `:root`, dus
+   `[data-thema="dark"]` hoeft alleen het blok hierboven buiten te sluiten. */
+:root[data-thema="light"] {
+  color-scheme: light;
+
+  --color-bg: var(--licht-bg);
+  --color-surface: var(--licht-surface);
+  --color-text: var(--licht-text);
+  --color-accent: var(--licht-accent);
+  --color-divider: var(--licht-divider);
+  --shadow-sm: var(--licht-shadow-sm);
+  --shadow-md: var(--licht-shadow-md);
+  --shadow-lg: var(--licht-shadow-lg);
+  --waarschuwing: #8a5a00;
+  --goed: #2f7d52;
 }
 
 * {
@@ -53,28 +180,100 @@ body {
   margin: 0;
   background: var(--achtergrond);
   color: var(--tekst);
-  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-  font-size: 16px;
-  line-height: 1.5;
+  font-family: var(--font-body);
+  /* De rem blijft 16px, en daarop staan de invoervelden: Safari op iOS zoomt in
+     zodra een veld kleiner is. De lopende tekst mag wel de 15px van het
+     ontwerp aanhouden. */
+  font-size: 15px;
+  line-height: 1.55;
 }
 
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+}
+
+/* De kopbalk staat op de paginakleur en niet op een eigen vlak; alleen een
+   haarlijn scheidt hem van wat eronder doorscrollt. */
 .kop {
   display: flex;
   align-items: center;
-  gap: 1rem;
-  padding: 0.75rem 1rem;
-  background: var(--vlak);
-  border-bottom: 1px solid var(--rand);
+  gap: var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  background: var(--achtergrond);
+  box-shadow: 0 1px 0 var(--rand);
   position: sticky;
   top: 0;
+  z-index: 20;
 }
 
 .kop__naam {
-  font-size: 1.1rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  margin-right: auto;
+  font-family: var(--font-heading);
+  font-size: 19px;
+  font-weight: var(--font-heading-weight);
+  letter-spacing: -0.02em;
   color: var(--tekst);
   text-decoration: none;
+}
+
+/* Waar Sleeve over gaat, in twee tekens naast de naam. */
+.kop__label {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+/*
+ * De keuze tussen donker en licht. Het blok staat er alleen wanneer `app.js`
+ * het tevoorschijn haalt: zonder JavaScript zou een knop die niets doet erger
+ * zijn dan geen knop, en de systeemvoorkeur werkt dan gewoon.
+ */
+.kop__thema {
+  display: inline-flex;
+  overflow: hidden;
+  border: 1px solid var(--rand);
+  border-radius: var(--radius-md);
+}
+
+.kop__themaknop {
+  padding: 7px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--tekst);
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+}
+
+.kop__themaknop + .kop__themaknop {
+  border-left: 1px solid var(--rand);
+}
+
+.kop__themaknop:hover {
+  background: color-mix(in srgb, var(--tekst) 7%, transparent);
+}
+
+.kop__themaknop[aria-pressed="true"] {
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.kop__themaknop:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .inhoud {
@@ -93,11 +292,11 @@ h1 {
 }
 
 code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-size: 0.9em;
   background: var(--vlak);
   border: 1px solid var(--rand);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 0.1em 0.35em;
   /* Lange paden mogen afbreken in plaats van de pagina te verbreden. */
   overflow-wrap: anywhere;
@@ -105,6 +304,16 @@ code {
 
 a {
   color: var(--accent);
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent) 30%, transparent);
 }
 
 /* ── Broodkruimelpad ───────────────────────────────────────────────────── */
@@ -157,26 +366,37 @@ a {
   min-width: 0;
   padding: 0.55rem 0.7rem;
   font-size: 1rem;
+  font-family: inherit;
   color: var(--tekst);
+  caret-color: var(--accent);
   background: var(--vlak);
   border: 1px solid var(--rand);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
-.zoek__veld:focus-visible,
-.zoek__knop:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+.zoek__veld:hover {
+  border-color: color-mix(in srgb, var(--tekst) 45%, transparent);
+}
+
+.zoek__veld:focus-visible {
+  border-color: var(--accent);
+  outline-offset: 0;
 }
 
 .zoek__knop {
   padding: 0.55rem 0.9rem;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 1rem;
   color: var(--tekst);
-  background: var(--vlak);
+  background: transparent;
   border: 1px solid var(--rand);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
+}
+
+.zoek__knop:hover {
+  background: color-mix(in srgb, var(--tekst) 7%, transparent);
 }
 
 /* ── Submappen ─────────────────────────────────────────────────────────── */
@@ -186,15 +406,36 @@ a {
   list-style: none;
   margin: 0 0 1rem;
   padding: 0;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
-.mappen li + li,
-.tracks li + li {
-  border-top: 1px solid var(--rand);
+/*
+ * De scheiding tussen twee regels is de uitvloeiende regel van het ontwerp en
+ * geen doorlopende lijn: hij houdt op voordat hij de rand raakt.
+ *
+ * Hij ligt als eigen laagje over de regel heen en niet als achtergrond, want
+ * een regel kan zelf al een kleur dragen — gekozen, gewijzigd, mislukt — en die
+ * hoort te blijven staan.
+ */
+.mappen li,
+.tracks li,
+.voorbeeld__bestand,
+.resultaat__bestand {
+  position: relative;
+}
+
+.mappen li + li::before,
+.tracks li + li::before,
+.voorbeeld__bestand + .voorbeeld__bestand::before,
+.resultaat__bestand + .resultaat__bestand::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--regel);
 }
 
 .map {
@@ -233,7 +474,7 @@ a {
 .track__hoes {
   width: 2.5rem;
   height: 2.5rem;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--rand);
   /* De hoes is vrijwel altijd vierkant, maar niet gegarandeerd; bijsnijden is
      hier beter dan uitrekken. */
@@ -308,16 +549,15 @@ a {
 .signalering {
   margin: 0 0 1rem;
   padding: 0.75rem 0.9rem;
-  background: var(--vlak);
-  border: 1px solid var(--waarschuwing-rand);
-  border-left-width: 3px;
-  border-radius: 10px;
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  border-radius: var(--radius-md);
 }
 
 .signalering__kop {
   margin: 0 0 0.35rem;
   font-size: 0.95rem;
-  color: var(--waarschuwing);
+  color: var(--accent);
 }
 
 .signalering__lijst {
@@ -334,12 +574,17 @@ a {
   margin-top: 0.2rem;
 }
 
+/* Een label uit het ontwerp: omlijnd in de accentkleur, niet gevuld. Het is een
+   constatering en hoort niet harder te roepen dan de regel waar het bij staat. */
 .signaal {
-  padding: 0.05rem 0.4rem;
-  border: 1px solid var(--waarschuwing-rand);
-  border-radius: 999px;
-  color: var(--waarschuwing);
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 7px;
+  border: 1px solid var(--accent);
+  border-radius: calc(var(--radius-md) * 0.75);
+  color: var(--accent);
   font-size: 0.75rem;
+  letter-spacing: 0.02em;
   line-height: 1.5;
   white-space: nowrap;
 }
@@ -356,9 +601,9 @@ a {
  */
 .tabelrand {
   overflow-x: auto;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
 .ruwetags {
@@ -379,19 +624,25 @@ a {
   padding: 0.5rem 0.9rem;
   text-align: left;
   vertical-align: top;
-  border-top: 1px solid var(--rand);
+}
+
+/* De regel hoort bij de rij en niet bij de cel, anders vloeit hij per kolom uit
+   in plaats van één keer over de hele breedte. */
+.ruwetags tr + tr,
+.ruwetags tbody tr:first-child {
+  background: var(--regel) no-repeat top / 100% 1px;
 }
 
 .ruwetags thead th {
   color: var(--tekst-zacht);
-  font-weight: 600;
+  font-weight: var(--font-heading-weight);
   font-size: 0.8rem;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
 .ruwetags__sleutel {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-family: var(--font-mono);
   font-weight: 500;
   white-space: nowrap;
   color: var(--accent);
@@ -418,7 +669,7 @@ a {
   width: 6rem;
   height: 6rem;
   flex: none;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--rand);
   object-fit: cover;
 }
@@ -460,18 +711,18 @@ a.bestandskop__hoes {
   width: 100%;
   max-width: 22rem;
   height: auto;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
 .hoes__feiten {
   flex: 1 1 14rem;
   margin: 0;
   padding: 0.9rem 1rem;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
 .hoes__feit + .hoes__feit {
@@ -509,9 +760,10 @@ a.bestandskop__hoes {
 .hoesform__blok {
   margin: 0;
   padding: 1rem;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border: 0;
+  border-radius: var(--radius-md);
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
 .hoesform__kop {
@@ -561,18 +813,23 @@ a.bestandskop__hoes {
   font-size: 1rem;
   font-family: inherit;
   color: var(--tekst);
+  caret-color: var(--accent);
   background: var(--vlak);
   border: 1px solid var(--rand);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .veld__invoer--tekst {
   resize: vertical;
 }
 
+.veld__invoer:hover {
+  border-color: color-mix(in srgb, var(--tekst) 45%, transparent);
+}
+
 .veld__invoer:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  border-color: var(--accent);
+  outline-offset: 0;
 }
 
 .veldenpaar {
@@ -592,27 +849,49 @@ a.bestandskop__hoes {
   margin-top: 0.4rem;
 }
 
+/*
+ * Een knop in dit ontwerp is een omlijning en geen vlak. Ook de primaire knop:
+ * die onderscheidt zich door de accentkleur van rand en tekst, niet doordat hij
+ * is ingekleurd. Dat houdt een rij knoppen rustig, ook als er drie naast elkaar
+ * staan.
+ */
 .knop {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
   padding: 0.6rem 1.1rem;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
   font-size: 1rem;
+  line-height: 1.2;
   color: var(--tekst);
-  background: var(--vlak);
+  background: transparent;
   border: 1px solid var(--rand);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   text-decoration: none;
   cursor: pointer;
 }
 
-.knop--primair {
-  background: var(--accent);
-  border-color: var(--accent);
-  color: var(--achtergrond);
-  font-weight: 600;
+.knop:hover {
+  background: color-mix(in srgb, var(--tekst) 7%, transparent);
 }
 
-.knop:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
+.knop:active {
+  background: color-mix(in srgb, var(--tekst) 14%, transparent);
+}
+
+.knop--primair {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+.knop--primair:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.knop--primair:active {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 /* ── Bezig met schrijven ───────────────────────────────────────────────────
@@ -674,7 +953,7 @@ a.bestandskop__hoes {
 .neerzetvak:has(.neerzetvak__hint:not([hidden]))  {
   padding: 0.9rem;
   border: 2px dashed var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 
@@ -693,7 +972,7 @@ a.bestandskop__hoes {
   margin: 0;
   padding: 0.5rem 0.7rem;
   border: 1px solid var(--waarschuwing);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: color-mix(in srgb, var(--waarschuwing) 12%, transparent);
   font-size: 0.9rem;
 }
@@ -710,7 +989,7 @@ a.bestandskop__hoes {
   height: 96px;
   object-fit: cover;
   border: 1px solid var(--rand);
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   background: var(--vlak);
 }
 
@@ -736,7 +1015,7 @@ a.bestandskop__hoes {
   gap: 0.5rem;
   padding: 4px;
   border: 2px dashed transparent;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
 }
 
 .hoesdoel.is-sleepdoel {
@@ -769,7 +1048,7 @@ a.bestandskop__hoes {
   margin: 0;
   padding: 0.4rem 0.6rem;
   border: 1px solid var(--rand);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
   font-size: 0.85rem;
 }
@@ -783,7 +1062,7 @@ a.bestandskop__hoes {
   margin: 1.2rem 0;
   padding: 0.9rem;
   border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
 }
 
@@ -818,7 +1097,7 @@ a.bestandskop__hoes {
   padding: 0.7rem 0.9rem;
   border: 1px solid var(--rand);
   border-left-width: 3px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
 }
 
@@ -874,9 +1153,9 @@ a.bestandskop__hoes {
    mogelijk. */
 .tabelrand {
   overflow-x: auto;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
 .tabelrand:focus-visible {
@@ -891,6 +1170,9 @@ a.bestandskop__hoes {
   white-space: nowrap;
 }
 
+/* Hier blijft de regel een gewone lijn en geen uitvloeiend verloop: de eerste
+   kolom staat stil terwijl de rest scrollt, en een verloop dat aan de rand van
+   de tabel uitvloeit zou dan halverwege het scherm ophouden. */
 .batchtabel th,
 .batchtabel td {
   padding: 0.55rem 0.7rem;
@@ -904,7 +1186,9 @@ a.bestandskop__hoes {
 
 .batchtabel th {
   font-size: 0.8rem;
-  font-weight: 600;
+  font-weight: var(--font-heading-weight);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--tekst-zacht);
 }
 
@@ -960,19 +1244,27 @@ a.bestandskop__hoes {
 /* Titel en tracknummer worden in de tabel zelf ingetikt (FR-9). Het veld is
    even hoog als een knop, zodat het op een telefoon met een duim te raken is,
    en 16px groot omdat Safari op iOS anders inzoomt bij het focussen. */
+/* In de tabel valt een veld pas op zodra de muis erboven staat of erin wordt
+   getikt: tien velden met elk een eigen kadertje maken van een lijst een
+   formulier, en de lijst is waar deze pagina over gaat. */
 .rijveld {
   padding: 0.5rem 0.6rem;
   font-size: 1rem;
   font-family: inherit;
   color: var(--tekst);
-  background: var(--achtergrond);
-  border: 1px solid var(--rand);
-  border-radius: 8px;
+  caret-color: var(--accent);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+}
+
+.rijveld:hover {
+  border-color: var(--rand);
 }
 
 .rijveld:focus-visible {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
+  border-color: var(--accent);
+  outline-offset: 0;
 }
 
 .rijveld--nummer {
@@ -1035,9 +1327,10 @@ a.bestandskop__hoes {
   gap: 1rem;
   margin: 0;
   padding: 1rem;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border: 0;
+  border-radius: var(--radius-md);
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
 .gedeeld__kop {
@@ -1051,7 +1344,7 @@ a.bestandskop__hoes {
 
 .gedeeld__veld--verschillend .veld__label::after {
   content: " · verschillend";
-  color: var(--waarschuwing);
+  color: var(--accent);
 }
 
 .veld__hulp {
@@ -1075,7 +1368,7 @@ a.bestandskop__hoes {
   padding: 0.9rem 1rem;
   border: 1px solid var(--rand);
   border-left: 3px solid var(--accent);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--vlak);
 }
 
@@ -1117,19 +1410,16 @@ a.bestandskop__hoes {
   list-style: none;
   margin: 0 0 1rem;
   padding: 0;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
 }
 
 .voorbeeld__bestand {
   padding: 0.8rem 0.9rem;
 }
 
-.voorbeeld__bestand + .voorbeeld__bestand {
-  border-top: 1px solid var(--rand);
-}
 
 /* Een bestand dat niets krijgt, hoort zichtbaar te zijn maar niet op te
    vallen: dat er niets mee gebeurt is de helft van wat een voorbeeld vertelt. */
@@ -1199,10 +1489,10 @@ a.bestandskop__hoes {
   list-style: none;
   margin: 0 0 1rem;
   padding: 0;
-  border: 1px solid var(--rand);
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--vlak);
+  box-shadow: var(--shadow-sm);
   font-size: 0.9rem;
 }
 
@@ -1213,9 +1503,6 @@ a.bestandskop__hoes {
   padding: 0.6rem 0.9rem;
 }
 
-.resultaat__bestand + .resultaat__bestand {
-  border-top: 1px solid var(--rand);
-}
 
 .resultaat__bestand--fout {
   background: color-mix(in srgb, var(--waarschuwing) 12%, transparent);

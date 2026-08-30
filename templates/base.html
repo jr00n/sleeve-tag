@@ -5,6 +5,20 @@
     {# Zonder deze viewport-regel rendert een telefoon de pagina op desktopbreedte. #}
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{% block title %}Sleeve{% endblock %}</title>
+    {# Vóór de stylesheet en vóór het eerste renderen: een keuze die pas na het
+       laden wordt toegepast, laat de pagina eerst in de andere modus opflitsen.
+       Dit is het enige script dat inline staat, en het doet niet meer dan een
+       bewaarde keuze terugzetten. #}
+    <script>
+      try {
+        var thema = localStorage.getItem("sleeve-thema");
+        if (thema === "dark" || thema === "light") {
+          document.documentElement.dataset.thema = thema;
+        }
+      } catch (e) {
+        /* Een browser die opslag weigert, houdt gewoon de systeemvoorkeur. */
+      }
+    </script>
     {# Uitsluitend lokale assets: de NAS heeft geen internetverbinding nodig. #}
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/app.css" />
@@ -15,8 +29,23 @@
   </head>
   <body>
     <header class="kop">
-      <a class="kop__naam" href="/">Sleeve</a>
+      <a class="kop__naam" href="/">
+        Sleeve
+        <span class="kop__label">ID3</span>
+      </a>
       {% block kopbalk %}{% endblock %}
+
+      {# Verborgen tot `app.js` de schakelaar aansluit: zonder JavaScript zou
+         hier een knop staan die niets doet, en volgt de pagina de
+         systeemvoorkeur — wat zonder keuze toch al gebeurt. #}
+      <div class="kop__thema" id="thema" role="group" aria-label="Weergave" hidden>
+        <button class="kop__themaknop" type="button" data-thema="dark" aria-pressed="false">
+          Donker
+        </button>
+        <button class="kop__themaknop" type="button" data-thema="light" aria-pressed="false">
+          Licht
+        </button>
+      </div>
     </header>
 
     <main class="inhoud">{% block inhoud %}{% endblock %}</main>

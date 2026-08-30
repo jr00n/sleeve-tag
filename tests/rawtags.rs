@@ -105,9 +105,16 @@ fn the_page_offers_no_way_to_change_a_raw_tag() {
         let response = server.get(&format!("/tags/Album/{file}"));
         assert_ok(&response);
 
+        // De kopbalk telt niet mee: die is op elke pagina hetzelfde en gaat
+        // over de weergave, niet over dit bestand.
+        let inhoud = response
+            .split_once("<main")
+            .map(|(_, rest)| rest)
+            .expect("de pagina hoort een inhoudsblok te hebben");
+
         for forbidden in ["<form", "<input", "<textarea", "<button", "<select"] {
             assert!(
-                !response.contains(forbidden),
+                !inhoud.contains(forbidden),
                 "{file}: '{forbidden}' staat op een alleen-lezen pagina"
             );
         }

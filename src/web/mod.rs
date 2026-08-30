@@ -1653,9 +1653,17 @@ mod tests {
 
         // Ruwe frames bewerken is geen doel van het MVP; deze pagina hoort
         // daarom geen enkel bedienbaar element te bevatten.
+        //
+        // De kopbalk telt niet mee: die is op elke pagina hetzelfde en gaat
+        // over de weergave, niet over dit bestand.
+        let inhoud = html
+            .split_once("<main")
+            .map(|(_, rest)| rest)
+            .expect("de pagina hoort een inhoudsblok te hebben");
+
         for forbidden in ["<form", "<input", "<textarea", "<button", "<select"] {
             assert!(
-                !html.contains(forbidden),
+                !inhoud.contains(forbidden),
                 "'{forbidden}' staat op een alleen-lezen pagina: {html}"
             );
         }

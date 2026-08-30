@@ -128,6 +128,13 @@ de conventies vast waar code zich aan houdt.
 - **Niets ongevraagd wijzigen.** Geen achtergrondjobs, geen opschoonacties, geen
   velden aanraken die de gebruiker niet zelf heeft ingevuld.
 
+- **De vormgeving staat in tokens.** De kleuren, tonenreeksen, ruimtematen,
+  hoeken en schaduwen van het design system Nocturne staan boven in
+  `static/app.css` en zijn de enige plek waar een kleurwaarde staat; de
+  componentregels eronder noemen alleen tokens. Een thema wisselt uitsluitend
+  die tokens. Zonder keuze geldt de systeemvoorkeur; een keuze in de kopbalk
+  wint daarvan en wordt in de browser onthouden.
+
 ## Conventies
 
 - Rust stable, edition 2024. De toolchain ligt vast in `rust-toolchain.toml`.

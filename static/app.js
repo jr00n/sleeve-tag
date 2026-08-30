@@ -1,5 +1,6 @@
-// De twee toevoegingen die de UI in de browser krijgt: laten zien dat een
-// schrijfactie bezig is, en een hoes kunnen neerslepen.
+// De toevoegingen die de UI in de browser krijgt: laten zien dat een
+// schrijfactie bezig is, een hoes kunnen neerslepen, en kunnen kiezen tussen
+// een donkere en een lichte weergave.
 //
 // Waarom dit nodig is: een tagwijziging in een FLAC van enkele gigabytes duurt
 // minuten. `atomic::replace` kopieert eerst het hele bestand, en dat is geen
@@ -19,6 +20,76 @@
 
 (function () {
   "use strict";
+
+  // ── Donker of licht ──────────────────────────────────────────────────────
+  //
+  // De keuze staat in `localStorage` en wordt al door een klein script in de
+  // <head> toegepast, vóór het eerste renderen; hier wordt alleen de
+  // schakelaar aangesloten en zichtbaar gemaakt. Zolang er geen keuze is
+  // gemaakt, beslist de systeemvoorkeur — en dat blijft zo wanneer dit bestand
+  // niet geladen wordt.
+
+  var THEMA_SLEUTEL = "sleeve-thema";
+
+  /** De bewaarde keuze, of `null` wanneer er geen (geldige) keuze staat. */
+  function bewaardThema() {
+    try {
+      var thema = localStorage.getItem(THEMA_SLEUTEL);
+      return thema === "dark" || thema === "light" ? thema : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  /** Wat er nú geldt: de keuze, en anders wat het systeem voorschrijft. */
+  function huidigThema() {
+    var gekozen = bewaardThema();
+    if (gekozen) {
+      return gekozen;
+    }
+    var licht =
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-color-scheme: light)").matches;
+    return licht ? "light" : "dark";
+  }
+
+  /** Laat op de schakelaar zien welke van de twee aan staat. */
+  function toonThema(schakelaar, thema) {
+    var knoppen = schakelaar.querySelectorAll("[data-thema]");
+    for (var i = 0; i < knoppen.length; i++) {
+      var aan = knoppen[i].getAttribute("data-thema") === thema;
+      knoppen[i].setAttribute("aria-pressed", aan ? "true" : "false");
+    }
+  }
+
+  (function themaSchakelaar() {
+    var schakelaar = document.getElementById("thema");
+    if (!schakelaar) {
+      return;
+    }
+
+    schakelaar.hidden = false;
+    toonThema(schakelaar, huidigThema());
+
+    schakelaar.addEventListener("click", function (event) {
+      var doel = event.target;
+      var knop = doel instanceof Element ? doel.closest("[data-thema]") : null;
+      if (!knop) {
+        return;
+      }
+
+      var thema = knop.getAttribute("data-thema");
+      document.documentElement.dataset.thema = thema;
+      try {
+        localStorage.setItem(THEMA_SLEUTEL, thema);
+      } catch (e) {
+        // Een browser die opslag weigert, houdt de keuze voor deze pagina.
+      }
+      toonThema(schakelaar, thema);
+    });
+  })();
+
+  // ── Bezig met schrijven ──────────────────────────────────────────────────
 
   // Alleen knoppen die werkelijk schrijven dragen dit attribuut; de waarde is
   // de tekst die de knop tijdens het werk toont. Zo staat in de template, naast

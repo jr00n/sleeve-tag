@@ -368,6 +368,31 @@ Zolang zo'n schrijfactie loopt, toont de knop een spinner en neemt het formulier
 geen tweede klik meer aan (`static/app.js`). Zonder JavaScript werkt alles
 gewoon — dan blijft alleen de bezig-weergave achterwege.
 
+## Hoe het eruitziet
+
+De vormgeving komt uit het design system **Nocturne**. De kleuren, tonenreeksen,
+ruimtematen, hoeken en schaduwen daarvan staan als tokens boven in
+`static/app.css`, en dat is de enige plek in het project waar een kleurwaarde
+staat; de componentregels eronder noemen alleen tokens. Wie de vormgeving wil
+bijstellen, hoeft daarvoor geen enkele component aan te raken.
+
+Twee dingen die daaruit volgen en er anders uitzien dan gewoonlijk: een knop is
+een omlijning en geen gevuld vlak — ook de primaire, die zich onderscheidt door
+de accentkleur en niet doordat hij is ingekleurd — en een scheidingsregel vloeit
+aan beide uiteinden uit in plaats van er droog af te breken.
+
+Sleeve heeft een donkere en een lichte weergave. De kopbalk biedt de keuze en
+onthoudt hem in de browser (`localStorage`); zolang er geen keuze is gemaakt,
+volgt de pagina de systeemvoorkeur. Een klein script in de `<head>` zet een
+bewaarde keuze terug vóór het eerste renderen, zodat de pagina niet eerst in de
+andere modus opflitst. Zonder JavaScript blijft de systeemvoorkeur gelden en
+staat de schakelaar er niet — een knop die niets doet is erger dan geen knop.
+
+Het lettertype van het systeem is Inter. Dat wordt niet opgehaald: de NAS heeft
+geen internetverbinding, dus Inter wordt alleen gebruikt wanneer hij op het
+apparaat staat en er wordt anders teruggevallen op de systeemletter. Alles wat
+de pagina nodig heeft, komt van de NAS zelf.
+
 ## Wat de browser er nog bij doet
 
 `static/app.js` is de enige JavaScript in het project, en alles erin is een
@@ -379,6 +404,7 @@ toevoeging: valt het weg, dan werkt elk formulier zoals het altijd deed.
 | **Een hoes neerslepen** | een JPEG of PNG op het uploadvak slepen vult het bestandsveld, met een miniatuur erbij |
 | **Idem op het hoesje** | op de bewerkpagina is het hoesje zelf ook een doel; daar verschijnt dan één knop, "In dit bestand zetten" |
 | **Idem voor een selectie** | in de voorbeeldweergave van een batch, voor de bestanden die je hebt aangevinkt |
+| **Donker of licht** | de keuze in de kopbalk, onthouden in de browser; zonder keuze geldt de systeemvoorkeur |
 
 Slepen verandert niets aan wat er daarna gebeurt: de vinkjes en de knoppen
 bepalen nog steeds wat er met de afbeelding wordt gedaan, en er wordt niets
