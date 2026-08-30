@@ -22,7 +22,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use percent_encoding::percent_decode_str;
 
-use crate::browse::{self, Crumb, Listing, TrackSummary};
+use crate::browse::{self, Crumb, DiscGroup, Listing, TrackSummary};
 use crate::casing;
 use crate::edit;
 use crate::naming;
@@ -30,6 +30,12 @@ use crate::tags::Tags;
 
 /// Wat er in een invoerveld staat waar de selectie niets te melden heeft.
 const EMPTY: &str = "—";
+
+/// Het voorvoegsel van de knop die één schijf aan- of uitvinkt.
+///
+/// De groep staat erachter: het discnummer, of niets voor de bestanden die er
+/// geen hebben. Zo is er één knopnaam nodig in plaats van een veld per groep.
+const GROUP_ACTION: &str = "schijf:";
 
 /// Een veld dat een heel album deelt (PRD FR-8).
 ///
@@ -220,6 +226,14 @@ pub enum Action {
     /// De selectie leegmaken.
     None,
 
+    /// Eén schijf in zijn geheel aan- of uitvinken (FR-8).
+    ///
+    /// Welke van de twee het wordt, volgt uit wat er al aanstaat: staat de hele
+    /// groep aan, dan gaat hij eraf, en anders erbij. De knop kan dat dus
+    /// vooraf in zijn opschrift zetten. Wat er buiten de groep geselecteerd
+    /// stond, blijft in beide gevallen staan.
+    ToggleGroup(Option<u32>),
+
     /// De selectie opeenvolgend nummeren, in de volgorde van de tabel.
     Renumber,
 
@@ -253,6 +267,19 @@ pub enum Action {
 
 impl Action {
     fn parse(raw: &str) -> Action {
+        // De knop van een groep draagt zijn discnummer in de waarde mee; een
+        // lege rest is de groep zonder discnummer. Wat daar geen getal is, komt
+        // niet uit een knop van deze pagina en verandert dus niets.
+        if let Some(rest) = raw.strip_prefix(GROUP_ACTION) {
+            return match rest {
+                "" => Action::ToggleGroup(None),
+                number => match number.parse::<u32>() {
+                    Ok(disc) => Action::ToggleGroup(Some(disc)),
+                    Err(_) => Action::Keep,
+                },
+            };
+        }
+
         match raw {
             "alles" => Action::All,
             "niets" => Action::None,
@@ -529,8 +556,14 @@ impl Form {
                 Some("De ingevulde velden zijn leeggemaakt; de selectie staat nog.".to_string())
             }
             // De voorbeeldweergave en het opslaan veranderen niets aan het
-            // formulier: ze werken juist met precies wat erin staat.
-            Action::Keep | Action::All | Action::None | Action::Preview | Action::Save => None,
+            // formulier: ze werken juist met precies wat erin staat, en een
+            // knop die de selectie zet, laat de invoervelden met rust.
+            Action::Keep
+            | Action::All
+            | Action::None
+            | Action::ToggleGroup(_)
+            | Action::Preview
+            | Action::Save => None,
         };
 
         (form, notice)
@@ -998,6 +1031,59 @@ pub struct SharedInput {
     pub effect: String,
 }
 
+/// De kop boven één schijf in de albumtabel.
+///
+/// Wat er in staat komt uit [`DiscGroup`]; wat de knop ernaast doet, hangt af
+/// van de selectie en wordt daarom hier bepaald. De kop hangt aan de rij waar
+/// de groep begint: hij staat als eigen rij in dezelfde tabel, en zo blijft de
+/// tabel één opsomming.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GroupHeading {
+    /// Het discnummer van deze groep; `None` voor de bestanden zonder.
+    pub disc: Option<u32>,
+
+    /// Het opschrift: "Schijf 1", of "Zonder discnummer".
+    pub label: String,
+
+    /// De telling en wat er aandacht vraagt, in één zin.
+    pub summary: String,
+
+    /// De waarde van de knop; hij zegt om welke groep het gaat.
+    pub action: String,
+
+    /// Het opschrift van de knop, dat zegt wat een klik doet.
+    pub button: String,
+}
+
+impl GroupHeading {
+    /// Bouwt de kop van één groep, gegeven wat er geselecteerd staat.
+    ///
+    /// Staat de hele groep al aan, dan vinkt de knop hem uit; anders vinkt hij
+    /// hem aan. Zo is er één knop per groep die zichzelf verklaart, en raakt
+    /// een klik nooit de bestanden van een andere schijf (AC #4).
+    fn of(group: &DiscGroup, listing: &Listing, selected: &BTreeSet<String>) -> GroupHeading {
+        let label = group.label();
+
+        let complete = listing
+            .tracks
+            .iter()
+            .filter(|track| track.tags.disc == group.disc)
+            .all(|track| selected.contains(&track.name));
+
+        GroupHeading {
+            disc: group.disc,
+            action: format!("{GROUP_ACTION}{}", group.key()),
+            button: if complete {
+                format!("{label} uitvinken")
+            } else {
+                format!("{label} selecteren")
+            },
+            summary: group.describe(),
+            label,
+        }
+    }
+}
+
 /// Eén regel in de albumtabel.
 ///
 /// De waarden zijn hier al tekst: de tabel toont ze rechtstreeks, en een
@@ -1006,6 +1092,10 @@ pub struct SharedInput {
 pub struct Row {
     /// Bestandsnaam; ook de waarde van het selectievinkje.
     pub name: String,
+
+    /// De kop die vóór deze rij hoort; alleen bij het eerste bestand van een
+    /// groep, en alleen wanneer de map überhaupt op schijven uiteenvalt.
+    pub group: Option<GroupHeading>,
 
     /// Of dit bestand geselecteerd is.
     pub selected: bool,
@@ -1792,7 +1882,13 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
     let rows: Vec<Row> = listing
         .tracks
         .iter()
-        .map(|track| Row {
+        .enumerate()
+        .map(|(index, track)| Row {
+            // De koppen staan tussen de rijen; het weergavemodel bepaalt waar
+            // een groep begint, deze pagina alleen wat de knop ernaast doet.
+            group: listing
+                .group_starting_at(index)
+                .map(|group| GroupHeading::of(group, listing, &selected)),
             selected: selected.contains(&track.name),
             track_name: RowField::Track.input_name(&track.name),
             title_name: RowField::Title.input_name(&track.name),
@@ -1894,9 +1990,38 @@ fn resolve_selection(listing: &Listing, form: &Form) -> BTreeSet<String> {
             .map(|track| track.name.clone())
             .collect(),
         Action::None => BTreeSet::new(),
+        Action::ToggleGroup(disc) => toggle_group(listing, form, disc),
         // Een hulpactie laat de selectie met rust: die vult alleen velden.
         _ => form.selected.clone(),
     }
+}
+
+/// De selectie nadat er op de knop van één schijf is geklikt (AC #4).
+///
+/// Staat de hele groep al aan, dan gaat hij eraf; anders gaat hij erbij. Wat
+/// er buiten de groep aanstond, blijft in beide gevallen staan: deze knop gaat
+/// over deze schijf, en over de rest van de map heeft de gebruiker al beslist.
+fn toggle_group(listing: &Listing, form: &Form, disc: Option<u32>) -> BTreeSet<String> {
+    let mut selection = form.selected.clone();
+
+    let group: Vec<&String> = listing
+        .tracks
+        .iter()
+        .filter(|track| track.tags.disc == disc)
+        .map(|track| &track.name)
+        .collect();
+
+    let complete = !group.is_empty() && group.iter().all(|name| selection.contains(*name));
+
+    for name in group {
+        if complete {
+            selection.remove(name);
+        } else {
+            selection.insert(name.clone());
+        }
+    }
+
+    selection
 }
 
 /// De geselecteerde bestanden, in de volgorde van de tabel.
@@ -2050,6 +2175,10 @@ mod tests {
 
     fn listing_of(tracks: Vec<TrackSummary>) -> Listing {
         Listing {
+            // Dezelfde groepering als in een echte listing: de tracks staan
+            // hier al op schijf gesorteerd, net zoals `browse::listing` ze
+            // aanlevert.
+            groups: browse::disc_groups(&tracks),
             name: "Album".to_string(),
             path: "Artiest/Album".to_string(),
             url: "/map/Artiest/Album".to_string(),
@@ -3136,5 +3265,184 @@ mod tests {
 
         assert_eq!(row.album, EMPTY);
         assert_eq!(row.disc, EMPTY);
+    }
+
+    // ── De tabel per schijf ───────────────────────────────────────────────
+
+    /// De kop die bij dit bestand hoort; paniekt wanneer die er niet is.
+    fn heading_of<'a>(page: &'a AlbumPage, name: &str) -> &'a GroupHeading {
+        row_of(page, name)
+            .group
+            .as_ref()
+            .unwrap_or_else(|| panic!("boven '{name}' hoort een kop te staan"))
+    }
+
+    #[test]
+    fn the_table_gets_a_heading_at_the_start_of_every_disc() {
+        // AC #1 en #2: een kop per schijf, en de bestanden zonder discnummer
+        // als eigen groep achteraan.
+        let listing = set_of_two_discs();
+        let page = album(&listing, &Form::parse("actie=alles"));
+
+        let first = heading_of(&page, "01 - Eerste.mp3");
+        assert_eq!(first.label, "Schijf 1");
+        assert_eq!(first.summary, "2 bestanden");
+
+        assert!(
+            row_of(&page, "02 - Tweede.mp3").group.is_none(),
+            "een kop hoort alleen boven het eerste bestand van een groep"
+        );
+
+        assert_eq!(heading_of(&page, "03 - Derde.mp3").label, "Schijf 2");
+
+        let last = heading_of(&page, "04 - Vierde.mp3");
+        assert_eq!(last.label, "Zonder discnummer");
+        assert_eq!(last.action, "schijf:");
+    }
+
+    #[test]
+    fn a_folder_without_disc_numbers_has_no_headings() {
+        // AC #5: dan ziet de tabel eruit als altijd.
+        let listing = listing_of(vec![
+            track("een.mp3", Some("Album"), None),
+            track("twee.mp3", Some("Album"), None),
+        ]);
+
+        let page = album(&listing, &Form::parse("actie=alles"));
+
+        assert!(page.rows.iter().all(|row| row.group.is_none()));
+    }
+
+    #[test]
+    fn the_button_of_a_group_ticks_it_and_leaves_the_rest_alone() {
+        // AC #4: één klik voor een hele schijf, en de rest van de selectie
+        // blijft precies zoals hij stond.
+        let listing = set_of_two_discs();
+
+        // Alleen het bestand zonder discnummer stond aan.
+        let page = album(
+            &listing,
+            &Form::parse("actie=schijf:1&bestand=04 - Vierde.mp3"),
+        );
+
+        assert!(row_of(&page, "01 - Eerste.mp3").selected);
+        assert!(row_of(&page, "02 - Tweede.mp3").selected);
+        assert!(
+            !row_of(&page, "03 - Derde.mp3").selected,
+            "de tweede schijf hoort deze knop niets aan te gaan"
+        );
+        assert!(
+            row_of(&page, "04 - Vierde.mp3").selected,
+            "wat er buiten de groep aanstond, hoort te blijven staan"
+        );
+    }
+
+    #[test]
+    fn the_button_of_a_selected_group_unticks_it() {
+        let listing = set_of_two_discs();
+        let page = album(
+            &listing,
+            &Form::parse(&format!("actie=schijf:1{}", everything_in(&listing))),
+        );
+
+        assert!(!row_of(&page, "01 - Eerste.mp3").selected);
+        assert!(!row_of(&page, "02 - Tweede.mp3").selected);
+        assert!(row_of(&page, "03 - Derde.mp3").selected);
+        assert!(row_of(&page, "04 - Vierde.mp3").selected);
+    }
+
+    #[test]
+    fn the_button_says_what_a_click_would_do() {
+        let listing = set_of_two_discs();
+
+        let all = album(&listing, &Form::parse("actie=alles"));
+        assert_eq!(
+            heading_of(&all, "01 - Eerste.mp3").button,
+            "Schijf 1 uitvinken"
+        );
+
+        let none = album(&listing, &Form::parse("actie=niets"));
+        assert_eq!(
+            heading_of(&none, "01 - Eerste.mp3").button,
+            "Schijf 1 selecteren"
+        );
+
+        // Half aangevinkt is niet aangevinkt: dan vult de knop de groep aan.
+        let half = album(&listing, &Form::parse("bestand=01 - Eerste.mp3"));
+        assert_eq!(
+            heading_of(&half, "01 - Eerste.mp3").button,
+            "Schijf 1 selecteren"
+        );
+    }
+
+    #[test]
+    fn the_group_without_a_disc_number_has_a_button_of_its_own() {
+        let listing = set_of_two_discs();
+        let page = album(&listing, &Form::parse("actie=schijf:"));
+
+        assert!(row_of(&page, "04 - Vierde.mp3").selected);
+        assert!(!row_of(&page, "01 - Eerste.mp3").selected);
+        assert_eq!(page.selected, 1);
+    }
+
+    #[test]
+    fn a_group_button_fills_in_nothing() {
+        // De knop zet de selectie en verder niets: geen invoerveld, geen
+        // melding van een hulpactie.
+        let listing = set_of_two_discs();
+        let page = album(
+            &listing,
+            &Form::parse("actie=schijf:2&nummer:01 - Eerste.mp3=7"),
+        );
+
+        assert!(page.helper_notice.is_none());
+        assert_eq!(row_of(&page, "01 - Eerste.mp3").track_input, "7");
+        assert!(page.fields.iter().all(|field| field.value.is_empty()));
+    }
+
+    #[test]
+    fn an_unreadable_group_changes_nothing() {
+        // Een waarde die niet uit een knop van deze pagina komt, hoort de
+        // selectie met rust te laten.
+        let listing = set_of_two_discs();
+        let page = album(
+            &listing,
+            &Form::parse("actie=schijf:tweede&bestand=01 - Eerste.mp3"),
+        );
+
+        assert_eq!(page.selected, 1);
+        assert!(row_of(&page, "01 - Eerste.mp3").selected);
+    }
+
+    #[test]
+    fn a_heading_counts_what_needs_attention_in_its_group() {
+        // AC #3: het oordeel komt uit de signalering die al in de lijst zit.
+        let mut tracks = vec![
+            track_with(
+                "een.mp3",
+                Tags {
+                    disc: Some(1),
+                    track: Some(1),
+                    ..Tags::default()
+                },
+            ),
+            track_with(
+                "twee.mp3",
+                Tags {
+                    disc: Some(1),
+                    track: Some(2),
+                    ..Tags::default()
+                },
+            ),
+        ];
+        tracks[0].issues = vec![crate::checks::TrackIssue::MissingTitle];
+
+        let listing = listing_of(tracks);
+        let page = album(&listing, &Form::parse("actie=alles"));
+
+        assert_eq!(
+            heading_of(&page, "een.mp3").summary,
+            "2 bestanden, 1 vraagt aandacht"
+        );
     }
 }

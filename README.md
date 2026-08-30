@@ -498,7 +498,35 @@ Per map worden de submappen getoond en de bestanden waarvan de tags te lezen
 zijn, met tracknummer, titel, artiest, album, duur en formaat. Bestanden worden
 gesorteerd op het tracknummer uit de tags, met de bestandsnaam als terugval
 wanneer een tracknummer ontbreekt; bestanden zonder nummer staan achteraan. Dat
-beantwoordt het open punt over sortering uit PRD §12.
+beantwoordt het open punt over sortering uit PRD §12. Het discnummer gaat daar
+nog vóór, zodat de schijven van een set niet door elkaar staan.
+
+### Groepen per schijf
+
+Een dubbel-cd is één map, en in één doorlopende lijst is niet te zien waar de
+ene schijf ophoudt en de volgende begint. De bestandslijst valt daarom uiteen in
+groepen op discnummer, met een kop per groep: "Schijf 1", "Schijf 2", en
+achteraan "Zonder discnummer" voor wat daarbuiten valt — die bestanden krijgen
+geen verzonnen nummer, want bij welke schijf ze horen valt niet te zeggen.
+
+De kop noemt hoeveel bestanden de groep telt en hoeveel daarvan aandacht vragen.
+Dat laatste is hetzelfde oordeel als de labels bij de regels zelf; vraagt er
+niets aandacht, dan zegt de kop daar niets over. Staat er in de hele map geen
+enkel discnummer, dan is er niets te groeperen en verandert er ook niets: één
+lijst zonder kop, precies zoals het was. De volgorde bínnen een groep blijft
+wat ze was.
+
+In de albumweergave heeft elke kop een knop erbij die de hele schijf in één klik
+aanvinkt — of uitvinkt, wanneer de groep al helemaal aanstond. Wat er in het
+opschrift staat, is wat een klik doet. Bestanden buiten die groep blijven staan
+zoals ze stonden: de knop gaat over deze schijf, en over de rest heb je zelf al
+beslist. Het is een gewone submitknop in hetzelfde formulier, dus hij werkt ook
+zonder JavaScript.
+
+Het groeperen zit in `browse::`, in het weergavemodel dat beide pagina's
+renderen; de templates tellen en sorteren niets. Discnummers zelf **invullen**
+is iets anders en gebeurt met de hulpacties in de albumweergave — deze weergave
+toont alleen wat er staat.
 
 Het zoekveld filtert binnen de huidige map op bestandsnaam of titel, en op de
 naam van submappen. Met JavaScript ververst HTMX tijdens het typen alleen de

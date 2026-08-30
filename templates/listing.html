@@ -32,6 +32,21 @@
 {% if !listing.tracks.is_empty() %}
 <ul class="tracks">
   {% for track in listing.tracks %}
+  {# De lijst valt uiteen in schijven zodra er ergens een discnummer staat.
+     De kop staat tússen de bestanden en niet eromheen: zo blijft het één
+     opsomming. Staat er nergens een discnummer, dan komt er geen kop —
+     `group_starting_at` geeft dan niets terug. #}
+  {% if let Some(group) = listing.group_starting_at(*loop.index0) %}
+  <li class="schijf">
+    <h2 class="schijf__naam">{{ group.label() }}</h2>
+    <p class="schijf__telling">
+      <span>{{ group.count_label() }}</span>
+      {% if let Some(attention) = group.attention_label() %}
+      <span class="schijf__aandacht">{{ attention }}</span>
+      {% endif %}
+    </p>
+  </li>
+  {% endif %}
   <li class="track">
     {# `loading="lazy"` plus vaste afmetingen: de lijst is gerenderd voordat er
        ook maar één hoes binnen is, en er verschuift niets na wanneer ze

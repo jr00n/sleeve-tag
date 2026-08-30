@@ -394,3 +394,50 @@ fn the_page_stays_within_the_library() {
         "het absolute pad van de bibliotheek staat op de pagina:\n{html}"
     );
 }
+
+#[test]
+fn the_list_gets_a_heading_per_disc() {
+    // AC #1 en #2: de getagde fixture staat op schijf 1, de twee kale hebben
+    // geen discnummer en vormen samen de laatste groep.
+    let server = Server::start_in(library_with_album(), &[]);
+    let html = body(&server.get("/map/Artiest/Het%20Album"));
+
+    let disc = position(&html, "Schijf 1");
+    let tagged = position(&html, "zzz-getagd.mp3");
+    let rest = position(&html, "Zonder discnummer");
+    let untagged = position(&html, "aaa-kaal.flac");
+
+    assert!(
+        disc < tagged,
+        "de kop hoort boven zijn groep te staan:\n{html}"
+    );
+    assert!(
+        tagged < rest,
+        "de groep zonder schijf hoort achteraan:\n{html}"
+    );
+    assert!(
+        rest < untagged,
+        "de kop hoort boven zijn groep te staan:\n{html}"
+    );
+
+    // AC #3: de telling, en wat er aandacht vraagt.
+    assert!(html.contains("2 bestanden"), "{html}");
+    assert!(html.contains("vragen aandacht"), "{html}");
+}
+
+#[test]
+fn a_directory_without_disc_numbers_looks_like_it_always_did() {
+    // AC #5: geen enkel discnummer, dus geen kop boven de lijst.
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Kaal");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+    place_fixture(&album, "een.mp3", "untagged.mp3");
+    place_fixture(&album, "twee.flac", "untagged.flac");
+
+    let server = Server::start_in(root, &[]);
+    let html = body(&server.get("/map/Kaal"));
+
+    assert!(html.contains("een.mp3"), "{html}");
+    assert!(!html.contains("Schijf"), "{html}");
+    assert!(!html.contains("Zonder discnummer"), "{html}");
+}
