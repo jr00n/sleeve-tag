@@ -618,7 +618,7 @@ draaien:
 | Titel uit bestandsnaam | Leest voor bestanden zónder titel de titel uit de naam; een bestand dat al een titel heeft, wordt niet overschreven |
 | Artiest → albumartiest | Zet per bestand de artiest als albumartiest klaar; een bestand zonder artiest wordt overgeslagen |
 | Hoofdletters normaliseren | Stelt een leesbare schrijfwijze voor van titel en albumartiest per bestand, en van album en genre wanneer de hele selectie er dezelfde waarde heeft |
-| Invoer leegmaken | Haalt alles wat er ingevuld of voorgesteld is weer weg; de selectie blijft staan |
+| Invoer leegmaken | Haalt alles wat er ingevuld of voorgesteld is weer weg; de selectie blijft staan. Staat ook in de balk onderaan, die altijd in beeld is |
 
 Een hulpactie **vult alleen invoervelden**. Er gaat geen bestand open en er wordt
 niets geschreven: wat de actie voorstelt staat daarna gewoon in de velden, is met
@@ -647,6 +647,40 @@ minstens zo belangrijk: een korte reeks kapitalen blijft een afkorting (`DJ`,
 `BBC`, `R.E.M.`, `AC/DC`), en een woord dat zijn eigen hoofdletters draagt blijft
 staan (`McCartney`, `iPhone`, `d'Angelo`). Vijf letters of meer in kapitalen is
 geen afkorting maar geschreeuw, en wordt wél omgezet.
+
+#### De balk: hoeveel bestanden een wijziging krijgen
+
+Onderaan de albumweergave staat een balk die zegt hoeveel bestanden er bij het
+opslaan werkelijk iets krijgen — "3 bestanden krijgen een wijziging" — met
+daarnaast "Invoer leegmaken" en "Voorbeeld en opslaan". Hij blijft in beeld
+terwijl je door de tabel scrollt, zodat de uitkomst en de weg vooruit niet
+onderaan een lange tabel liggen.
+
+Hij plakt (`position: sticky`) en zweeft niet (`fixed`): hij hoort bij het
+formulier en komt aan het eind van de pagina gewoon op zijn eigen plek terecht,
+zodat hij daar niets afdekt. Op een telefoon houdt de pagina onder een veld
+ruimte vrij ter hoogte van de balk (`scroll-padding-bottom`), zodat de regel
+waar je mee bezig bent er niet achter verdwijnt wanneer de browser hem in beeld
+brengt.
+
+Het getal komt uit **dezelfde berekening** als de voorbeeldweergave: per bestand
+wordt het plan op de huidige tags gelegd en geteld wat er dan verschilt. Vul je
+in wat er al staat, dan verandert er niets en zegt de balk dat ook — "Geen enkel
+bestand krijgt een wijziging: wat er is ingevuld, staat er al." Dat was eerder
+pas in het voorbeeld te zien. Balk en voorbeeld kunnen niet uiteenlopen; een test
+houdt vast dat ze op hetzelfde formulier hetzelfde aantal noemen.
+
+Staat er niets open — niets geselecteerd, of nog niets ingevuld — dan zegt de
+balk dat en is "Voorbeeld en opslaan" niet aan te klikken. Er staat wél iets
+open zodra er invoer bij een selectie hoort, ook als het getal nul is: de
+voorbeeldweergave is dan nog steeds zinvol, want daar hangt de hoes aan, en die
+heeft ook een bestand met kloppende tags iets te geven.
+
+De balk **schrijft zelf niets**. "Voorbeeld en opslaan" gaat naar de
+voorbeeldweergave en die blijft de enige stap die naar het schrijven leidt.
+Zonder JavaScript werkt de albumweergave zoals ze deed: het zijn gewone
+submitknoppen, en de telling komt mee met de pagina die de server teruggeeft —
+de tabel post zichzelf toch al bij elk vinkje.
 
 #### Voorbeeld, opslaan en het resultaat
 

@@ -1390,6 +1390,76 @@ a.bestandskop__hoes {
   margin-bottom: 0;
 }
 
+/* ── De balk onder de albumweergave ───────────────────────────────────────
+   Hoeveel bestanden er een wijziging krijgen, en de weg terug (invoer
+   leegmaken) en vooruit (het voorbeeld). Dat hoort in beeld te blijven terwijl
+   je door de tabel scrollt.
+
+   `sticky` en niet `fixed`: de balk hoort bij het formulier en blijft binnen de
+   inhoud. Aan het eind van de pagina komt hij op zijn eigen plek terecht en
+   dekt hij niets af; alleen zolang er nog formulier onder hem doorloopt, plakt
+   hij aan de onderkant van het venster. */
+.balk {
+  position: sticky;
+  bottom: var(--space-4);
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-6);
+  padding: var(--space-4) var(--space-6);
+  border: 1px solid var(--rand);
+  border-radius: var(--radius-lg);
+  /* Ondoorzichtig: er scrollt tabel onder deze balk door. */
+  background: var(--vlak);
+  box-shadow: var(--shadow-md);
+}
+
+.balk__telling {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+}
+
+.balk__knoppen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+/* Een knop die niets te doen heeft, zegt dat ook met de aanwijzer; de
+   `progress`-cursor van `.knop[disabled]` hoort bij een schrijfactie die loopt,
+   en hier loopt er niets. */
+.balk .knop[disabled] {
+  cursor: not-allowed;
+}
+
+/* Op een telefoon staan de knoppen onder de telling en vullen ze de breedte;
+   naast elkaar zouden ze afgekapt worden. */
+@media (max-width: 30rem) {
+  .balk {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .balk__knoppen .knop {
+    flex: 1 1 8rem;
+  }
+}
+
+/* De balk mag de regel waar je mee bezig bent niet afdekken. Een browser die
+   een veld in beeld brengt — bij focus, of na een sprong — houdt hieronder
+   ruimte vrij ter hoogte van de balk. */
+html {
+  scroll-padding-bottom: 8rem;
+}
+
+.rijveld,
+.veld__invoer {
+  scroll-margin-bottom: 8rem;
+}
+
 /* ── Voorbeeldweergave vóór het opslaan (FR-11) ────────────────────────── */
 
 .voorbeeldkop {

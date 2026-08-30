@@ -943,3 +943,125 @@ fn a_batch_without_a_cover_behaves_exactly_as_before() {
         "de tagwijziging ontbreekt"
     );
 }
+
+// ── De balk onderaan de albumweergave ──────────────────────────────────────
+
+/// Of de knop met deze actie aan te klikken is.
+///
+/// De waarde en het `disabled` staan in het template op dezelfde regel, juist
+/// zodat een test er iets over kan zeggen.
+fn is_enabled(page: &str, action: &str) -> bool {
+    assert!(
+        page.contains(&format!("value=\"{action}\"")),
+        "de knop “{action}” staat niet op de pagina:\n{page}"
+    );
+
+    !page.contains(&format!("value=\"{action}\" disabled"))
+}
+
+#[test]
+fn the_bar_says_what_is_pending_and_offers_no_way_to_write() {
+    // AC #2, #3 en #5: zonder invoer staat er niets open en is er niets aan te
+    // klikken; de weg naar het schrijven loopt ook hier langs het voorbeeld.
+    let server = server();
+    let page = server.get("/album/Album");
+
+    assert_ok(&page);
+    assert!(
+        page.contains("Er is nog niets ingevuld, dus er staat niets open."),
+        "{page}"
+    );
+    assert!(!is_enabled(&page, "voorbeeld"), "{page}");
+
+    // De balk kent geen opslaan; die knop verschijnt pas in het voorbeeld.
+    assert!(!page.contains("value=\"opslaan\""), "{page}");
+    assert!(page.contains("Invoer leegmaken"), "{page}");
+}
+
+#[test]
+fn the_bar_counts_the_files_that_get_a_change() {
+    // AC #1: het aantal staat er terwijl je bezig bent, en het klopt met wat de
+    // voorbeeldweergave daarna toont.
+    let server = server();
+    let fields = [
+        ("bestand", "een.mp3"),
+        ("bestand", "twee.mp3"),
+        ("album", "Een heel ander album"),
+    ];
+
+    let page = server.post_form("/album/Album", &fields);
+
+    assert_ok(&page);
+    assert!(
+        page.contains("2 bestanden krijgen een wijziging."),
+        "{page}"
+    );
+    assert!(is_enabled(&page, "voorbeeld"), "{page}");
+
+    let mut naar_voorbeeld = fields.to_vec();
+    naar_voorbeeld.push(("actie", "voorbeeld"));
+    let preview = server.post_form("/album/Album", &naar_voorbeeld);
+
+    assert_ok(&preview);
+    assert!(
+        preview.contains("2 bestanden worden gewijzigd."),
+        "{preview}"
+    );
+}
+
+#[test]
+fn the_bar_counts_nothing_when_the_value_is_already_there() {
+    // AC #1 en #7: wie invult wat er al staat, hoort dat meteen te zien en niet
+    // pas als het voorbeeld leeg blijkt. een.mp3 heeft dit album al; twee.mp3
+    // heeft helemaal geen tags.
+    let server = server();
+
+    let both = server.post_form(
+        "/album/Album",
+        &[
+            ("bestand", "een.mp3"),
+            ("bestand", "twee.mp3"),
+            ("album", ALBUM_IN_FIXTURE),
+        ],
+    );
+
+    assert_ok(&both);
+    assert!(both.contains("1 bestand krijgt een wijziging."), "{both}");
+
+    // Alleen het bestand dat het album al heeft: dan verandert er niets.
+    let already = server.post_form(
+        "/album/Album",
+        &[("bestand", "een.mp3"), ("album", ALBUM_IN_FIXTURE)],
+    );
+
+    assert_ok(&already);
+    assert!(
+        already.contains("Geen enkel bestand krijgt een wijziging"),
+        "{already}"
+    );
+    // Er staat wél iets open: het voorbeeld blijft bereikbaar, want daar hangt
+    // ook de hoes aan.
+    assert!(is_enabled(&already, "voorbeeld"), "{already}");
+}
+
+#[test]
+fn emptying_the_input_from_the_bar_keeps_the_selection() {
+    // AC #3: in één klik leeg, en de vinkjes blijven staan.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "herstel"),
+            ("bestand", "een.mp3"),
+            ("album", "Een heel ander album"),
+        ],
+    );
+
+    assert_ok(&page);
+    assert!(is_ticked(&page, "een.mp3"), "{page}");
+    assert!(!page.contains("value=\"Een heel ander album\""), "{page}");
+    assert!(
+        page.contains("Er is nog niets ingevuld, dus er staat niets open."),
+        "{page}"
+    );
+}
