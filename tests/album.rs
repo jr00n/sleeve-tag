@@ -1227,3 +1227,78 @@ fn emptying_the_input_from_the_bar_keeps_the_selection() {
         "{page}"
     );
 }
+
+#[test]
+fn the_table_groups_the_files_per_disc() {
+    // AC #1 t/m #3: een kop per schijf, de bestanden zonder discnummer als
+    // eigen groep achteraan, met de telling en wat er aandacht vraagt.
+    let server = server();
+    let page = server.get("/album/Album");
+
+    assert_ok(&page);
+    assert!(page.contains("Schijf 1"), "{page}");
+    assert!(page.contains("Zonder discnummer"), "{page}");
+
+    // De getagde fixture staat op schijf 1; de kale heeft geen discnummer en
+    // mist zo ongeveer alles, en dat telt de kop van zijn groep.
+    assert!(page.contains("1 bestand"), "{page}");
+    assert!(page.contains("1 vraagt aandacht"), "{page}");
+
+    // AC #4: een knop per groep, die zegt om welke groep het gaat.
+    assert!(page.contains("value=\"schijf:1\""), "{page}");
+    assert!(page.contains("value=\"schijf:\""), "{page}");
+}
+
+#[test]
+fn a_whole_disc_is_ticked_and_unticked_in_one_click() {
+    // AC #4: de knop gaat over deze schijf en laat de rest van de selectie
+    // staan — in beide richtingen.
+    let server = server();
+
+    let ticked = server.post_form("/album/Album", &[("actie", "schijf:1")]);
+    assert_ok(&ticked);
+    assert!(
+        ticked.contains("1 van 2 bestanden geselecteerd"),
+        "{ticked}"
+    );
+    assert!(is_ticked(&ticked, "een.mp3"), "{ticked}");
+    assert!(!is_ticked(&ticked, "twee.mp3"), "{ticked}");
+
+    let unticked = server.post_form(
+        "/album/Album",
+        &[
+            ("actie", "schijf:1"),
+            ("bestand", "een.mp3"),
+            ("bestand", "twee.mp3"),
+        ],
+    );
+    assert_ok(&unticked);
+    assert!(!is_ticked(&unticked, "een.mp3"), "{unticked}");
+    assert!(
+        is_ticked(&unticked, "twee.mp3"),
+        "wat buiten de groep viel, hoort te blijven staan:\n{unticked}"
+    );
+}
+
+#[test]
+fn a_set_of_two_discs_gets_a_heading_per_disc() {
+    // Geen enkele fixture staat op schijf 2; die komt hier via de app zelf in
+    // het bestand, langs de enige route die schrijft.
+    let server = server();
+    let saved = server.post_form(
+        "/album/Album",
+        &[("actie", "opslaan"), ("bestand", "twee.mp3"), ("disc", "2")],
+    );
+    assert_ok(&saved);
+    assert!(saved.contains("1 bestand bijgewerkt"), "{saved}");
+
+    let page = server.get("/album/Album");
+    assert_ok(&page);
+    assert!(page.contains("Schijf 1"), "{page}");
+    assert!(page.contains("Schijf 2"), "{page}");
+    assert!(page.contains("value=\"schijf:2\""), "{page}");
+    assert!(
+        !page.contains("Zonder discnummer"),
+        "elk bestand heeft nu een schijf:\n{page}"
+    );
+}

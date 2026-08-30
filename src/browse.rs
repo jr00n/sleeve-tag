@@ -29,6 +29,9 @@ const MISSING: &str = "—";
 /// Wat er op de kaart van een map staat waarin niets te bewerken valt.
 const NOTHING_EDITABLE: &str = "Geen bewerkbare bestanden";
 
+/// Het opschrift van de groep bestanden zonder discnummer.
+const NO_DISC: &str = "Zonder discnummer";
+
 /// Waarde van de `size`-parameter waarmee om de verkleinde hoes wordt gevraagd.
 ///
 /// Staat hier omdat de URL's hier worden opgebouwd; het endpoint in
@@ -230,9 +233,10 @@ impl TrackSummary {
 
     /// Of dit bestand ten minste één signalering heeft.
     ///
-    /// Dit is wat het aandachtsfilter en de telling in de kopbalk tellen. De
-    /// signalering zelf blijft constateren: hier wordt niets voorgesteld en
-    /// niets gerepareerd, er wordt alleen geteld.
+    /// Dit is wat het aandachtsfilter en de telling in de kopbalk tellen, en
+    /// wat de kop boven een schijf per groep optelt. Het oordeel zelf komt van
+    /// [`crate::checks`] en blijft constateren: hier wordt niets voorgesteld
+    /// en niets gerepareerd, er wordt alleen geteld.
     pub fn needs_attention(&self) -> bool {
         !self.issues.is_empty()
     }
@@ -265,6 +269,106 @@ impl TrackSummary {
     }
 }
 
+/// Eén schijf uit de bestandslijst.
+///
+/// De lijst staat op discnummer gegroepeerd; deze structuur beschrijft wat er
+/// in de kop boven zo'n groep komt te staan. Ze verwijst naar de bestanden met
+/// een positie en een aantal en houdt er geen kopie van: de bestanden zelf
+/// staan in [`Listing::tracks`], in precies deze volgorde.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiscGroup {
+    /// Het discnummer, of `None` voor de bestanden die er geen hebben.
+    pub disc: Option<u32>,
+
+    /// De positie van het eerste bestand van deze groep in de lijst.
+    pub start: usize,
+
+    /// Hoeveel bestanden er in deze groep zitten.
+    pub count: usize,
+
+    /// Hoeveel van die bestanden aandacht vragen (FR-4).
+    pub attention: usize,
+}
+
+impl DiscGroup {
+    /// Het opschrift van deze groep.
+    ///
+    /// Bestanden zonder discnummer krijgen geen verzonnen nummer maar worden
+    /// benoemd om wat ze zijn: er valt niet te zeggen bij welke schijf ze
+    /// horen.
+    pub fn label(&self) -> String {
+        match self.disc {
+            Some(number) => format!("Schijf {number}"),
+            None => NO_DISC.to_string(),
+        }
+    }
+
+    /// De sleutel van deze groep in een formulier; leeg voor "zonder
+    /// discnummer".
+    pub fn key(&self) -> String {
+        self.disc
+            .map(|number| number.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Hoeveel bestanden er in deze groep zitten, als tekst.
+    pub fn count_label(&self) -> String {
+        match self.count {
+            1 => "1 bestand".to_string(),
+            count => format!("{count} bestanden"),
+        }
+    }
+
+    /// Hoeveel bestanden er aandacht vragen; `None` wanneer dat er geen zijn.
+    ///
+    /// Bewust niets in plaats van "0 vragen aandacht": een kop die bij elke
+    /// groep meldt dat er niets aan de hand is, is ruis (AC #3).
+    pub fn attention_label(&self) -> Option<String> {
+        match self.attention {
+            0 => None,
+            1 => Some("1 vraagt aandacht".to_string()),
+            count => Some(format!("{count} vragen aandacht")),
+        }
+    }
+
+    /// De hele kop in één zin: de telling en wat er aandacht vraagt.
+    pub fn describe(&self) -> String {
+        match self.attention_label() {
+            Some(attention) => format!("{}, {attention}", self.count_label()),
+            None => self.count_label(),
+        }
+    }
+}
+
+/// Groepeert een gesorteerde bestandslijst op discnummer.
+///
+/// De lijst komt uit [`sort_tracks`] en staat dus al per schijf bij elkaar,
+/// met de bestanden zonder discnummer achteraan; deze functie hoeft er alleen
+/// nog de grenzen in te vinden. Ze telt ook per groep hoeveel bestanden er
+/// aandacht vragen, zodat de kop dat kan melden.
+pub fn disc_groups(tracks: &[TrackSummary]) -> Vec<DiscGroup> {
+    let mut groups: Vec<DiscGroup> = Vec::new();
+
+    for (index, track) in tracks.iter().enumerate() {
+        let attention = usize::from(track.needs_attention());
+
+        match groups.last_mut() {
+            Some(group) if group.disc == track.tags.disc => {
+                group.count += 1;
+                group.attention += attention;
+            }
+            _ => groups.push(DiscGroup {
+                disc: track.tags.disc,
+                start: index,
+                count: 1,
+                attention,
+            }),
+        }
+    }
+
+    groups
+}
+
 /// Alles wat één mappagina nodig heeft.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Listing {
@@ -287,6 +391,15 @@ pub struct Listing {
 
     pub folders: Vec<Folder>,
     pub tracks: Vec<TrackSummary>,
+
+    /// De schijven waarin `tracks` uiteenvalt, in dezelfde volgorde.
+    ///
+    /// Wordt bepaald over de lijst zoals hij op het scherm komt — dus ná het
+    /// filteren: een kop die twaalf bestanden telt terwijl er twee te zien
+    /// zijn, telt iets anders dan wat eronder staat. De signalering per map
+    /// gaat wél over de hele map; die zegt iets over de map en niet over de
+    /// lijst.
+    pub groups: Vec<DiscGroup>,
 
     /// Wat er tussen de bestanden van deze map onderling niet klopt.
     ///
@@ -339,6 +452,29 @@ impl Listing {
         } else {
             format!("{}?{}", self.url, params.join("&"))
         }
+    }
+}
+
+impl Listing {
+    /// Of de lijst koppen per schijf krijgt.
+    ///
+    /// Alleen wanneer er ergens een discnummer staat. Een map waarin geen
+    /// enkel bestand er een heeft, is één doorlopende lijst en heeft niets aan
+    /// een kop die dat nog eens zegt (AC #5).
+    pub fn is_grouped(&self) -> bool {
+        self.groups.iter().any(|group| group.disc.is_some())
+    }
+
+    /// De groep die bij dit bestand begint, als er hier een kop hoort.
+    ///
+    /// De koppen staan tússen de bestanden en niet eromheen: zo blijft de
+    /// lijst één opsomming, en blijft de rij ernaast wat ze was.
+    pub fn group_starting_at(&self, index: usize) -> Option<&DiscGroup> {
+        if !self.is_grouped() {
+            return None;
+        }
+
+        self.groups.iter().find(|group| group.start == index)
     }
 }
 
@@ -405,7 +541,10 @@ pub fn listing(library: &Library, relative: &str, filter: &Filter) -> Result<Lis
     tracks.retain(|track| matches_query(track, &needle));
     sort_tracks(&mut tracks);
 
+    let groups = disc_groups(&tracks);
+
     Ok(Listing {
+        groups,
         folder_issues,
         flagged_count,
         only_flagged: filter.only_flagged,
@@ -480,18 +619,31 @@ fn review(tracks: &mut [TrackSummary]) -> Vec<FolderIssue> {
     review.folder
 }
 
-/// Sorteert op tracknummer, met de bestandsnaam als terugval.
+/// Sorteert op schijf, dan op tracknummer, met de bestandsnaam als terugval.
 ///
 /// Antwoord op het open punt in PRD §12: het tracknummer uit de tags bepaalt de
 /// volgorde, want dat is de volgorde waarin het album bedoeld is. Bestanden
 /// zonder tracknummer kunnen daar niet tussen worden geplaatst en komen
 /// erachter, onderling op naam.
+///
+/// Het discnummer gaat daarvóór, want anders staat track 1 van de tweede schijf
+/// tussen de eerste tracks van de eerste: bij een set is dat precies de
+/// verwarring waar het misgaat. Bestanden zonder discnummer komen achteraan, om
+/// dezelfde reden als bestanden zonder tracknummer — waar ze horen is niet te
+/// zeggen. Binnen een schijf verandert er niets aan de volgorde die er al was,
+/// en in een map zonder discnummers verandert er dus helemaal niets.
 fn sort_tracks(tracks: &mut [TrackSummary]) {
     tracks.sort_by(|a, b| {
         a.tags
-            .track
+            .disc
             .unwrap_or(u32::MAX)
-            .cmp(&b.tags.track.unwrap_or(u32::MAX))
+            .cmp(&b.tags.disc.unwrap_or(u32::MAX))
+            .then_with(|| {
+                a.tags
+                    .track
+                    .unwrap_or(u32::MAX)
+                    .cmp(&b.tags.track.unwrap_or(u32::MAX))
+            })
             .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
     });
 }
@@ -1349,5 +1501,185 @@ mod tests {
             elapsed < Duration::from_secs(1),
             "tweehonderd kaarten kostten {elapsed:?}"
         );
+    }
+
+    /// Bouwt een lijstregel met alleen wat de groepering ervan gebruikt.
+    ///
+    /// Een schijf 2 zit in geen enkele fixture, en een tweede schijf is nu
+    /// juist het geval waar deze weergave voor bestaat. De sortering en de
+    /// groepering werken op het tagmodel en niet op een bestand, dus kan dat
+    /// hier zonder de bibliotheek aan te raken.
+    fn summary(
+        name: &str,
+        disc: Option<u32>,
+        track: Option<u32>,
+        issues: Vec<TrackIssue>,
+    ) -> TrackSummary {
+        TrackSummary {
+            name: name.to_string(),
+            path: format!("Album/{name}"),
+            tags: Tags {
+                disc,
+                track,
+                ..Tags::default()
+            },
+            issues,
+            foreign_tags: Vec::new(),
+            duration: "0:00".to_string(),
+            format: "MP3".to_string(),
+            art: None,
+            art_url: String::new(),
+            edit_url: String::new(),
+        }
+    }
+
+    #[test]
+    fn a_set_of_two_discs_falls_apart_into_two_groups() {
+        // AC #1: elke schijf zijn eigen groep, met de telling erbij.
+        let mut tracks = vec![
+            summary("d2-t1.mp3", Some(2), Some(1), Vec::new()),
+            summary("d1-t1.mp3", Some(1), Some(1), Vec::new()),
+            summary("d1-t2.mp3", Some(1), Some(2), Vec::new()),
+        ];
+        sort_tracks(&mut tracks);
+
+        let groups = disc_groups(&tracks);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].disc, Some(1));
+        assert_eq!(groups[0].start, 0);
+        assert_eq!(groups[0].count_label(), "2 bestanden");
+        assert_eq!(groups[0].label(), "Schijf 1");
+        assert_eq!(groups[1].disc, Some(2));
+        assert_eq!(groups[1].start, 2);
+        assert_eq!(groups[1].count_label(), "1 bestand");
+    }
+
+    #[test]
+    fn a_disc_number_sorts_before_the_track_number() {
+        // AC #6: binnen een schijf blijft de sortering die er al was; de schijf
+        // gaat ervóór, anders staat track 1 van de tweede cd tussen de eerste.
+        let mut tracks = vec![
+            summary("b.mp3", Some(2), Some(1), Vec::new()),
+            summary("c.mp3", None, Some(1), Vec::new()),
+            summary("a.mp3", Some(1), Some(2), Vec::new()),
+            summary("d.mp3", Some(1), Some(1), Vec::new()),
+        ];
+
+        sort_tracks(&mut tracks);
+
+        let order: Vec<&str> = tracks.iter().map(|track| track.name.as_str()).collect();
+        assert_eq!(order, vec!["d.mp3", "a.mp3", "b.mp3", "c.mp3"]);
+    }
+
+    #[test]
+    fn files_without_a_disc_number_form_the_last_group() {
+        // AC #2: ze krijgen geen verzonnen nummer en staan achteraan.
+        let mut tracks = vec![
+            summary("los.mp3", None, Some(1), Vec::new()),
+            summary("schijf.mp3", Some(1), Some(1), Vec::new()),
+        ];
+        sort_tracks(&mut tracks);
+
+        let groups = disc_groups(&tracks);
+
+        assert_eq!(groups.len(), 2);
+        assert_eq!(groups[0].disc, Some(1));
+        assert_eq!(groups[1].disc, None);
+        assert_eq!(groups[1].label(), NO_DISC);
+        assert_eq!(
+            groups[1].key(),
+            "",
+            "de groep zonder schijf heeft geen nummer"
+        );
+    }
+
+    #[test]
+    fn a_heading_says_how_many_files_need_attention() {
+        // AC #3: de telling, en wat er aandacht vraagt — of niets wanneer er
+        // niets aan de hand is.
+        let tracks = vec![
+            summary("een.mp3", Some(1), Some(1), vec![TrackIssue::MissingTitle]),
+            summary("twee.mp3", Some(1), Some(2), Vec::new()),
+            summary("drie.mp3", Some(2), Some(1), Vec::new()),
+        ];
+
+        let groups = disc_groups(&tracks);
+
+        assert_eq!(groups[0].attention, 1);
+        assert_eq!(
+            groups[0].attention_label().as_deref(),
+            Some("1 vraagt aandacht")
+        );
+        assert_eq!(groups[0].describe(), "2 bestanden, 1 vraagt aandacht");
+
+        assert_eq!(groups[1].attention, 0);
+        assert_eq!(
+            groups[1].attention_label(),
+            None,
+            "een kop hoort niet te melden dat er niets aan de hand is"
+        );
+        assert_eq!(groups[1].describe(), "1 bestand");
+    }
+
+    #[test]
+    fn a_folder_without_disc_numbers_stays_one_list() {
+        // AC #5: geen enkel discnummer, dus geen kop — de lijst ziet eruit als
+        // altijd.
+        let (_tempdir, library) = library_with_album();
+        place(&library, "een.mp3", testfixtures::MP3_WITHOUT_TAGS);
+        place(&library, "twee.flac", testfixtures::FLAC_WITHOUT_TAGS);
+
+        let listing = album_listing(&library, "");
+
+        assert_eq!(listing.groups.len(), 1);
+        assert_eq!(listing.groups[0].disc, None);
+        assert!(!listing.is_grouped());
+        assert!(
+            listing.group_starting_at(0).is_none(),
+            "een lijst zonder schijven hoort geen kop te krijgen"
+        );
+    }
+
+    #[test]
+    fn a_folder_where_only_some_files_have_a_disc_number_gets_two_groups() {
+        // De getagde fixture staat op schijf 1; de kale heeft geen discnummer.
+        let (_tempdir, library) = library_with_album();
+        place(&library, "getagd.mp3", testfixtures::MP3_WITH_TAGS);
+        place(&library, "kaal.mp3", testfixtures::MP3_WITHOUT_TAGS);
+
+        let listing = album_listing(&library, "");
+
+        assert!(listing.is_grouped());
+        assert_eq!(listing.groups.len(), 2);
+        assert_eq!(listing.groups[0].disc, Some(1));
+        assert_eq!(listing.groups[1].disc, None);
+
+        // De koppen staan vóór het eerste bestand van hun groep.
+        assert_eq!(
+            listing.group_starting_at(0).map(|group| group.label()),
+            Some("Schijf 1".to_string())
+        );
+        assert_eq!(
+            listing.group_starting_at(1).map(|group| group.label()),
+            Some(NO_DISC.to_string())
+        );
+        assert!(listing.group_starting_at(2).is_none());
+    }
+
+    #[test]
+    fn the_groups_describe_the_list_that_is_shown() {
+        // Filteren haalt bestanden uit de lijst; een kop die er twaalf telt
+        // terwijl er één te zien is, telt iets anders dan wat eronder staat.
+        let (_tempdir, library) = library_with_album();
+        place(&library, "getagd.mp3", testfixtures::MP3_WITH_TAGS);
+        place(&library, "kaal.mp3", testfixtures::MP3_WITHOUT_TAGS);
+
+        let listing = album_listing(&library, "getagd");
+
+        assert_eq!(listing.tracks.len(), 1);
+        assert_eq!(listing.groups.len(), 1);
+        assert_eq!(listing.groups[0].disc, Some(1));
+        assert_eq!(listing.groups[0].count, 1);
     }
 }

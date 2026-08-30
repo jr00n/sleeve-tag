@@ -94,6 +94,23 @@
       </thead>
       <tbody>
         {% for row in page.rows %}
+        {# De kop van een schijf, als eigen rij in dezelfde tabel. De knop
+           ernaast vinkt precies deze groep aan of uit en laat de rest van de
+           selectie staan; wat een klik doet, staat in het opschrift.
+
+           De colspan is ruim genomen: de tabel krijgt er nog kolommen bij, en
+           de kop hoort altijd over de volle breedte te staan. Een browser kapt
+           hem af op het werkelijke aantal kolommen. #}
+        {% if let Some(group) = row.group %}
+        <tr class="batchtabel__groep">
+          <th class="batchtabel__groepkop" colspan="99" scope="colgroup">
+            <span class="groep__naam">{{ group.label }}</span>
+            <span class="groep__telling">{{ group.summary }}</span>
+            <button class="knop knop--klein" type="submit"
+                    name="actie" value="{{ group.action }}">{{ group.button }}</button>
+          </th>
+        </tr>
+        {% endif %}
         <tr class="batchtabel__rij{% if row.selected %} batchtabel__rij--gekozen{% endif %}{% if row.has_problems() %} batchtabel__rij--fout{% endif %}">
           <td class="batchtabel__kies">
             {# Het label is de bestandsnaam: op een telefoon is een vinkje van

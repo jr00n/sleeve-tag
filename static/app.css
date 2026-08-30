@@ -1761,3 +1761,82 @@ html {
 .batchtabel__nummer .rijveld__fout {
   text-align: left;
 }
+
+/* ── Groepen per schijf ────────────────────────────────────────────────────
+   Een set van meerdere schijven valt uiteen in groepen, met een kop per
+   schijf. De kop staat als eigen regel tussen de bestanden en niet als kader
+   eromheen: zo blijft de lijst één opsomming en houdt een regel de vorm die
+   hij al had. Een map zonder discnummers krijgt geen kop en ziet er dus uit
+   als altijd. */
+
+.schijf {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.7rem;
+  padding: 0.55rem 0.9rem;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+/* Dezelfde toon als een kolomkop in de batchtabel: een opschrift boven wat
+   eronder staat, en geen titel die met de paginakop wil wedijveren. */
+.schijf__naam,
+.groep__naam {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.schijf__telling {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.2rem 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+}
+
+/* Wat aandacht vraagt, draagt de accentkleur van de signalering: het is
+   dezelfde constatering, alleen geteld. */
+.schijf__aandacht {
+  color: var(--accent);
+}
+
+.schijf__aandacht::before {
+  content: "·";
+  padding-right: 0.5rem;
+}
+
+/* In de tabel is de kop een rij over de volle breedte. `th` erft de kapitalen
+   van een kolomkop; die gaan er hier af, want de knop staat in dezelfde cel en
+   een knopopschrift in kapitalen leest slecht. */
+.batchtabel__groep {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.batchtabel__groepkop {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.85rem;
+  white-space: normal;
+}
+
+.groep__naam,
+.groep__telling {
+  margin-right: 0.7rem;
+}
+
+.groep__telling {
+  color: var(--tekst-zacht);
+}
+
+/* Een knop binnen een tabelrij: dezelfde vorm, maar niet zo groot dat de rij
+   er twee keer zo hoog van wordt. */
+.knop--klein {
+  padding: 0.3rem 0.7rem;
+  font-size: 0.85rem;
+}
