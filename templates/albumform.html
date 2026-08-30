@@ -83,15 +83,13 @@
       <thead>
         <tr>
           <th scope="col" class="batchtabel__kies">Kies</th>
-          <th scope="col">#</th>
-          <th scope="col">Titel</th>
-          <th scope="col">Bewerken</th>
-          <th scope="col">Artiest</th>
-          <th scope="col">Albumartiest</th>
-          <th scope="col">Album</th>
-          <th scope="col">Jaar</th>
-          <th scope="col">Genre</th>
+          {# De koppen komen uit hetzelfde lijstje als de velden in elke rij, en
+             kunnen daar dus niet uit de pas mee gaan lopen. #}
+          {% for column in page.columns %}
+          <th scope="col">{{ column }}</th>
+          {% endfor %}
           <th scope="col">Disc</th>
+          <th scope="col">Bewerken</th>
         </tr>
       </thead>
       <tbody>
@@ -106,49 +104,35 @@
                      hx-post="{{ page.url }}" hx-include="closest form" />
               <span class="vinkje__tekst">{{ row.name }}</span>
             </label>
-          </td>
-          {# Titel en tracknummer verschillen per bestand en zijn daarom hier
-             in te tikken (FR-9). Wat er nu in het bestand staat, staat als
-             grijze tekst in het veld: leeg laten verandert er niets aan. #}
-          <td class="batchtabel__nummer">
-            <input class="rijveld rijveld--nummer" type="text" inputmode="numeric"
-                   name="{{ row.track_name }}" value="{{ row.track_input }}"
-                   placeholder="{{ row.track }}" autocomplete="off"
-                   aria-label="Tracknummer van {{ row.name }}"
-                   {% if row.has_problems() %}aria-invalid="true"{% endif %} />
-          </td>
-          <td>
-            <input class="rijveld rijveld--titel" type="text"
-                   name="{{ row.title_name }}" value="{{ row.title_input }}"
-                   placeholder="{{ row.title }}" autocomplete="off"
-                   aria-label="Titel van {{ row.name }}" />
 
-            {# Een fout blijft bij de rij waar hij gemaakt is; de rest van de
-               tabel en de gedeelde velden kunnen gewoon opgeslagen worden. #}
-            {% for problem in row.problems %}
-            <p class="rijveld__fout" role="status">{{ problem }}</p>
-            {% endfor %}
-
+            {# Hoort bij de selectie en niet bij één kolom: het gaat over alles
+               wat in deze rij is ingetikt. #}
             {% if row.is_ignored() %}
             <p class="rijveld__hulp">Niet geselecteerd; deze invoer wordt niet opgeslagen.</p>
             {% endif %}
           </td>
-          <td><a class="batchtabel__titel" href="{{ row.edit_url }}">Bewerken</a></td>
-          <td>{{ row.artist }}</td>
-          {# Albumartiest is meestal voor het hele album gelijk en staat daarom
-             ook bij de gedeelde velden. Hier kan hij per bestand afwijken —
-             wat de hulpactie "artiest → albumartiest" gebruikt — en dan wint
-             deze rij van het gedeelde veld. #}
-          <td>
-            <input class="rijveld rijveld--titel" type="text"
-                   name="{{ row.album_artist_name }}" value="{{ row.album_artist_input }}"
-                   placeholder="{{ row.album_artist }}" autocomplete="off"
-                   aria-label="Albumartiest van {{ row.name }}" />
+          {# Deze velden verschillen per bestand en zijn daarom hier in te
+             tikken (FR-9). Wat er nu in het bestand staat, staat als grijze
+             tekst in het veld: leeg laten verandert er niets aan, en wat er wél
+             staat wint van het gedeelde veld met dezelfde naam. #}
+          {% for input in row.inputs %}
+          <td{% if input.numeric %} class="batchtabel__nummer"{% endif %}>
+            <input class="rijveld rijveld--{{ input.size }}" type="text"
+                   name="{{ input.name }}" value="{{ input.value }}"
+                   placeholder="{{ input.placeholder }}" autocomplete="off"
+                   aria-label="{{ input.label }}"
+                   {% if input.numeric %}inputmode="numeric"{% endif %}
+                   {% if input.problem.is_some() %}aria-invalid="true"{% endif %} />
+
+            {# Een fout blijft bij het veld waarin hij is ingetikt; de rest van
+               de tabel en de gedeelde velden kunnen gewoon opgeslagen worden. #}
+            {% if let Some(problem) = input.problem %}
+            <p class="rijveld__fout" role="status">{{ problem }}</p>
+            {% endif %}
           </td>
-          <td>{{ row.album }}</td>
-          <td>{{ row.year }}</td>
-          <td>{{ row.genre }}</td>
+          {% endfor %}
           <td class="batchtabel__nummer">{{ row.disc }}</td>
+          <td><a class="batchtabel__titel" href="{{ row.edit_url }}">Bewerken</a></td>
         </tr>
         {% endfor %}
       </tbody>
