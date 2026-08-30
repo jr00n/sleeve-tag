@@ -110,16 +110,22 @@
     <p class="neerzetvak__melding" data-neerzetvak-melding role="status" hidden></p>
     <figure class="neerzetvak__gekozen" data-neerzetvak-gekozen hidden></figure>
 
+    {# Aangevinkt zoals het in het hoespaneel naast de lijst stond: die keuze
+       hoort bij de actie waar ze over gaat, en hoort hier niet opnieuw gemaakt
+       te hoeven worden. Hier is ze nog te wijzigen, want dit is de stap die
+       werkelijk schrijft. #}
     <div class="veld">
       <label class="vinkje">
-        <input class="vinkje__vakje" type="checkbox" name="mapbestand" value="ja" />
+        <input class="vinkje__vakje" type="checkbox" name="mapbestand"
+               value="ja" {% if preview.folder_cover_wanted %}checked{% endif %} />
         <span class="vinkje__tekst">Ook als cover.jpg in de albummap zetten</span>
       </label>
 
       {% if let Some(bestaand) = preview.folder_cover %}
       {# Wat er al staat, gaat er niet ongevraagd overheen (FR-14). #}
       <label class="vinkje">
-        <input class="vinkje__vakje" type="checkbox" name="overschrijf" value="ja" />
+        <input class="vinkje__vakje" type="checkbox" name="overschrijf"
+               value="ja" {% if preview.overwrite_wanted %}checked{% endif %} />
         <span class="vinkje__tekst">De bestaande {{ bestaand }} vervangen</span>
       </label>
       {% endif %}

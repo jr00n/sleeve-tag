@@ -76,6 +76,11 @@
   {% endif %}
 
   {% if page.total > 0 %}
+  {# De lijst en de hoes die in die bestanden zit, naast elkaar. Op een smal
+     scherm valt het paneel onder de tabel; de tabel houdt zijn eigen breedte en
+     wordt er nergens door weggedrukt. #}
+  <div class="albumlayout">
+
   {# De tabel is breder dan een telefoon; hij scrollt binnen dit omhulsel en
      niet met de hele pagina mee. #}
   <div class="tabelrand" tabindex="0" role="region" aria-label="Bestanden in deze map">
@@ -154,6 +159,85 @@
         {% endfor %}
       </tbody>
     </table>
+  </div>
+
+  {# De hoes van de selectie, naast de lijst (FR-12).
+
+     Het paneel toont en kiest; het schrijft niets. De afbeelding zelf reist
+     niet met dit formulier mee: de albumweergave post zichzelf bij elk vinkje
+     opnieuw, en een hoes van megabytes hoort niet bij iedere klik over de lijn
+     te gaan. Vandaar dat het bestandsveld hieronder géén `name` draagt — het
+     wordt nooit verstuurd. Zonder JavaScript staat het er niet eens: dan leidt
+     de knop naar de voorbeeldweergave, waar het bestandsveld wél hoort. In
+     beide gevallen gaat de afbeelding precies één keer over de lijn, in de stap
+     die werkelijk schrijft. #}
+  <aside class="hoespaneel" aria-label="Hoes van de selectie"
+         data-neerzetvak data-max-mb="{{ page.max_upload_mb }}">
+    <h2 class="hoespaneel__kop">Hoes</h2>
+
+    {% if let Some(shown) = page.cover.shown %}
+    <img class="hoespaneel__afbeelding" src="{{ shown.art_url }}"
+         alt="De hoes van de geselecteerde bestanden" width="160" height="160" />
+    <p class="hoespaneel__feiten">{{ shown.facts }}</p>
+    {% if !shown.square %}
+    <p class="hoespaneel__kanttekening">
+      Deze hoes is niet vierkant; de meeste spelers snijden hem bij.
+    </p>
+    {% endif %}
+    {% else %}
+    {# Geen afbeelding, en met opzet niet één uit de selectie gekozen: dan zou
+       het paneel de andere verzwijgen. Wat er wél aan de hand is, staat in de
+       regel hieronder. #}
+    <div class="hoespaneel__leeg" aria-hidden="true"></div>
+    {% endif %}
+
+    <p class="hoespaneel__samenvatting" role="status">{{ page.cover.summary() }}</p>
+
+    {% if page.cover.has_selection() %}
+    <p class="neerzetvak__hint" data-neerzetvak-hint hidden>
+      Sleep een afbeelding hierheen, of kies er een:
+    </p>
+
+    {# Zonder `name`, en `hidden` tot JavaScript het veld tevoorschijn haalt:
+       zonder script zou hier een bestand gekozen kunnen worden dat nergens
+       heen gaat. #}
+    <input class="veld__invoer hoespaneel__bestand" type="file"
+           accept="image/jpeg,image/png" aria-label="Een nieuwe hoes kiezen" hidden />
+
+    <p class="neerzetvak__melding" data-neerzetvak-melding role="status" hidden></p>
+    <figure class="neerzetvak__gekozen" data-neerzetvak-gekozen hidden></figure>
+
+    {# De keuze om de hoes ook los in de map te zetten, staat bij de actie waar
+       ze over gaat. Ze reist als gewoon vinkje met het formulier mee en komt in
+       de voorbeeldweergave aangevinkt terug (FR-14). #}
+    <label class="vinkje hoespaneel__vinkje">
+      <input class="vinkje__vakje" type="checkbox" name="mapbestand"
+             value="ja" {% if page.folder_cover_wanted %}checked{% endif %} />
+      <span class="vinkje__tekst">Ook als cover.jpg in de albummap zetten</span>
+    </label>
+
+    {% if let Some(bestaand) = page.folder_cover %}
+    {# Wat er al staat, gaat er niet ongevraagd overheen (FR-14). #}
+    <label class="vinkje hoespaneel__vinkje">
+      <input class="vinkje__vakje" type="checkbox" name="overschrijf"
+             value="ja" {% if page.overwrite_wanted %}checked{% endif %} />
+      <span class="vinkje__tekst">De bestaande {{ bestaand }} vervangen</span>
+    </label>
+    {% endif %}
+
+    {# Het opschrift noemt op hoeveel bestanden de hoes terechtkomt, en of dat
+       toevoegen of vervangen is. De knop schrijft niet: hij legt de selectie
+       voor in de voorbeeldweergave. #}
+    <button class="knop knop--primair hoespaneel__knop" type="submit"
+            name="actie" value="voorbeeld">{{ page.cover.button_label() }}</button>
+
+    <p class="uitleg hoespaneel__uitleg">
+      Er wordt hier niets geschreven. De afbeelding gaat mee naar de
+      voorbeeldweergave, en dat is de enige stap die de bestanden aanraakt.
+    </p>
+    {% endif %}
+  </aside>
+
   </div>
 
   {% if !page.problems.is_empty() || page.has_row_problems() %}

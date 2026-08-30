@@ -230,6 +230,12 @@
   // Zonder JavaScript blijft de bestandsinvoer gewoon werken. De uitnodiging om
   // te slepen staat daarom `hidden` in de template en komt hier tevoorschijn:
   // een hint die nergens toe leidt is erger dan geen hint.
+  //
+  // Eén vak is de uitzondering: het hoespaneel naast de bestandslijst. Het veld
+  // daar draagt geen `name` en staat `hidden`, want zonder dit script zou er
+  // een hoes gekozen kunnen worden die nergens heen gaat. Wat er wél gekozen
+  // wordt, blijft hier staan tot de voorbeeldweergave in beeld komt — de enige
+  // stap die schrijft, en dus de enige waarin de afbeelding meereist.
   // ─────────────────────────────────────────────────────────────────────────
 
   /** Wat er ingebed mag worden; dezelfde twee die `art::prepare` accepteert. */
@@ -238,37 +244,126 @@
   /** Markering op het vak zolang er iets boven zweeft. */
   var SLEEP_KLASSE = "is-sleepdoel";
 
+  /**
+   * De hoes die in het paneel naast de bestandslijst is gekozen.
+   *
+   * Die afbeelding reist niet met de albumweergave mee: dat formulier post
+   * zichzelf bij elk vinkje opnieuw, en megabytes horen niet bij iedere klik
+   * over de lijn te gaan. Het bestandsveld in het paneel draagt daarom geen
+   * `name` en wordt nooit verstuurd; wat er gekozen is, staat hier tot de
+   * voorbeeldweergave in beeld komt. Daar gaat het in het veld dat wél
+   * verstuurd wordt, zodat de hoes precies één keer over de lijn gaat: in de
+   * stap die werkelijk schrijft.
+   */
+  var gekozenHoes = null;
+
+  /** Of de bewaking tegen een bestand naast het vak al aan staat. */
+  var bewaaktSlepen = false;
+
   document.addEventListener("DOMContentLoaded", function () {
-    var vakken = document.querySelectorAll("[data-neerzetvak]");
+    sluitAan(document);
+  });
+
+  // Wat htmx binnenhaalt, is nieuw en nog nergens op aangesloten: zonder dit
+  // valt het slepen stil zodra de albumweergave zichzelf heeft vervangen.
+  document.addEventListener("htmx:load", function (event) {
+    var wortel = (event.detail && event.detail.elt) || event.target;
+    if (!wortel || !wortel.querySelectorAll) {
+      return;
+    }
+
+    // Er is zojuist geschreven: de hoes zit nu in de bestanden en hoort niet
+    // stilzwijgend voor een volgende ronde klaar te blijven staan.
+    if (wortel.querySelector(".resultaat")) {
+      gekozenHoes = null;
+    }
+
+    sluitAan(wortel);
+  });
+
+  /** Sluit de neerzetvakken in dit stuk pagina aan. */
+  function sluitAan(wortel) {
+    var vakken = wortel.querySelectorAll("[data-neerzetvak]");
+
     for (var i = 0; i < vakken.length; i++) {
-      maakNeerzetvak(vakken[i]);
+      var vak = vakken[i];
+
+      // Hetzelfde vak twee keer aansluiten zou elke sleepactie dubbel
+      // verwerken; htmx haalt dezelfde inhoud soms opnieuw langs.
+      if (vak.getAttribute("data-aangesloten") === "ja") {
+        continue;
+      }
+
+      if (maakNeerzetvak(vak)) {
+        vak.setAttribute("data-aangesloten", "ja");
+        herstelGekozen(vak);
+      }
     }
 
     // Een bestand dat naast het vak belandt, zou de browser openen — en dan is
     // de pagina met het half ingevulde formulier weg. Alleen voorkomen wanneer
     // er ook werkelijk een neerzetvak op deze pagina staat.
-    if (vakken.length > 0) {
+    if (vakken.length > 0 && !bewaaktSlepen) {
+      bewaaktSlepen = true;
       window.addEventListener("dragover", weiger);
       window.addEventListener("drop", weiger);
     }
-  });
+  }
+
+  /**
+   * Zet de onthouden hoes in dit vak.
+   *
+   * Zo blijft zichtbaar wat er klaarstaat wanneer de albumweergave zichzelf
+   * opnieuw opbouwt, en komt de afbeelding in de voorbeeldweergave terecht in
+   * het bestandsveld dat daar wél verstuurd wordt.
+   */
+  function herstelGekozen(vak) {
+    if (!gekozenHoes) {
+      return;
+    }
+
+    var invoer = vak.querySelector("input[type=file]");
+    if (!invoer || (invoer.files && invoer.files.length > 0)) {
+      return;
+    }
+
+    try {
+      var overdracht = new DataTransfer();
+      overdracht.items.add(gekozenHoes);
+      invoer.files = overdracht.files;
+    } catch (e) {
+      // Een browser die een bestandsveld niet laat vullen: dan staat het veld
+      // er nog gewoon om zelf een afbeelding te kiezen.
+      return;
+    }
+
+    toon(vak, gekozenHoes);
+  }
 
   /** Laat de browser een gesleept bestand niet zelf openen. */
   function weiger(event) {
     event.preventDefault();
   }
 
-  /** Maakt van één vak een sleepdoel. */
+  /**
+   * Maakt van één vak een sleepdoel; `false` wanneer er niets aan te sluiten
+   * viel.
+   */
   function maakNeerzetvak(vak) {
     var invoer = vak.querySelector("input[type=file]");
     if (!invoer) {
-      return;
+      return false;
     }
 
     var hint = vak.querySelector("[data-neerzetvak-hint]");
     if (hint) {
       hint.hidden = false;
     }
+
+    // Een bestandsveld dat `hidden` in de template staat, wacht op deze code:
+    // zonder script zou daar een hoes gekozen kunnen worden die nergens heen
+    // gaat, want het veld draagt geen `name`.
+    invoer.hidden = false;
 
     vak.addEventListener("dragenter", function (event) {
       event.preventDefault();
@@ -310,8 +405,24 @@
         return;
       }
 
+      onthoud(invoer, bestand);
       toon(vak, bestand);
     });
+
+    return true;
+  }
+
+  /**
+   * Houdt vast wat er in het hoespaneel gekozen is.
+   *
+   * Alleen daar: dat veld draagt geen `name` en wordt niet verstuurd, dus
+   * zonder dit zou de keuze bij de eerstvolgende klik verdwijnen. Een veld dat
+   * wél verstuurd wordt, draagt de afbeelding zelf en heeft dit niet nodig.
+   */
+  function onthoud(invoer, bestand) {
+    if (!invoer.name) {
+      gekozenHoes = bestand;
+    }
   }
 
   /**
@@ -323,6 +434,13 @@
    */
   function wijsAf(vak, invoer, reden) {
     invoer.value = "";
+
+    // Ook wat er onthouden was: anders zou een afgewezen afbeelding de vorige
+    // stilzwijgend laten staan, terwijl het vak zegt dat er niets klaarstaat.
+    if (!invoer.name) {
+      gekozenHoes = null;
+    }
+
     verbergGekozen(vak);
     meld(vak, reden);
   }
@@ -399,6 +517,7 @@
     // verstuurt. Vanaf dat moment is er geen verschil meer met een bestand dat
     // via de bestandskiezer is gekozen.
     invoer.files = overdracht.files;
+    onthoud(invoer, bestand);
     toon(vak, bestand);
   }
 

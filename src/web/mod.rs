@@ -353,14 +353,27 @@ async fn render_album(
             // het scherm staat, staat werkelijk in de bestanden. De invoer is
             // verwerkt en gaat dus weg.
             let listing = read_listing(&state, &path).await?;
-            let mut page = batch::album(&listing, &form.without_input());
+            let mut page = describe_album(&state, &listing, &form.without_input());
             page.report = Some(report);
 
             render_page(page, fragment)
         }
 
-        _ => render_page(batch::album(&listing, &form), fragment),
+        _ => render_page(describe_album(&state, &listing, &form), fragment),
     }
+}
+
+/// Bouwt de albumweergave en vult aan wat `batch::` niet kan weten.
+///
+/// Het hoespaneel naast de lijst biedt aan een hoes te kiezen, en heeft daar
+/// dezelfde twee dingen voor nodig als de voorbeeldweergave: de uploadgrens uit
+/// de configuratie en wat er als losse hoes in de map staat. `batch::` kent
+/// geen van beide.
+fn describe_album(state: &AppState, listing: &browse::Listing, form: &batch::Form) -> AlbumPage {
+    let mut page = batch::album(listing, form);
+    page.max_upload_mb = state.art_limits.max_upload_mb;
+    page.folder_cover = existing_folder_cover_in(state, listing);
+    page
 }
 
 /// Bouwt de voorbeeldweergave en vult aan wat `batch::` niet kan weten.

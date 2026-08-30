@@ -1302,3 +1302,143 @@ fn a_set_of_two_discs_gets_a_heading_per_disc() {
         "elk bestand heeft nu een schijf:\n{page}"
     );
 }
+
+/// Bouwt een map waarin de hoezen uiteenlopen.
+///
+/// `een.mp3` en `twee.mp3` dragen dezelfde hoes (300 × 300 JPEG), `drie.mp3`
+/// een andere (500 × 500 PNG) en `vier.mp3` helemaal geen. Daarmee is elke
+/// uitspraak te maken die het hoespaneel over een selectie kan doen.
+fn library_with_covers() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "een.mp3", "tagged-with-art.mp3");
+    place_fixture(&album, "twee.mp3", "tagged-with-art.mp3");
+    place_fixture(&album, "drie.mp3", "tagged-with-other-art.mp3");
+    place_fixture(&album, "vier.mp3", "tagged.mp3");
+
+    root
+}
+
+/// Vraagt de albumweergave op met precies deze bestanden aangevinkt.
+fn album_with_selection(server: &Server, files: &[&str]) -> String {
+    let fields: Vec<(&str, &str)> = files.iter().map(|name| ("bestand", *name)).collect();
+    let page = server.post_form("/album/Album", &fields);
+
+    assert_ok(&page);
+    page
+}
+
+#[test]
+fn the_album_view_shows_the_cover_of_the_selection() {
+    let server = Server::start_in(library_with_covers(), &[]);
+    let page = album_with_selection(&server, &["een.mp3", "twee.mp3"]);
+
+    assert!(
+        page.contains("Dezelfde hoes in deze 2 bestanden."),
+        "{page}"
+    );
+    assert!(
+        page.contains("JPEG · 300 × 300 pixels · 1,3 kB"),
+        "formaat, afmetingen en omvang horen erbij:\n{page}"
+    );
+    assert!(
+        page.contains("/art/Album/een.mp3?size=thumb"),
+        "de hoes zelf hoort in het paneel te staan:\n{page}"
+    );
+
+    // De knop noemt op hoeveel bestanden de hoes terechtkomt, en staat er ook
+    // zonder ingevuld veld: een hoes kiezen is op zichzelf al iets te doen.
+    assert!(
+        page.contains("value=\"voorbeeld\">Hoes vervangen in deze 2 bestanden"),
+        "{page}"
+    );
+}
+
+#[test]
+fn a_selection_with_different_covers_says_so_instead_of_showing_one() {
+    let server = Server::start_in(library_with_covers(), &[]);
+    let page = album_with_selection(&server, &["een.mp3", "drie.mp3"]);
+
+    assert!(
+        page.contains("De hoes wisselt binnen de selectie: 2 verschillende in deze 2 bestanden."),
+        "{page}"
+    );
+    assert!(
+        !page.contains("hoespaneel__afbeelding"),
+        "er hoort er geen uitgekozen te worden:\n{page}"
+    );
+}
+
+#[test]
+fn a_selection_in_which_not_every_file_has_a_cover_says_so() {
+    let server = Server::start_in(library_with_covers(), &[]);
+    let page = album_with_selection(&server, &["een.mp3", "vier.mp3"]);
+
+    assert!(
+        page.contains("Eén hoes in 1 van de 2 bestanden; de rest heeft er geen."),
+        "{page}"
+    );
+    assert!(
+        !page.contains("hoespaneel__afbeelding"),
+        "een hoes tonen zou het bestand zonder verzwijgen:\n{page}"
+    );
+    assert!(
+        page.contains("value=\"voorbeeld\">Hoes in deze 2 bestanden zetten"),
+        "{page}"
+    );
+}
+
+#[test]
+fn the_cover_panel_writes_nothing_and_hands_its_choice_to_the_preview() {
+    let root = library_with_covers();
+    let album = root.path().join("Album");
+    let files = ["een.mp3", "twee.mp3", "drie.mp3", "vier.mp3"];
+    let before: Vec<Vec<u8>> = files
+        .iter()
+        .map(|name| std::fs::read(album.join(name)).expect("bestand moet leesbaar zijn"))
+        .collect();
+
+    let server = Server::start_in(root, &[]);
+
+    // Het vinkje uit het paneel reist als gewoon formulierveld mee en komt bij
+    // een volgende ronde aangevinkt terug. De waarde en het `checked` staan in
+    // het template op dezelfde regel, juist zodat een test er iets over kan
+    // zeggen.
+    let page = server.post_form(
+        "/album/Album",
+        &[("bestand", "een.mp3"), ("mapbestand", "ja")],
+    );
+    assert_ok(&page);
+    assert!(page.contains("value=\"ja\" checked"), "{page}");
+
+    // De knop in het paneel leidt naar de voorbeeldweergave — de enige stap die
+    // schrijft — en de keuze staat daar aangevinkt klaar.
+    let preview = server.post_form(
+        "/album/Album",
+        &[
+            ("bestand", "een.mp3"),
+            ("mapbestand", "ja"),
+            ("actie", "voorbeeld"),
+        ],
+    );
+    assert_ok(&preview);
+    assert!(preview.contains("Definitief opslaan"), "{preview}");
+    assert!(preview.contains("value=\"ja\" checked"), "{preview}");
+    assert!(
+        preview.contains("name=\"afbeelding\""),
+        "het bestandsveld hoort in deze stap te staan:\n{preview}"
+    );
+
+    // Geen van beide verzoeken heeft een byte geschreven, ook de losse cover.jpg
+    // niet.
+    for (name, original) in files.iter().zip(before) {
+        let now = std::fs::read(album.join(name)).expect("bestand moet leesbaar zijn");
+        assert_eq!(now, original, "{name} is aangeraakt en dat hoort niet");
+    }
+    assert!(
+        !album.join("cover.jpg").exists(),
+        "er hoort geen losse hoes geschreven te zijn"
+    );
+}

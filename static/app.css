@@ -1840,3 +1840,96 @@ html {
   padding: 0.3rem 0.7rem;
   font-size: 0.85rem;
 }
+
+/* ── De hoes naast de bestandslijst ────────────────────────────────────── */
+
+/* Op een telefoon staat alles onder elkaar: de tabel eerst, het paneel eronder.
+   Pas wanneer er werkelijk een kolom naast past, schuift het paneel ernaast.
+   De tabelkolom krijgt `minmax(0, 1fr)`: zonder die nul rekt een brede tabel
+   het grid op in plaats van binnen zijn eigen scrollcontainer te blijven, en
+   dan drukt hij het paneel weg. */
+.albumlayout {
+  display: grid;
+  gap: 1rem;
+  align-items: start;
+  margin: 1.2rem 0;
+}
+
+@media (min-width: 62rem) {
+  .albumlayout {
+    grid-template-columns: minmax(0, 1fr) 17rem;
+  }
+}
+
+.hoespaneel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding: 0.9rem;
+  border: 1px solid var(--rand);
+  border-radius: var(--radius-md);
+  background: var(--vlak);
+}
+
+.hoespaneel.is-sleepdoel {
+  border-color: var(--accent);
+  border-style: dashed;
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.hoespaneel__kop {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* De afbeelding komt uit het thumbnail-eindpunt en is hoogstens 160 pixels
+   breed; groter tonen dan dat maakt hem wazig. Wie hem op ware grootte wil
+   zien, heeft de hoespagina van het bestand zelf. */
+.hoespaneel__afbeelding {
+  width: 100%;
+  max-width: 10rem;
+  height: auto;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+
+/* Het lege vak houdt dezelfde plek bezet als een hoes, zodat het paneel niet
+   van hoogte verspringt zodra de selectie verandert. */
+.hoespaneel__leeg {
+  width: 100%;
+  max-width: 10rem;
+  aspect-ratio: 1 / 1;
+  border: 1px dashed var(--rand);
+  border-radius: var(--radius-sm);
+}
+
+.hoespaneel__feiten {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.hoespaneel__samenvatting {
+  margin: 0;
+  color: var(--tekst-zacht);
+  font-size: 0.85rem;
+}
+
+.hoespaneel__kanttekening {
+  margin: 0;
+  color: var(--waarschuwing);
+  font-size: 0.85rem;
+}
+
+.hoespaneel__vinkje {
+  font-size: 0.9rem;
+}
+
+.hoespaneel__uitleg {
+  margin: 0;
+}
+
+/* Het bestandsveld in het paneel is smaller dan de kolom; zonder dit duwt de
+   bestandskiezer van de browser het paneel breder dan het grid toestaat. */
+.hoespaneel__bestand {
+  max-width: 100%;
+}

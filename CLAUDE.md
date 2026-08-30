@@ -77,6 +77,15 @@ de conventies vast waar code zich aan houdt.
   wat er per bestand gebeurt — toevoegen of vervangen — komt doordat dat uit de
   huidige inhoud volgt en niet uit de nieuwe afbeelding. Alleen dat ene
   formulier is `multipart`; al het andere blijft urlencoded en klein.
+- **Het hoespaneel naast de lijst toont en kiest; het schrijft niet.** Het
+  beschrijft de hoes van de selectie uit de `ArtInfo` die al in de listing zit,
+  en kiest er géén uit zodra de selectie er niet één deelt: één hoes tonen alsof
+  het de hoes van het album is, verzwijgt de andere. Het bestandsveld in het
+  paneel draagt geen `name` en wordt dus nooit verstuurd — de afbeelding blijft
+  in de browser tot de voorbeeldweergave, waar ze in het veld terechtkomt dat
+  wél meegaat; zonder JavaScript staat dat veld er niet en leidt de knop naar
+  diezelfde voorbeeldweergave. Het vinkje voor de losse `cover.jpg` staat bij de
+  actie waar het over gaat en reist als gewoon formulierveld mee.
 - **Een hulpactie vult alleen invoervelden.** Hernummeren (over de selectie of
   per schijf), een schijf een nummer geven, de disctotalen invullen, de titel
   uit de bestandsnaam lezen, artiest → albumartiest en hoofdletters

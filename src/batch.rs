@@ -1622,6 +1622,16 @@ pub struct Preview {
     /// Bepaalt of er om bevestiging gevraagd wordt voordat er iets overheen
     /// gaat — dezelfde regel als op de hoespagina (FR-14).
     pub folder_cover: Option<String>,
+
+    /// Of "ook als cover.jpg in de albummap" in het hoespaneel aan stond.
+    ///
+    /// Die keuze hoort bij de actie waar ze over gaat, en die staat in het
+    /// paneel naast de lijst; hier komt ze aangevinkt terug, zodat ze meegaat
+    /// naar de stap die werkelijk schrijft.
+    pub folder_cover_wanted: bool,
+
+    /// Of een bestaande losse hoes overschreven mag worden.
+    pub overwrite_wanted: bool,
 }
 
 impl Preview {
@@ -1749,6 +1759,8 @@ pub fn preview(listing: &Listing, form: &Form) -> Preview {
         // wat er in de map staat. Deze module opent geen bestanden.
         max_upload_mb: 0,
         folder_cover: None,
+        folder_cover_wanted: form.folder_cover,
+        overwrite_wanted: form.overwrite_folder_cover,
     }
 }
 
@@ -1890,6 +1902,175 @@ impl SaveReport {
     }
 }
 
+/// De hoes van de selectie, zoals het paneel naast de bestandslijst hem toont.
+///
+/// Dit paneel beschrijft en kiest; het schrijft niets. De `ArtInfo` zit al in
+/// de listing, dus er gaat geen bestand open en er wordt geen pixel aangeraakt
+/// — de feiten komen van [`crate::cover`], de module die daar tekst van maakt.
+/// Wat er met een nieuw gekozen hoes gebeurt, beslist de gebruiker in de
+/// voorbeeldweergave; dat blijft de enige route naar het schrijven.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct CoverPanel {
+    /// Hoeveel bestanden er aangevinkt staan.
+    pub selected: usize,
+
+    /// Hoeveel daarvan een hoes hebben.
+    pub with_art: usize,
+
+    /// Hoeveel verschillende hoezen er in de selectie zitten.
+    ///
+    /// "Verschillend" gaat over wat er in de listing bekend is: formaat,
+    /// afmetingen en omvang. Twee hoezen die daar alle drie in overeenkomen en
+    /// tóch andere pixels hebben, bestaan in theorie; dit paneel zou ze niet
+    /// uit elkaar houden, en de signalering in [`crate::checks`] evenmin.
+    pub variants: usize,
+
+    /// De hoes die getoond wordt; `None` zodra de selectie er niet één deelt.
+    ///
+    /// Er wordt er dan bewust geen uitgekozen: één van de zes tonen alsof het
+    /// de hoes van het album is, verzwijgt de andere vijf (AC #2).
+    pub shown: Option<ShownCover>,
+}
+
+/// De ene hoes die de hele selectie deelt.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ShownCover {
+    /// De verkleinde hoes uit de listing.
+    ///
+    /// De verkleinde en niet die op ware grootte: dit paneel komt bij elke
+    /// klik in de albumweergave opnieuw langs, en een hoes van een halve
+    /// megabyte per vinkje is geen weergave maar een rem. Wie hem groot wil
+    /// zien, heeft de hoespagina van het bestand zelf.
+    pub art_url: String,
+
+    /// Formaat, afmetingen en omvang op één regel.
+    pub facts: String,
+
+    /// Of de hoes vierkant is; zo niet, dan hoort dat erbij te staan.
+    pub square: bool,
+}
+
+impl CoverPanel {
+    /// Of er iets te tonen en te kiezen valt.
+    pub fn has_selection(&self) -> bool {
+        self.selected > 0
+    }
+
+    /// Wat er over de hoezen in deze selectie te zeggen valt.
+    ///
+    /// Deze zin is het hele punt van het paneel: hij zegt óók wat er níét te
+    /// tonen is, want een selectie die uiteenloopt is precies wat je wilt zien
+    /// terwijl je de tabel invult.
+    pub fn summary(&self) -> String {
+        if self.selected == 0 {
+            return "Er is niets geselecteerd, dus er valt geen hoes te tonen.".to_string();
+        }
+
+        let files = self.files_label();
+
+        if self.with_art == 0 {
+            return format!("Geen hoes in {files}.");
+        }
+
+        if self.shown.is_some() {
+            return match self.selected {
+                1 => "De hoes van dit bestand.".to_string(),
+                _ => format!("Dezelfde hoes in {files}."),
+            };
+        }
+
+        // Hier is er iets te melden en niets te tonen: de selectie deelt geen
+        // hoes. Wát er dan aan de hand is, staat er met zoveel woorden.
+        let missing = self.selected - self.with_art;
+        let of_which = format!("{} van de {} bestanden", self.with_art, self.selected);
+
+        match (self.variants, missing) {
+            (1, _) => format!("Eén hoes in {of_which}; de rest heeft er geen."),
+            (variants, 0) => {
+                format!("De hoes wisselt binnen de selectie: {variants} verschillende in {files}.")
+            }
+            (variants, _) => format!(
+                "De hoes wisselt binnen de selectie: {variants} verschillende in {of_which}; de rest heeft er geen."
+            ),
+        }
+    }
+
+    /// Het opschrift van de knop die naar de voorbeeldweergave leidt.
+    ///
+    /// Er staat in op hoeveel bestanden de hoes terechtkomt, en of dat
+    /// toevoegen of vervangen is: dat volgt uit wat er nú in die bestanden zit
+    /// en niet uit de afbeelding die nog gekozen moet worden.
+    pub fn button_label(&self) -> String {
+        let files = self.files_label();
+
+        if self.with_art == 0 {
+            return format!("Hoes toevoegen aan {files}");
+        }
+
+        if self.with_art == self.selected {
+            return format!("Hoes vervangen in {files}");
+        }
+
+        format!("Hoes in {files} zetten")
+    }
+
+    /// "dit bestand" of "deze 12 bestanden".
+    fn files_label(&self) -> String {
+        match self.selected {
+            1 => "dit bestand".to_string(),
+            count => format!("deze {count} bestanden"),
+        }
+    }
+}
+
+/// Beschrijft de hoezen van de aangevinkte bestanden.
+///
+/// Er gaat geen bestand open: wat hier gewogen wordt, las [`crate::tags`] al
+/// bij het opbouwen van de listing.
+fn cover_panel(chosen: &[&TrackSummary]) -> CoverPanel {
+    // Wat een hoes van een andere onderscheidt, voor zover de listing het weet.
+    let variants: BTreeSet<(String, u32, u32, usize)> = chosen
+        .iter()
+        .filter_map(|track| track.art.as_ref())
+        .map(|art| (art.mime.clone(), art.width, art.height, art.bytes))
+        .collect();
+
+    let with_art = chosen.iter().filter(|track| track.has_art()).count();
+
+    // Alleen wanneer élk aangevinkt bestand dezelfde hoes heeft, is er één
+    // hoes van deze selectie te tonen.
+    let shown = if variants.len() == 1 && with_art == chosen.len() {
+        chosen
+            .iter()
+            .find_map(|track| track.art.as_ref().map(|art| (track, art)))
+            .map(|(track, art)| {
+                // De opmaak komt van `cover::`, want dat is de module die van
+                // een `ArtInfo` tekst maakt.
+                let details = crate::cover::CoverDetails::of(art);
+
+                ShownCover {
+                    art_url: track.art_url.clone(),
+                    facts: format!(
+                        "{} · {} · {}",
+                        details.format,
+                        details.dimensions(),
+                        details.size
+                    ),
+                    square: details.is_square(),
+                }
+            })
+    } else {
+        None
+    };
+
+    CoverPanel {
+        selected: chosen.len(),
+        with_art,
+        variants: variants.len(),
+        shown,
+    }
+}
+
 /// Alles wat de albumpagina nodig heeft.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AlbumPage {
@@ -1952,6 +2133,32 @@ pub struct AlbumPage {
     /// Hoe een zojuist uitgevoerde batch is afgelopen (FR-11); leeg zolang er
     /// niets is opgeslagen.
     pub report: Option<SaveReport>,
+
+    /// De hoes van de selectie, naast de lijst.
+    pub cover: CoverPanel,
+
+    /// De bovengrens aan een upload in megabytes, uit `MAX_UPLOAD_MB`.
+    ///
+    /// Staat op de pagina zodat de browser een te grote afbeelding kan
+    /// tegenhouden voordat er een byte de deur uit gaat. Wordt door de
+    /// webhandler ingevuld: deze module leest geen omgeving.
+    pub max_upload_mb: u32,
+
+    /// Wat er nu als losse hoes in de map staat; `None` als er geen is.
+    ///
+    /// Bepaalt of het paneel om bevestiging vraagt voordat er iets overheen
+    /// gaat (FR-14). Wordt door de webhandler ingevuld: deze module opent geen
+    /// mappen.
+    pub folder_cover: Option<String>,
+
+    /// Of "ook als cover.jpg in de albummap" aan stond.
+    ///
+    /// Het vinkje staat in het paneel, bij de actie waar het over gaat, en
+    /// reist van daaruit mee naar de stap die werkelijk schrijft.
+    pub folder_cover_wanted: bool,
+
+    /// Of een bestaande losse hoes overschreven mag worden.
+    pub overwrite_wanted: bool,
 }
 
 impl AlbumPage {
@@ -2136,6 +2343,13 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
             .count(),
         helper_notice,
         report: None,
+        cover: cover_panel(&chosen),
+        // Worden door de webhandler ingevuld: die kent de configuratie en weet
+        // wat er in de map staat.
+        max_upload_mb: 0,
+        folder_cover: None,
+        folder_cover_wanted: form.folder_cover,
+        overwrite_wanted: form.overwrite_folder_cover,
     }
 }
 
@@ -2306,6 +2520,166 @@ mod tests {
         );
     }
 
+    #[test]
+    fn the_panel_shows_the_cover_that_the_whole_selection_shares() {
+        let listing = listing_of(vec![
+            track_with_art("een.mp3", "image/jpeg", 1000, 1000, 284_100),
+            track_with_art("twee.mp3", "image/jpeg", 1000, 1000, 284_100),
+        ]);
+
+        let page = album(&listing, &Form::select_all());
+        let shown = page
+            .cover
+            .shown
+            .as_ref()
+            .expect("dezelfde hoes hoort getoond te worden");
+
+        assert_eq!(shown.art_url, "/art/Album/een.mp3?size=thumb");
+        assert_eq!(shown.facts, "JPEG · 1000 × 1000 pixels · 284,1 kB");
+        assert!(shown.square);
+        assert_eq!(page.cover.summary(), "Dezelfde hoes in deze 2 bestanden.");
+        // Het opschrift noemt op hoeveel bestanden de hoes terechtkomt, en dat
+        // er iets wordt vervangen: dat volgt uit wat er nú in die bestanden
+        // zit, niet uit de afbeelding die nog gekozen moet worden.
+        assert_eq!(
+            page.cover.button_label(),
+            "Hoes vervangen in deze 2 bestanden"
+        );
+    }
+
+    #[test]
+    fn different_covers_are_named_instead_of_one_being_picked() {
+        let listing = listing_of(vec![
+            track_with_art("een.mp3", "image/jpeg", 1000, 1000, 284_100),
+            track_with_art("twee.mp3", "image/png", 600, 600, 90_000),
+        ]);
+
+        let page = album(&listing, &Form::select_all());
+
+        // Er wordt er géén uitgekozen: dan zou het paneel de andere verzwijgen.
+        assert!(page.cover.shown.is_none());
+        assert_eq!(page.cover.variants, 2);
+        assert_eq!(
+            page.cover.summary(),
+            "De hoes wisselt binnen de selectie: 2 verschillende in deze 2 bestanden."
+        );
+    }
+
+    #[test]
+    fn a_selection_in_which_not_every_file_has_a_cover_says_so() {
+        let listing = listing_of(vec![
+            track_with_art("een.mp3", "image/jpeg", 1000, 1000, 284_100),
+            track_with_art("twee.mp3", "image/jpeg", 1000, 1000, 284_100),
+            track("drie.mp3", Some("Album"), None),
+        ]);
+
+        let page = album(&listing, &Form::select_all());
+
+        assert!(page.cover.shown.is_none());
+        assert_eq!(page.cover.with_art, 2);
+        assert_eq!(
+            page.cover.summary(),
+            "Eén hoes in 2 van de 3 bestanden; de rest heeft er geen."
+        );
+        assert_eq!(page.cover.button_label(), "Hoes in deze 3 bestanden zetten");
+    }
+
+    #[test]
+    fn a_selection_without_any_cover_says_that_too() {
+        let listing = listing_of(vec![
+            track("een.mp3", Some("Album"), None),
+            track("twee.mp3", Some("Album"), None),
+        ]);
+
+        let page = album(&listing, &Form::select_all());
+
+        assert!(page.cover.shown.is_none());
+        assert_eq!(page.cover.summary(), "Geen hoes in deze 2 bestanden.");
+        assert_eq!(
+            page.cover.button_label(),
+            "Hoes toevoegen aan deze 2 bestanden"
+        );
+    }
+
+    #[test]
+    fn the_panel_looks_at_the_selection_and_not_at_the_folder() {
+        let listing = listing_of(vec![
+            track_with_art("een.mp3", "image/jpeg", 1000, 1000, 284_100),
+            track_with_art("twee.mp3", "image/png", 600, 600, 90_000),
+        ]);
+
+        // Eén bestand aangevinkt: de andere hoes in de map doet er dan niet toe.
+        let page = album(&listing, &Form::parse("bestand=een.mp3"));
+        let shown = page
+            .cover
+            .shown
+            .as_ref()
+            .expect("de hoes van dit ene bestand");
+
+        assert_eq!(shown.facts, "JPEG · 1000 × 1000 pixels · 284,1 kB");
+        assert_eq!(page.cover.summary(), "De hoes van dit bestand.");
+        assert_eq!(page.cover.button_label(), "Hoes vervangen in dit bestand");
+    }
+
+    #[test]
+    fn without_a_selection_there_is_nothing_to_show() {
+        let listing = listing_of(vec![track_with_art(
+            "een.mp3",
+            "image/jpeg",
+            1000,
+            1000,
+            284_100,
+        )]);
+
+        let page = album(&listing, &Form::parse("actie=niets"));
+
+        assert!(!page.cover.has_selection());
+        assert!(page.cover.shown.is_none());
+        assert_eq!(
+            page.cover.summary(),
+            "Er is niets geselecteerd, dus er valt geen hoes te tonen."
+        );
+    }
+
+    #[test]
+    fn a_cover_that_is_not_square_is_flagged() {
+        let listing = listing_of(vec![track_with_art(
+            "een.mp3",
+            "image/jpeg",
+            1400,
+            1000,
+            284_100,
+        )]);
+
+        let shown = album(&listing, &Form::select_all())
+            .cover
+            .shown
+            .expect("er is een hoes");
+
+        assert!(!shown.square);
+    }
+
+    #[test]
+    fn the_choice_to_write_a_folder_cover_travels_from_the_panel_to_the_preview() {
+        let listing = listing_of(vec![track_with_art(
+            "een.mp3",
+            "image/jpeg",
+            1000,
+            1000,
+            284_100,
+        )]);
+
+        // Het vinkje staat in het paneel en reist als gewoon formulierveld mee;
+        // de voorbeeldweergave — de stap die werkelijk schrijft — krijgt het
+        // aangevinkt terug.
+        let form = Form::parse("bestand=een.mp3&mapbestand=ja&overschrijf=ja&actie=voorbeeld");
+
+        assert!(album(&listing, &form).folder_cover_wanted);
+        assert!(album(&listing, &form).overwrite_wanted);
+        assert!(preview(&listing, &form).folder_cover_wanted);
+        assert!(preview(&listing, &form).overwrite_wanted);
+    }
+
     /// Bouwt een track met alleen de velden die deze tests gebruiken.
     fn track(name: &str, album: Option<&str>, disc: Option<u32>) -> TrackSummary {
         track_with(
@@ -2316,6 +2690,26 @@ mod tests {
                 ..Tags::default()
             },
         )
+    }
+
+    /// Bouwt een track met een hoes erin, zoals de listing hem aanlevert.
+    fn track_with_art(
+        name: &str,
+        mime: &str,
+        width: u32,
+        height: u32,
+        bytes: usize,
+    ) -> TrackSummary {
+        TrackSummary {
+            art: Some(crate::tags::ArtInfo {
+                mime: mime.to_string(),
+                width,
+                height,
+                bytes,
+            }),
+            art_url: format!("/art/Album/{name}?size=thumb"),
+            ..track(name, Some("Album"), None)
+        }
     }
 
     /// Bouwt een track met een volledig zelf bepaalde tagset.

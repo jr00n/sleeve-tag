@@ -296,7 +296,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken, en als enige uitzondering een nieuw bestand neerzetten (`cover.jpg`) |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
-| `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand en de hulpacties |
+| `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand, de hulpacties en het hoespaneel ernaast |
 | `casing` | Hoofdlettergebruik van een tagwaarde normaliseren; kent geen tags en geen bestanden |
 | `naming` | De titel lezen die in een bestandsnaam staat; kent geen tags en geen bestanden |
 | `cover` | De hoespagina van één bestand: formaat, afmetingen en grootte als leesbare tekst, en wat een upload opleverde |
@@ -405,6 +405,7 @@ toevoeging: valt het weg, dan werkt elk formulier zoals het altijd deed.
 | **Een hoes neerslepen** | een JPEG of PNG op het uploadvak slepen vult het bestandsveld, met een miniatuur erbij |
 | **Idem op het hoesje** | op de bewerkpagina is het hoesje zelf ook een doel; daar verschijnt dan één knop, "In dit bestand zetten" |
 | **Idem voor een selectie** | in de voorbeeldweergave van een batch, voor de bestanden die je hebt aangevinkt |
+| **Idem in het hoespaneel** | naast de bestandslijst; wat je daar kiest, staat in de voorbeeldweergave klaar |
 | **Donker of licht** | de keuze in de kopbalk, onthouden in de browser; zonder keuze geldt de systeemvoorkeur |
 
 Slepen verandert niets aan wat er daarna gebeurt: de vinkjes en de knoppen
@@ -417,14 +418,21 @@ Om die reden staat de uitnodiging om te slepen `hidden` in de template en haalt
 het script hem tevoorschijn: een hint die nergens toe leidt is erger dan geen
 hint.
 
-Een hoes voor een selectie hoort bij de **voorbeeldweergave** van een batch en
-niet bij de albumtabel zelf. Die tabel post zichzelf bij elk vinkje opnieuw; een
-afbeelding van megabytes zou dan bij iedere klik meereizen, en de server kan een
+Een hoes voor een selectie **reist mee in de voorbeeldweergave** en niet in de
+albumtabel zelf. Die tabel post zichzelf bij elk vinkje opnieuw; een afbeelding
+van megabytes zou dan bij iedere klik meereizen, en de server kan een
 bestandsveld daarna niet terugvullen. De voorbeeldstap leidt rechtstreeks naar
 het schrijven, dus daar gaat de afbeelding precies één keer over de lijn — en
 kan hij onderweg ook niet verdwijnen. Dat het voorbeeld tóch per bestand kan
 zeggen of een hoes wordt *toegevoegd* of *vervangen*, komt doordat dat volgt uit
 wat er nu in het bestand zit.
+
+Kiezen mag wél naast de lijst, in het hoespaneel. Het bestandsveld daar draagt
+géén `name` en wordt dus nooit verstuurd; het script onthoudt de gekozen
+afbeelding en zet hem in de voorbeeldweergave in het veld dat wél meegaat. Zonder
+JavaScript staat dat veld er niet eens — dan is het paneel een knop naar de
+voorbeeldweergave, waar het bestandsveld thuishoort. In beide gevallen gaat de
+afbeelding precies één keer over de lijn, in de stap die schrijft.
 
 Het hoesje op de bewerkpagina is een snelkoppeling naar de gewone route en geen
 tweede manier om te schrijven: het formulier eromheen post naar dezelfde
@@ -784,6 +792,34 @@ minstens zo belangrijk: een korte reeks kapitalen blijft een afkorting (`DJ`,
 `BBC`, `R.E.M.`, `AC/DC`), en een woord dat zijn eigen hoofdletters draagt blijft
 staan (`McCartney`, `iPhone`, `d'Angelo`). Vijf letters of meer in kapitalen is
 geen afkorting maar geschreeuw, en wordt wél omgezet.
+
+#### De hoes naast de lijst
+
+Terwijl je de tabel invult, staat rechts ernaast **welke hoes er in de
+aangevinkte bestanden zit**: de afbeelding, met formaat, afmetingen en omvang
+eronder — "JPEG · 300 × 300 pixels · 1,3 kB". Op een smal scherm valt het paneel
+onder de tabel; de tabel houdt zijn eigen scrollcontainer en wordt er nergens
+door weggedrukt.
+
+Er wordt **geen hoes uitgekozen** wanneer de selectie er niet één deelt. Lopen de
+hoezen uiteen, of heeft niet elk bestand er een, dan zegt het paneel dat — "De
+hoes wisselt binnen de selectie: 2 verschillende in deze 6 bestanden" of "Eén
+hoes in 4 van de 6 bestanden; de rest heeft er geen". Eén van de zes tonen alsof
+het de hoes van het album is, verzwijgt de andere vijf. Wat "verschillend" is,
+gaat over wat de listing weet: formaat, afmetingen en omvang.
+
+Het paneel toont en kiest; het **schrijft niets**. De knop noemt op hoeveel
+bestanden de hoes terechtkomt en of dat toevoegen of vervangen is — "Hoes
+vervangen in deze 6 bestanden" — en leidt naar de voorbeeldweergave, die de
+enige route naar het schrijven blijft. Het vinkje "ook als `cover.jpg` in de
+albummap" staat bij die actie en reist als gewoon formulierveld mee; in de
+voorbeeldweergave staat het aangevinkt klaar en is het daar nog te wijzigen.
+
+De afbeelding in het paneel komt van het thumbnail-eindpunt en is hoogstens 160
+pixels breed. Dat is met opzet: dit paneel komt bij elke klik in de tabel
+opnieuw langs, en een hoes van een halve megabyte per vinkje is geen weergave
+maar een rem. Wie hem op ware grootte wil zien, heeft de hoespagina van het
+bestand zelf — die blijft precies zoals ze was.
 
 #### De balk: hoeveel bestanden een wijziging krijgen
 
