@@ -77,7 +77,17 @@ de conventies vast waar code zich aan houdt.
   wat er per bestand gebeurt — toevoegen of vervangen — komt doordat dat uit de
   huidige inhoud volgt en niet uit de nieuwe afbeelding. Alleen dat ene
   formulier is `multipart`; al het andere blijft urlencoded en klein.
-- **Het hoespaneel naast de lijst toont en kiest; het schrijft niet.** Het
+- **Kijken en bewerken staan naast elkaar, maar op twee pagina's.** `/map` is
+  kijken en `/album` is bewerken; het ontwerp kent die scheiding niet, Sleeve
+  wel, en dat blijft zo. De mapweergave heeft daarom geen selectie en geen
+  vinkjeskolom. Binnen de albumweergave staat alles wat voorstelt bij elkaar in
+  één paneel naast de lijst: de hoes, de gedeelde velden en de hulpacties, in
+  die volgorde. De lijst staat eerst in de HTML en het paneel erna — dat is de
+  volgorde zonder stylesheet en op een smal scherm, en zo kan het paneel de
+  lijst niet wegduwen; dat het op een breed scherm links komt te staan, doet het
+  grid en niet de template. Welke gedeelde velden hun regel delen, bepaalt
+  `SharedField::is_compact` en niet de stylesheet.
+- **Het hoespaneel bovenin dat paneel toont en kiest; het schrijft niet.** Het
   beschrijft de hoes van de selectie uit de `ArtInfo` die al in de listing zit,
   en kiest er géén uit zodra de selectie er niet één deelt: één hoes tonen alsof
   het de hoes van het album is, verzwijgt de andere. Het bestandsveld in het
@@ -89,7 +99,8 @@ de conventies vast waar code zich aan houdt.
 - **Een hulpactie vult alleen invoervelden.** Hernummeren (over de selectie of
   per schijf), een schijf een nummer geven, de disctotalen invullen, de titel
   uit de bestandsnaam lezen, artiest → albumartiest en hoofdletters
-  normaliseren zetten een voorstel in het formulier en verder niets: geen
+  normaliseren zetten een voorstel in de gedeelde velden erboven en verder
+  niets: geen
   bestand gaat open, geen tag wordt geschreven. Wat een actie voorstelt is met
   de hand aan te passen en met "Invoer leegmaken" in één klik terug te draaien.
   Een voorstel dat gelijk is aan wat er al staat, wordt niet ingevuld.
@@ -162,6 +173,14 @@ de conventies vast waar code zich aan houdt.
 - **Niets ongevraagd wijzigen.** Geen achtergrondjobs, geen opschoonacties, geen
   velden aanraken die de gebruiker niet zelf heeft ingevuld.
 
+- **Wat over de hele lijst gaat, staat in de kopbalk.** Het zoekveld en de knop
+  voor wat aandacht vraagt horen bij de map en niet bij één bestand; ze staan
+  daarom in het blok `kopbalk` van `base.html`, dat alleen door
+  `templates/directory.html` wordt gevuld. Een pagina zonder maplijst houdt dus
+  een kopbalk met alleen de naam en de weergavekeuze. Verplaatsen verandert
+  niets aan wat ze doen: de stand blijft in de URL staan, de twee versmallen
+  samen, en zonder JavaScript blijven het een gewoon formulier en een gewone
+  link.
 - **De vormgeving staat in tokens.** De kleuren, tonenreeksen, ruimtematen,
   hoeken en schaduwen van het design system Nocturne staan boven in
   `static/app.css` en zijn de enige plek waar een kleurwaarde staat; de

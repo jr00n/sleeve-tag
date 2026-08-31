@@ -2,6 +2,10 @@
 
 {% block title %}{{ page.name }} — albumweergave — Sleeve{% endblock %}
 
+{# Het bewerkpaneel naast de tabel: samen zijn ze breder dan een leeskolom. De
+   tekstblokken erin houden hun eigen breedte. #}
+{% block inhoudbreedte %} inhoud--breed{% endblock %}
+
 {% block inhoud %}
 <nav class="kruimels" aria-label="Broodkruimelpad">
   {% for crumb in page.crumbs %}
@@ -11,19 +15,9 @@
   <span class="kruimels__huidig" aria-current="page">Albumweergave</span>
 </nav>
 
-<h1 class="maptitel">{{ page.name }}</h1>
-
-{# Het enige gedrag dat een gebruiker hier kan verrassen: leeg is niet weg. Dat
-   staat er vóór het formulier, niet in een voetnoot eronder. #}
-<p class="uitleg">
-  Zet hier de velden die de geselecteerde bestanden delen. Een veld dat leeg
-  blijft, laat elk bestand houden wat het heeft; wissen doe je met het vinkje
-  ernaast. Titel, tracknummer en albumartiest verschillen per bestand en tik je
-  in de tabel zelf in; wat er nu staat, staat er grijs voorgedrukt. Ook daar
-  verandert leeg laten niets. De hulpacties vullen die velden alvast in — meer
-  doen ze niet, want opslaan blijft jouw keuze. Terug naar de
-  <a href="{{ page.back_url }}">mapweergave</a>.
-</p>
-
+{# De mapnaam staat in de kop bóven de lijst, en niet hier: hij hoort bij de
+   telling van de selectie en het aantal schijven, en die komen met elke POST
+   opnieuw uit de server. Wat over de velden te zeggen valt, staat in het
+   paneel bij die velden zelf. #}
 {% include "albumform.html" %}
 {% endblock %}

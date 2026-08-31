@@ -19,6 +19,8 @@ const TITLE: &str = "Stilte in D";
 const ARTIST: &str = "De Testartiest";
 const ALBUM: &str = "Fixtures voor Sleeve";
 const TRACK_NUMBER: &str = "3";
+const YEAR: &str = "2024";
+const GENRE: &str = "Ambient";
 
 /// Bouwt een bibliotheek met één album en geeft de tempdir terug.
 ///
@@ -99,6 +101,128 @@ fn a_directory_shows_its_files_with_the_main_tags() {
             "'{name}' is geen bewerkbaar bestand en hoort niet in de lijst:\n{html}"
         );
     }
+}
+
+#[test]
+fn the_files_stand_in_a_table_with_the_columns_from_the_design() {
+    let server = Server::start_in(library_with_album(), &[]);
+    let html = body(&server.get("/map/Artiest/Het%20Album"));
+
+    // De kolommen in de volgorde van het ontwerp. Het formaat staat erachter:
+    // het ontwerp kent die kolom niet, FR-2 eist hem wel.
+    //
+    // Alleen binnen de kop van de tabel: "Artiest" is ook een mapnaam in het
+    // broodkruimelpad, en die staat er eerder op de pagina.
+    let kop = html
+        .split_once("<thead>")
+        .and_then(|(_, rest)| rest.split_once("</thead>"))
+        .map(|(kop, _)| kop)
+        .expect("de tabel hoort een kop met kolomnamen te hebben");
+
+    let mut vorige = 0;
+    for kolom in [
+        "#", "Disc", "Hoes", "Titel", "Artiest", "Album", "Jaar", "Genre", "Lengte", "Formaat",
+    ] {
+        let hier = position(kop, &format!(">{kolom}<"));
+        assert!(
+            hier > vorige,
+            "'{kolom}' staat niet op zijn plek in de volgorde van het ontwerp:\n{kop}"
+        );
+        vorige = hier;
+    }
+
+    // Jaar en genre stonden niet in de oude lijst en komen uit dezelfde tags.
+    assert!(
+        html.contains(YEAR) && html.contains(GENRE),
+        "jaar en genre horen in de tabel te staan:\n{html}"
+    );
+
+    // De bestandsnaam en de signaleringen staan onder de titel, in dezelfde cel.
+    let cel = html
+        .split_once(r#"class="maptabel__titel""#)
+        .map(|(_, rest)| rest.split_once("</td>").map(|(cel, _)| cel).unwrap_or(rest))
+        .expect("er hoort een titelcel te staan");
+    assert!(
+        cel.contains("zzz-getagd.mp3"),
+        "de bestandsnaam hoort onder de titel te staan:\n{cel}"
+    );
+
+    // AC #6: de titel blijft de ingang naar het bewerkformulier.
+    assert!(
+        cel.contains(r#"href="/bewerk/Artiest/Het%20Album/zzz-getagd.mp3""#),
+        "de titel hoort naar het bewerkformulier te wijzen:\n{cel}"
+    );
+}
+
+#[test]
+fn the_table_scrolls_inside_its_own_wrapper() {
+    // AC #3 en #4: de tabel is breder dan een telefoon en houdt zijn scrollen
+    // binnen zijn eigen omhulsel; de titelkolom blijft daarbij in beeld staan.
+    let server = Server::start_in(library_with_album(), &[]);
+    let html = body(&server.get("/map/Artiest/Het%20Album"));
+
+    assert!(
+        html.contains(r#"class="tabelrand""#) && html.contains(r#"role="region""#),
+        "de tabel hoort in een eigen, bereikbaar omhulsel te staan:\n{html}"
+    );
+
+    // Wat alleen in de browser te zien is, staat wel in de stijl: het omhulsel
+    // scrolt horizontaal en de titelkolom staat stil.
+    let css = server.get("/static/app.css");
+    assert_ok(&css);
+    assert!(
+        css.contains("overflow-x: auto"),
+        "het omhulsel hoort horizontaal te scrollen"
+    );
+
+    let titel = css
+        .split_once(".maptabel__titel,")
+        .map(|(_, rest)| rest.split_once('}').map(|(regel, _)| regel).unwrap_or(rest))
+        .expect("de titelkolom hoort een eigen regel te hebben");
+    assert!(
+        titel.contains("position: sticky") && titel.contains("left: 0"),
+        "de bestandsnaam hoort in beeld te blijven terwijl de rest scrolt:\n{titel}"
+    );
+}
+
+#[test]
+fn a_file_without_art_gets_the_placeholder_in_the_table() {
+    // De lijst opent geen bestand extra: dat er een hoes is, blijkt uit de tags
+    // die al gelezen zijn. Wie er geen heeft, krijgt de placeholder en lokt
+    // geen verzoek uit dat toch niets zou opleveren.
+    let server = Server::start_in(library_with_a_mixed_album(), &[]);
+    let html = body(&server.get("/map/Gemengd%20album"));
+
+    assert!(
+        html.contains("maptabel__hoesje--leeg"),
+        "een bestand zonder hoes hoort de placeholder te krijgen:\n{html}"
+    );
+    assert!(
+        html.contains(r#"src="/art/Gemengd%20album/net.mp3?size=thumb""#),
+        "het bestand mét hoes hoort er wel een op te vragen:\n{html}"
+    );
+}
+
+#[test]
+fn the_disc_headings_are_rows_in_the_table() {
+    // AC #5: de kop blijft de groepen scheiden, nu als eigen rij met dezelfde
+    // telling en aandachtsmelding.
+    let server = Server::start_in(library_with_album(), &[]);
+    let html = body(&server.get("/map/Artiest/Het%20Album"));
+
+    assert!(
+        html.contains(r#"class="maptabel__groepkop""#),
+        "de schijfkop hoort een rij in de tabel te zijn:\n{html}"
+    );
+
+    let kop = html
+        .split_once("Schijf 1")
+        .map(|(_, rest)| rest.split_once("</tr>").map(|(rij, _)| rij).unwrap_or(rest))
+        .expect("er hoort een kop voor schijf 1 te staan");
+    assert!(
+        kop.contains("1 bestand"),
+        "de telling hoort in dezelfde kop te staan:\n{kop}"
+    );
 }
 
 #[test]
@@ -446,6 +570,78 @@ fn a_directory_where_everything_is_in_order_says_so() {
     );
 }
 
+/// Alles vóór `<main`: de kopbalk, en niet de pagina eronder.
+fn header(html: &str) -> &str {
+    html.split_once("<main")
+        .map(|(kop, _)| kop)
+        .unwrap_or_else(|| panic!("de pagina hoort een inhoudsblok te hebben:\n{html}"))
+}
+
+#[test]
+fn searching_and_filtering_stand_in_the_header() {
+    let server = Server::start_in(library_with_a_mixed_album(), &[]);
+    let html = body(&server.get("/map/Gemengd%20album"));
+    let kopbalk = header(&html);
+
+    // Het zoekveld staat in de kopbalk, met het pictogram erin.
+    assert!(
+        kopbalk.contains(r#"class="kop__zoek""#) && kopbalk.contains(r#"id="q""#),
+        "het zoekveld hoort in de kopbalk te staan:\n{html}"
+    );
+    assert!(
+        kopbalk.contains("kop__zoekicoon"),
+        "het pictogram hoort in het veld te staan:\n{html}"
+    );
+
+    // En de aandachtsknop, met de telling erin.
+    assert!(
+        kopbalk.contains(r#"class="filterknop__telling">2<"#),
+        "de aandachtsknop met de telling hoort in de kopbalk te staan:\n{html}"
+    );
+
+    // Verplaatst en niet verdubbeld: in de pagina zelf staat geen tweede
+    // zoekveld en geen tweede knop meer.
+    let pagina = html
+        .split_once("<main")
+        .map(|(_, rest)| rest)
+        .expect("de pagina hoort een inhoudsblok te hebben");
+    assert!(
+        !pagina.contains(r#"id="q""#) && !pagina.contains("filterknop"),
+        "zoeken en filteren horen alleen nog in de kopbalk te staan:\n{html}"
+    );
+}
+
+#[test]
+fn a_page_without_a_listing_keeps_a_bare_header() {
+    // Zoeken en filteren gaan over een maplijst. Op een pagina zonder lijst
+    // zouden ze niets te doen hebben, en daar staan ze dus niet.
+    let server = Server::start_in(library_with_a_mixed_album(), &[]);
+
+    let paginas = [
+        server.get("/bewerk/Gemengd%20album/net.mp3"),
+        server.get("/hoes/Gemengd%20album/net.mp3"),
+        server.get("/album/Gemengd%20album"),
+        server.post_form(
+            "/album/Gemengd%20album",
+            &[
+                ("bestand", "net.mp3"),
+                ("album", "Een ander album"),
+                ("actie", "voorbeeld"),
+            ],
+        ),
+    ];
+
+    for pagina in &paginas {
+        assert_ok(pagina);
+        let html = body(pagina);
+        let kopbalk = header(&html);
+        assert!(
+            !kopbalk.contains("kop__zoek") && !kopbalk.contains("filterknop"),
+            "deze pagina heeft geen maplijst en hoort niets te filteren:\n{kopbalk}"
+        );
+    }
+}
+
 #[test]
 fn marking_leaves_the_files_untouched() {
     // AC #5: de signalering is puur informatief. Na het bekijken van een map
@@ -746,4 +942,8 @@ fn a_directory_without_disc_numbers_looks_like_it_always_did() {
     assert!(html.contains("een.mp3"), "{html}");
     assert!(!html.contains("Schijf"), "{html}");
     assert!(!html.contains("Zonder discnummer"), "{html}");
+    assert!(
+        !html.contains("maptabel__groepkop"),
+        "zonder discnummers hoort er geen koprij in de tabel te staan:\n{html}"
+    );
 }

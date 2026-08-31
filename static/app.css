@@ -205,7 +205,10 @@ h6 {
 .kop {
   display: flex;
   align-items: center;
-  gap: var(--space-6);
+  /* Op een smal scherm vallen de onderdelen onder elkaar in plaats van te
+     krimpen tot ze onleesbaar zijn; niets valt buiten beeld. */
+  flex-wrap: wrap;
+  gap: var(--space-4) var(--space-6);
   padding: var(--space-4) var(--space-6);
   background: var(--achtergrond);
   box-shadow: 0 1px 0 var(--rand);
@@ -218,7 +221,6 @@ h6 {
   display: flex;
   align-items: baseline;
   gap: var(--space-3);
-  margin-right: auto;
   font-family: var(--font-heading);
   font-size: 19px;
   font-weight: var(--font-heading-weight);
@@ -243,6 +245,10 @@ h6 {
  */
 .kop__thema {
   display: inline-flex;
+  /* De ruimte die overblijft komt vóór de schakelaar: die houdt rechts, wat
+     ervoor staat blijft bij de naam. Op een pagina zonder zoekveld is dit het
+     enige dat de kopbalk uit elkaar trekt. */
+  margin-left: auto;
   overflow: hidden;
   border: 1px solid var(--rand);
   border-radius: var(--radius-md);
@@ -280,6 +286,22 @@ h6 {
   max-width: 60rem;
   margin: 0 auto;
   padding: 1rem;
+}
+
+/*
+ * De mapweergave neemt de volle breedte: de tabel is er om bestanden per kolom
+ * te kunnen vergelijken, en dat werkt niet in een kolom van 960 pixels met lege
+ * marges ernaast. Wat er aan tekst tussen staat, houdt wél een leesbreedte —
+ * een regel die over een breed scherm doorloopt, leest niet.
+ */
+.inhoud--breed {
+  max-width: none;
+}
+
+.inhoud--breed .signalering,
+.inhoud--breed .leeg,
+.inhoud--breed .uitleg {
+  max-width: 60rem;
 }
 
 h1 {
@@ -343,29 +365,56 @@ a {
   overflow-wrap: anywhere;
 }
 
-/* ── Zoeken binnen de map ──────────────────────────────────────────────── */
+/* ── Zoeken in de kopbalk ─────────────────────────────────────────────── */
 
-.zoek {
-  margin: 0 0 1rem;
-}
-
-.zoek__label {
-  display: block;
-  font-size: 0.85rem;
-  color: var(--tekst-zacht);
-  margin-bottom: 0.25rem;
-}
-
-.zoek__regel {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.zoek__veld {
-  flex: 1;
+/*
+ * Het zoekveld staat in de kopbalk en groeit mee met wat er over is, tot de
+ * bovengrens uit het ontwerp. Breder maakt het veld niet bruikbaarder — een
+ * mapnaam of titel is kort — en de kopbalk zou er uit balans van raken.
+ */
+.kop__zoek {
+  flex: 1 1 14rem;
   min-width: 0;
-  padding: 0.55rem 0.7rem;
-  font-size: 1rem;
+  max-width: 380px;
+}
+
+/* Het label hoort er wel te zijn maar niet in beeld: het pictogram en de
+   placeholder zeggen het al. Wegnemen uit de weergave en niet `display: none`,
+   want voorlezen moet het wel. */
+.kop__zoeklabel {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Draagt het pictogram, dat over het veld heen ligt in plaats van ernaast. */
+.kop__zoekregel {
+  position: relative;
+  display: block;
+}
+
+.kop__zoekicoon {
+  position: absolute;
+  top: 50%;
+  left: 10px;
+  width: 15px;
+  height: 15px;
+  transform: translateY(-50%);
+  color: var(--tekst-zacht);
+  pointer-events: none;
+}
+
+.kop__zoekveld {
+  /* Links de ruimte voor het pictogram, en dat is de enige reden dat deze
+     padding niet aan beide kanten gelijk is. */
+  width: 100%;
+  padding: 7px 12px 7px 32px;
+  font-size: 14px;
   font-family: inherit;
   color: var(--tekst);
   caret-color: var(--accent);
@@ -374,63 +423,49 @@ a {
   border-radius: var(--radius-md);
 }
 
-.zoek__veld:hover {
+.kop__zoekveld::placeholder {
+  color: var(--tekst-zacht);
+}
+
+.kop__zoekveld:hover {
   border-color: color-mix(in srgb, var(--tekst) 45%, transparent);
 }
 
-.zoek__veld:focus-visible {
+.kop__zoekveld:focus-visible {
   border-color: var(--accent);
   outline-offset: 0;
 }
 
-.zoek__knop {
-  padding: 0.55rem 0.9rem;
-  font-family: var(--font-heading);
-  font-weight: var(--font-heading-weight);
-  font-size: 1rem;
-  color: var(--tekst);
-  background: transparent;
-  border: 1px solid var(--rand);
-  border-radius: var(--radius-md);
-  cursor: pointer;
-}
-
-.zoek__knop:hover {
-  background: color-mix(in srgb, var(--tekst) 7%, transparent);
-}
-
 /* ── Filteren op wat aandacht vraagt ───────────────────────────────────── */
 
-.mapfilter {
-  margin: 0 0 1rem;
-}
-
-.mapfilter__schoon {
+/* Staat op de plek van de knop wanneer er niets te filteren valt: het is
+   dezelfde mededeling, en een knop naar een lege lijst is een doodlopend
+   spoor. */
+.kop__schoon {
+  font-size: 13px;
   color: var(--tekst-zacht);
-  font-size: 0.9rem;
 }
 
-/*
- * Dezelfde vorm als een signaallabel: omlijnd in het accent, want dit is de
- * schakelaar bij diezelfde constateringen. Aan is hij gevuld, zodat in één
- * oogopslag te zien is welke van de twee standen geldt.
- */
 .filterknop {
   /* Houdt de weggenomen tekst hieronder binnen de knop in plaats van bij de
      eerste de beste voorouder die wél gepositioneerd is. */
   position: relative;
   display: inline-flex;
   align-items: center;
+  /* In de kopbalk krimpt hij niet mee en breekt zijn tekst niet af: hij is
+     zo kort dat afbreken alleen maar rommelig zou zijn. */
+  flex: 0 0 auto;
   gap: 0.4rem;
-  padding: 0.3rem 0.7rem;
+  padding: 6px 11px;
   color: var(--accent);
   text-decoration: none;
+  white-space: nowrap;
   background: transparent;
   border: 1px solid var(--accent);
   border-radius: var(--radius-md);
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
-  font-size: 0.9rem;
+  font-size: 13px;
 }
 
 .filterknop:hover {
@@ -444,6 +479,13 @@ a {
 
 .filterknop--aan:hover {
   background: color-mix(in srgb, var(--accent) 85%, var(--tekst));
+}
+
+/* Eén plek voor beide standen: een stip als het filter uit staat, een vinkje
+   als het aan staat. Zo verschuift de knop niet bij het schakelen. */
+.filterknop__stip {
+  font-size: 0.8em;
+  line-height: 1;
 }
 
 .filterknop__telling {
@@ -474,16 +516,24 @@ a {
   white-space: nowrap;
 }
 
-/* ── Tracklijst ────────────────────────────────────────────────────────── */
+/* ── De naam van de map, met wat erin staat ────────────────────────────── */
 
-.tracks {
-  list-style: none;
-  margin: 0 0 1rem;
-  padding: 0;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  background: var(--vlak);
-  box-shadow: var(--shadow-sm);
+.mapkop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.2rem 0.8rem;
+  margin-bottom: 0.5rem;
+}
+
+.mapkop .maptitel {
+  margin: 0;
+}
+
+.mapkop__telling {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--tekst-zacht);
 }
 
 /*
@@ -494,13 +544,11 @@ a {
  * een regel kan zelf al een kleur dragen — gekozen, gewijzigd, mislukt — en die
  * hoort te blijven staan.
  */
-.tracks li,
 .voorbeeld__bestand,
 .resultaat__bestand {
   position: relative;
 }
 
-.tracks li + li::before,
 .voorbeeld__bestand + .voorbeeld__bestand::before,
 .resultaat__bestand + .resultaat__bestand::before {
   content: "";
@@ -510,20 +558,85 @@ a {
   background: var(--regel);
 }
 
+/* ── De bestanden van een map, als tabel ───────────────────────────────── */
+
 /*
- * Rijen in plaats van een tabel: op een telefoon past een tabel met zes kolommen
- * niet, en horizontaal scrollen door de hoofdnavigatie is geen optie. De
- * batch-tabel (FR-9) mag dat straks wel, die is een ander scherm.
+ * Tien kolommen naast elkaar, zodat dezelfde velden onder elkaar staan en in
+ * één blik te zien is welk bestand uit de pas loopt. De tabel is breder dan een
+ * telefoonscherm; hij scrollt binnen `.tabelrand` en niet met de pagina mee.
  */
-.track {
-  display: grid;
-  grid-template-columns: auto 2ch 1fr auto;
-  align-items: center;
-  gap: 0.7rem;
-  padding: 0.7rem 0.9rem;
+.maptabel {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+  white-space: nowrap;
 }
 
-.track__hoes {
+.maptabel th,
+.maptabel td {
+  padding: 0.5rem 0.7rem;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--rand);
+}
+
+.maptabel tbody tr:last-child td {
+  border-bottom: none;
+}
+
+.maptabel thead th {
+  font-size: 0.8rem;
+  font-weight: var(--font-heading-weight);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tekst-zacht);
+}
+
+.maptabel__nummer {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  color: var(--tekst-zacht);
+}
+
+.maptabel__formaat {
+  letter-spacing: 0.04em;
+  color: var(--tekst-zacht);
+}
+
+/*
+ * De titelkolom staat stil terwijl de rest horizontaal scrolt: zonder titel en
+ * bestandsnaam in beeld is niet te zien over welk bestand een rij het heeft.
+ * De kolommen ervóór schuiven eronderdoor, vandaar de eigen achtergrond.
+ */
+.maptabel__titel,
+.maptabel__titelkop {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 14rem;
+  white-space: normal;
+  background: var(--vlak);
+}
+
+.maptabel__link {
+  overflow-wrap: anywhere;
+}
+
+.maptabel__bestand {
+  display: block;
+  font-size: 0.85rem;
+  color: var(--tekst-zacht);
+  overflow-wrap: anywhere;
+}
+
+/* De hoes is een plaatje van veertig pixels; breder hoeft de kolom niet. */
+.maptabel__hoes,
+.maptabel__hoeskop {
+  width: 2.5rem;
+}
+
+.maptabel__hoesje {
+  display: block;
   width: 2.5rem;
   height: 2.5rem;
   border-radius: var(--radius-sm);
@@ -533,7 +646,7 @@ a {
   object-fit: cover;
 }
 
-.track__hoes--leeg {
+.maptabel__hoesje--leeg {
   background: repeating-linear-gradient(
     45deg,
     transparent,
@@ -542,50 +655,6 @@ a {
     var(--rand) 8px
   );
   border: 1px solid var(--rand);
-}
-
-.track__nummer {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-  color: var(--tekst-zacht);
-}
-
-.track__tekst {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-}
-
-.track__titel {
-  overflow-wrap: anywhere;
-}
-
-.track__meta,
-.track__bestand {
-  font-size: 0.85rem;
-  color: var(--tekst-zacht);
-  overflow-wrap: anywhere;
-}
-
-.track__scheiding {
-  padding: 0 0.25rem;
-}
-
-.track__rechts {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  font-size: 0.85rem;
-  color: var(--tekst-zacht);
-  white-space: nowrap;
-}
-
-.track__formaat {
-  letter-spacing: 0.04em;
-}
-
-.track__duur {
-  font-variant-numeric: tabular-nums;
 }
 
 .leeg {
@@ -619,7 +688,7 @@ a {
   font-size: 0.9rem;
 }
 
-.track__signalen {
+.maptabel__signalen {
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
@@ -1182,13 +1251,6 @@ a.bestandskop__hoes {
   margin-bottom: 2rem;
 }
 
-.batch__selectie {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem 1rem;
-}
-
 .batch__telling {
   margin: 0;
   color: var(--tekst-zacht);
@@ -1303,19 +1365,21 @@ a.bestandskop__hoes {
   background: color-mix(in srgb, var(--waarschuwing) 12%, var(--vlak));
 }
 
-/* De hulpacties (FR-10) vullen alleen invoervelden en staan daarom bij de
-   knoppen die de selectie zetten, en niet bij het opslaan. */
+/* De hulpacties (FR-10) vullen alleen invoervelden en staan daarom in het
+   paneel onder die velden, en niet bij het opslaan. Ze hebben een eigen kopje:
+   acht knoppen zonder opschrift lezen als een werkbalk, en dit is er geen. */
 .hulpacties {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 1rem;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: 1rem;
+  border: 1px solid var(--rand);
+  border-radius: var(--radius-md);
 }
 
 .hulpacties__kop {
-  font-size: 0.85rem;
-  color: var(--tekst-zacht);
+  margin: 0;
+  font-size: 0.95rem;
 }
 
 /* Wat per bestand verschilt, wordt in de tabel zelf ingetikt (FR-9). Het veld
@@ -1391,10 +1455,14 @@ a.bestandskop__hoes {
   font-size: 0.85rem;
 }
 
+/* De gedeelde velden staan in het paneel, dus onder elkaar en niet naast
+   elkaar — op één uitzondering na: de korte velden delen hun regel. Welke
+   velden dat zijn, bepaalt `SharedField::is_compact` en niet deze stylesheet;
+   hier staat alleen wat een regel met meer dan één veld doet. */
 .gedeeld {
   display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
+  flex-direction: column;
+  gap: var(--space-4);
   margin: 0;
   padding: 1rem;
   border: 0;
@@ -1408,8 +1476,43 @@ a.bestandskop__hoes {
   font-weight: 600;
 }
 
+.gedeeld__uitleg {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+/* Een invoerveld is standaard zo breed als zijn plek; in een kolom van een
+   derde paneel betekent dat: niet breder dan die kolom. */
+.gedeeld__veld .veld__invoer {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+/* Zoveel kolommen als er velden op de regel staan, allemaal even breed. De
+   `minmax(0, ...)` houdt een lang opschrift binnen zijn kolom in plaats van de
+   regel op te rekken.
+
+   De vier onderdelen van een veld — opschrift, invoer, wat er nu staat, en het
+   wissen-vinkje — worden met `subgrid` op dezelfde regels gelegd. Zonder dat
+   zou een opschrift dat over twee regels breekt zijn buren scheeftrekken, en
+   dat is precies wat er in een paneel van 420 pixels gebeurt. Een browser die
+   `subgrid` niet kent, zet de onderdelen gewoon onder elkaar: dan staan ze niet
+   uitgelijnd, maar wel compleet. */
+.gedeeld__rij {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto auto auto;
+  gap: var(--space-2) var(--space-4);
+}
+
 .gedeeld__veld {
-  flex: 1 1 15rem;
+  display: grid;
+  grid-row: span 4;
+  grid-template-rows: subgrid;
+  align-content: start;
+  min-width: 0;
 }
 
 .gedeeld__veld--verschillend .veld__label::after {
@@ -1789,23 +1892,36 @@ html {
 
 /* ── Groepen per schijf ────────────────────────────────────────────────────
    Een set van meerdere schijven valt uiteen in groepen, met een kop per
-   schijf. De kop staat als eigen regel tussen de bestanden en niet als kader
-   eromheen: zo blijft de lijst één opsomming en houdt een regel de vorm die
-   hij al had. Een map zonder discnummers krijgt geen kop en ziet er dus uit
-   als altijd. */
+   schijf. De kop staat als eigen rij tussen de bestanden en niet als kader
+   eromheen: zo blijft de tabel één tabel en houdt een rij de vorm die hij al
+   had. Een map zonder discnummers krijgt geen kop en ziet er dus uit als
+   altijd. Beide tabellen — de mapweergave en de albumweergave — gebruiken
+   dezelfde kop; alleen de albumweergave zet er een knop bij. */
 
-.schijf {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.2rem 0.7rem;
-  padding: 0.55rem 0.9rem;
+.batchtabel__groep,
+.maptabel__groep {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-/* Dezelfde toon als een kolomkop in de batchtabel: een opschrift boven wat
-   eronder staat, en geen titel die met de paginakop wil wedijveren. */
-.schijf__naam,
+/* `th` erft de kapitalen van een kolomkop; die gaan er hier af, want in de
+   albumweergave staat de knop in dezelfde cel en een knopopschrift in kapitalen
+   leest slecht. */
+.batchtabel__groepkop,
+.maptabel__groepkop {
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 0.85rem;
+  white-space: normal;
+}
+
+/* De kop loopt over de volle breedte van de tabel en hoort dus niet mee te
+   schuiven met de titelkolom die stil blijft staan. */
+.maptabel__groepkop {
+  position: static;
+}
+
+/* Dezelfde toon als een kolomkop: een opschrift boven wat eronder staat, en
+   geen titel die met de paginakop wil wedijveren. */
 .groep__naam {
   margin: 0;
   font-family: var(--font-heading);
@@ -1814,40 +1930,6 @@ html {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);
-}
-
-.schijf__telling {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.2rem 0.5rem;
-  margin: 0;
-  font-size: 0.85rem;
-  color: var(--tekst-zacht);
-}
-
-/* Wat aandacht vraagt, draagt de accentkleur van de signalering: het is
-   dezelfde constatering, alleen geteld. */
-.schijf__aandacht {
-  color: var(--accent);
-}
-
-.schijf__aandacht::before {
-  content: "·";
-  padding-right: 0.5rem;
-}
-
-/* In de tabel is de kop een rij over de volle breedte. `th` erft de kapitalen
-   van een kolomkop; die gaan er hier af, want de knop staat in dezelfde cel en
-   een knopopschrift in kapitalen leest slecht. */
-.batchtabel__groep {
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-}
-
-.batchtabel__groepkop {
-  text-transform: none;
-  letter-spacing: normal;
-  font-size: 0.85rem;
-  white-space: normal;
 }
 
 .groep__naam,
@@ -1859,6 +1941,12 @@ html {
   color: var(--tekst-zacht);
 }
 
+/* Wat aandacht vraagt, draagt de accentkleur van de signalering: het is
+   dezelfde constatering, alleen geteld. */
+.groep__aandacht {
+  color: var(--accent);
+}
+
 /* Een knop binnen een tabelrij: dezelfde vorm, maar niet zo groot dat de rij
    er twee keer zo hoog van wordt. */
 .knop--klein {
@@ -1866,24 +1954,89 @@ html {
   font-size: 0.85rem;
 }
 
-/* ── De hoes naast de bestandslijst ────────────────────────────────────── */
+/* ── Kijken en bewerken naast elkaar ───────────────────────────────────── */
 
-/* Op een telefoon staat alles onder elkaar: de tabel eerst, het paneel eronder.
-   Pas wanneer er werkelijk een kolom naast past, schuift het paneel ernaast.
-   De tabelkolom krijgt `minmax(0, 1fr)`: zonder die nul rekt een brede tabel
+/* Links het bewerkpaneel, rechts de bestandslijst.
+
+   Op een telefoon staat alles onder elkaar: de lijst eerst, het paneel eronder.
+   Dat is ook de volgorde in de HTML, en met opzet — de lijst is waar deze
+   pagina over gaat, en het paneel mag hem nooit wegduwen. Pas wanneer er
+   werkelijk een kolom naast past, schuift het paneel ernaast; dat het dan links
+   staat, doet het grid met `grid-column` en niet de HTML.
+
+   De lijstkolom krijgt `minmax(0, 1fr)`: zonder die nul rekt een brede tabel
    het grid op in plaats van binnen zijn eigen scrollcontainer te blijven, en
-   dan drukt hij het paneel weg. */
+   dan drukt hij het paneel weg. De paneelkolom heeft de vaste maat uit het
+   ontwerp (26rem ≈ 420px) en groeit dus niet mee; wat er overblijft is voor de
+   lijst, en dat is op elk scherm waar deze regel geldt het grootste deel. */
 .albumlayout {
   display: grid;
-  gap: 1rem;
+  /* Eén kolom die niet breder wordt dan de pagina. Zonder die `minmax(0, ...)`
+     is een impliciete kolom zo breed als zijn inhoud: de tabel rekt hem dan op
+     tot zijn eigen maat en de héle pagina gaat horizontaal scrollen, in plaats
+     van alleen de tabel binnen zijn eigen rand. */
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-6);
   align-items: start;
   margin: 1.2rem 0;
 }
 
-@media (min-width: 62rem) {
+/* Om dezelfde reden: een blok krijgt zijn minimumbreedte van zijn inhoud, en
+   dat is hier een tabel van tien kolommen. De scrollcontainer eromheen vangt
+   die breedte op, maar alleen als dit blok zelf mag krimpen. */
+.albumlayout__lijst {
+  min-width: 0;
+}
+
+@media (min-width: 66rem) {
   .albumlayout {
-    grid-template-columns: minmax(0, 1fr) 17rem;
+    grid-template-columns: 26rem minmax(0, 1fr);
   }
+
+  .albumlayout__lijst {
+    grid-column: 2;
+    grid-row: 1;
+  }
+
+  .editor {
+    grid-column: 1;
+    grid-row: 1;
+  }
+}
+
+/* Het paneel zelf: drie onderdelen onder elkaar, in de volgorde van het
+   ontwerp. Het heeft geen eigen vlak — de onderdelen erin hebben er elk een, en
+   een vlak op een vlak maakt de rand tussen de twee onleesbaar. */
+.editor {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-6);
+  min-width: 0;
+}
+
+/* De kop boven de lijst: de mapnaam, de stand van de selectie en de knoppen die
+   die stand in één klik zetten. Op een smal scherm vallen de knoppen onder de
+   naam; `margin-left: auto` duwt ze pas naar rechts zodra er ruimte is. */
+.lijstkop {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  margin-bottom: var(--space-3);
+}
+
+.lijstkop__naam {
+  margin: 0;
+}
+
+.lijstkop__telling {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--tekst-zacht);
+}
+
+.lijstkop .batch__knoppen {
+  margin-left: auto;
 }
 
 .hoespaneel {

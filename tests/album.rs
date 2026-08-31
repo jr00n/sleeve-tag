@@ -1442,3 +1442,140 @@ fn the_cover_panel_writes_nothing_and_hands_its_choice_to_the_preview() {
         "er hoort geen losse hoes geschreven te zijn"
     );
 }
+
+/// Een map met twee schijven, om de kop boven de lijst iets te laten tellen.
+///
+/// De discnummers zitten in de fixtures zelf niet, dus ze worden hier gezet via
+/// dezelfde weg als een gebruiker: de albumweergave, en daarna de
+/// voorbeeldweergave die als enige schrijft.
+fn library_with_two_discs() -> tempfile::TempDir {
+    let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
+    let album = root.path().join("Album");
+    std::fs::create_dir_all(&album).expect("albummap moet aan te maken zijn");
+
+    place_fixture(&album, "een.mp3", "tagged.mp3");
+    place_fixture(&album, "twee.mp3", "tagged.mp3");
+
+    root
+}
+
+/// De indeling uit TASK-44: één paneel naast de lijst.
+///
+/// Wat hier te controleren valt zonder browser, is de volgorde in de HTML en
+/// welke onderdelen in welk blok staan. Dát het paneel op een breed scherm
+/// links komt te staan en op een smal scherm onder de lijst valt, doet
+/// `static/app.css` met `grid-column` en een `@media`-regel; dat is alleen in
+/// een browser te zien en staat daarom in de notities van de taak en niet hier.
+#[test]
+fn the_editor_stands_beside_the_list_in_one_panel() {
+    let server = server();
+    let page = server.get("/album/Album");
+    assert_ok(&page);
+
+    // De twee kolommen zijn er, en de lijst staat vóór het paneel in de HTML:
+    // zonder stylesheet — en op een smal scherm — is dat de volgorde waarin ze
+    // onder elkaar komen, en de lijst hoort dan boven te staan.
+    let lijst = page
+        .find("albumlayout__lijst")
+        .expect("de lijstkolom hoort er te staan");
+    let paneel = page
+        .find("class=\"editor\"")
+        .expect("het bewerkpaneel hoort er te staan");
+    assert!(lijst < paneel, "de lijst hoort vóór het paneel te staan");
+
+    // AC #2: hoes, gedeelde velden en hulpacties staan samen in dat paneel, in
+    // de volgorde van het ontwerp.
+    let hoes = page.find("class=\"hoespaneel\"").expect("hoes");
+    let velden = page.find("class=\"gedeeld\"").expect("gedeelde velden");
+    let hulp = page.find("class=\"hulpacties\"").expect("hulpacties");
+    assert!(paneel < hoes, "de hoes hoort in het paneel te staan");
+    assert!(hoes < velden, "de velden horen onder de hoes te staan");
+    assert!(
+        hulp > velden,
+        "de hulpacties horen onder de velden te staan"
+    );
+
+    // De tabel staat in de lijstkolom en niet in het paneel.
+    let tabel = page.find("class=\"batchtabel\"").expect("de tabel");
+    assert!(
+        lijst < tabel && tabel < paneel,
+        "de tabel hoort in de lijstkolom te staan"
+    );
+
+    // AC #8: geen knop op dit scherm schrijft. De enige weg vooruit is de
+    // voorbeeldweergave.
+    assert!(page.contains("value=\"voorbeeld\""), "{page}");
+    assert!(!page.contains("Definitief opslaan"), "{page}");
+}
+
+/// AC #3: de korte velden staan naast elkaar op één regel.
+///
+/// De groepering komt uit `AlbumPage::field_rows` en niet uit de template; wat
+/// hier getest wordt is dat de HTML die groepering ook werkelijk uitschrijft.
+/// Hoe breed die regel dan wordt, is een zaak van de stylesheet.
+#[test]
+fn the_short_fields_share_one_row() {
+    let server = server();
+    let page = server.get("/album/Album");
+    assert_ok(&page);
+
+    let rijen: Vec<&str> = page.split("class=\"gedeeld__rij\"").skip(1).collect();
+    assert_eq!(rijen.len(), 4, "vier regels velden verwacht:\n{page}");
+
+    // Jaar, discnummer en aantal discs delen de derde regel; albumartiest,
+    // album en genre krijgen er elk een voor zichzelf.
+    let kort = rijen[2];
+    for veld in ["gedeeld-year", "gedeeld-disc", "gedeeld-disc_total"] {
+        assert!(
+            kort.contains(veld),
+            "{veld} hoort op de korte regel:\n{kort}"
+        );
+    }
+    assert!(rijen[0].contains("gedeeld-album_artist"), "{page}");
+    assert!(rijen[1].contains("gedeeld-album"), "{page}");
+    assert!(rijen[3].contains("gedeeld-genre"), "{page}");
+}
+
+/// AC #5: de kop boven de lijst, met de telling en de knoppen ernaast.
+#[test]
+fn the_list_carries_its_own_heading_with_the_count() {
+    let server = Server::start_in(library_with_two_discs(), &[]);
+
+    // Zonder discnummers zwijgt de kop erover: "0 schijven" is geen mededeling.
+    let page = server.get("/album/Album");
+    assert_ok(&page);
+    assert!(page.contains("2 van 2 bestanden geselecteerd"), "{page}");
+    assert!(!page.contains("schijven"), "{page}");
+    assert!(page.contains("lijstkop__naam"), "{page}");
+
+    // De knoppen die de hele selectie zetten, staan in diezelfde kop.
+    let kop = page
+        .find("class=\"lijstkop\"")
+        .expect("de kop boven de lijst");
+    let tabel = page.find("class=\"batchtabel\"").expect("de tabel");
+    let alles = page.find("value=\"alles\"").expect("Alles selecteren");
+    let niets = page.find("value=\"niets\"").expect("Niets selecteren");
+    assert!(kop < alles && alles < tabel, "{page}");
+    assert!(kop < niets && niets < tabel, "{page}");
+
+    // Zodra de map schijven kent, staat het aantal erbij. De nummers worden via
+    // de gewone route gezet: eerst het voorbeeld, dan opslaan.
+    let opgeslagen = server.post_form(
+        "/album/Album",
+        &[("bestand", "een.mp3"), ("disc", "1"), ("actie", "opslaan")],
+    );
+    assert_ok(&opgeslagen);
+
+    let opgeslagen = server.post_form(
+        "/album/Album",
+        &[("bestand", "twee.mp3"), ("disc", "2"), ("actie", "opslaan")],
+    );
+    assert_ok(&opgeslagen);
+
+    let page = server.get("/album/Album");
+    assert_ok(&page);
+    assert!(
+        page.contains("2 van 2 bestanden geselecteerd · 2 schijven"),
+        "{page}"
+    );
+}

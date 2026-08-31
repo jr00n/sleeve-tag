@@ -56,13 +56,18 @@ pub enum SharedField {
 
 impl SharedField {
     /// Alle gedeelde velden, in de volgorde waarin ze op het scherm staan.
+    ///
+    /// De volgorde is die van het ontwerp: eerst de twee brede velden, dan de
+    /// drie korte die naast elkaar op één regel passen, en genre sluit af. Dat
+    /// de korte velden hier aaneengesloten staan, is wat [`AlbumPage::field_rows`]
+    /// gebruikt om ze te groeperen.
     pub const ALL: [SharedField; 6] = [
         SharedField::AlbumArtist,
         SharedField::Album,
         SharedField::Year,
-        SharedField::Genre,
         SharedField::Disc,
         SharedField::DiscTotal,
+        SharedField::Genre,
     ];
 
     /// De naam waaronder het veld in het formulier staat.
@@ -97,6 +102,19 @@ impl SharedField {
     /// Of er een getal in hoort; bepaalt de controle en het toetsenbord.
     pub fn is_numeric(self) -> bool {
         matches!(self, SharedField::Disc | SharedField::DiscTotal)
+    }
+
+    /// Of het veld kort genoeg is om naast zijn buren op één regel te staan.
+    ///
+    /// Iets anders dan [`SharedField::is_numeric`]: het jaar is in het tagmodel
+    /// tekst, omdat ID3v2.4 en Vorbis er een volledige datum in kunnen zetten,
+    /// maar het is wél een kort veld en hoort dus naast het discnummer te
+    /// passen in plaats van een hele regel op te eisen.
+    pub fn is_compact(self) -> bool {
+        matches!(
+            self,
+            SharedField::Year | SharedField::Disc | SharedField::DiscTotal
+        )
     }
 
     /// Wat er voor dit veld in één bestand staat.
@@ -1097,6 +1115,9 @@ pub struct SharedInput {
 
     /// Of er een getal in hoort.
     pub numeric: bool,
+
+    /// Of het veld naast zijn buren op één regel staat.
+    pub compact: bool,
 
     /// Wat er nu in de selectie staat.
     pub current: Current,
@@ -2110,6 +2131,13 @@ pub struct AlbumPage {
     /// Hoeveel bestanden de map bevat.
     pub total: usize,
 
+    /// Hoeveel genummerde schijven er in de map staan.
+    ///
+    /// De groep bestanden zónder discnummer telt niet mee: van die bestanden is
+    /// juist niet te zeggen bij welke schijf ze horen. Nul betekent dus "geen
+    /// schijfindeling", en dan zwijgt de kop erover.
+    pub discs: usize,
+
     /// Wat er aan de invoer van de gedeelde velden mankeert; leeg wanneer alles
     /// klopt. Wat er aan een rij mankeert, staat bij die rij.
     pub problems: Vec<String>,
@@ -2165,6 +2193,52 @@ impl AlbumPage {
     /// Of er iets geselecteerd is.
     pub fn has_selection(&self) -> bool {
         self.selected > 0
+    }
+
+    /// Wat er boven de lijst staat: de stand van de selectie, en hoeveel
+    /// schijven de map kent.
+    ///
+    /// Het aantal schijven staat er alleen bij wanneer de map er heeft; "0
+    /// schijven" is geen mededeling maar ruis. De telling zelf staat er altijd,
+    /// ook op nul: dat is de vraag die je boven een lijst met vinkjes stelt.
+    pub fn selection_summary(&self) -> String {
+        if self.total == 0 {
+            return "Deze map bevat geen bewerkbare bestanden.".to_string();
+        }
+
+        let selectie = format!(
+            "{} van {} bestanden geselecteerd",
+            self.selected, self.total
+        );
+
+        match self.discs {
+            0 => selectie,
+            1 => format!("{selectie} · 1 schijf"),
+            count => format!("{selectie} · {count} schijven"),
+        }
+    }
+
+    /// De gedeelde velden, gegroepeerd tot de regels waarop ze staan.
+    ///
+    /// Een kort veld deelt zijn regel met de korte velden ernaast; een breed
+    /// veld krijgt er zelf een. De groepering volgt de volgorde van
+    /// [`SharedField::ALL`] en zit hier en niet in de template, zodat er een
+    /// test op te schrijven is.
+    pub fn field_rows(&self) -> Vec<Vec<&SharedInput>> {
+        let mut rows: Vec<Vec<&SharedInput>> = Vec::new();
+
+        for field in &self.fields {
+            match rows.last_mut() {
+                // Twee korte velden naast elkaar; alles wat breed is, begint een
+                // nieuwe regel en sluit de vorige af.
+                Some(row) if field.compact && row.iter().all(|other| other.compact) => {
+                    row.push(field);
+                }
+                _ => rows.push(vec![field]),
+            }
+        }
+
+        rows
     }
 
     /// Of er ook maar één veld iets zou doen.
@@ -2307,6 +2381,7 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
                 value: form.value(field).to_string(),
                 cleared: form.is_cleared(field),
                 numeric: field.is_numeric(),
+                compact: field.is_compact(),
                 current: Current::of(field, &chosen),
                 effect,
             }
@@ -2325,6 +2400,11 @@ pub fn album(listing: &Listing, form: &Form) -> AlbumPage {
         back_url: listing.url.clone(),
         selected: chosen.len(),
         total: rows.len(),
+        discs: listing
+            .groups
+            .iter()
+            .filter(|group| group.disc.is_some())
+            .count(),
         rows,
         columns: RowField::ALL
             .into_iter()
@@ -4297,5 +4377,93 @@ mod tests {
             heading_of(&page, "een.mp3").summary,
             "2 bestanden, 1 vraagt aandacht"
         );
+    }
+
+    /// AC #3: de korte velden staan bij elkaar op één regel, de brede alleen.
+    ///
+    /// De groepering hoort hier en niet in de template, juist zodat er iets
+    /// over te zeggen valt zonder de HTML te lezen.
+    #[test]
+    fn the_short_shared_fields_are_grouped_into_one_row() {
+        let page = album(&album_with_two_albums(), &Form::select_all());
+
+        let namen: Vec<Vec<&str>> = page
+            .field_rows()
+            .iter()
+            .map(|rij| rij.iter().map(|veld| veld.name.as_str()).collect())
+            .collect();
+
+        assert_eq!(
+            namen,
+            vec![
+                vec!["album_artist"],
+                vec!["album"],
+                vec!["year", "disc", "disc_total"],
+                vec!["genre"],
+            ]
+        );
+
+        // Elk veld staat precies één keer in de groepering; de platte lijst en
+        // de regels eronder kunnen dus niet uiteenlopen.
+        assert_eq!(
+            page.field_rows().iter().map(Vec::len).sum::<usize>(),
+            page.fields.len()
+        );
+    }
+
+    /// AC #5: wat er boven de lijst staat.
+    #[test]
+    fn the_heading_above_the_list_counts_the_selection_and_the_discs() {
+        // Twee schijven, en één bestand dat bij geen van beide hoort: dat
+        // laatste telt niet als schijf, want juist daarvan is niet te zeggen
+        // bij welke het hoort.
+        let listing = listing_of(vec![
+            track("een.mp3", Some("Album"), Some(1)),
+            track("twee.mp3", Some("Album"), Some(2)),
+            track("drie.mp3", Some("Album"), None),
+        ]);
+
+        let page = album(&listing, &Form::select_all());
+        assert_eq!(page.discs, 2);
+        assert_eq!(
+            page.selection_summary(),
+            "3 van 3 bestanden geselecteerd · 2 schijven"
+        );
+
+        // De telling volgt de selectie en niet de map.
+        let page = album(&listing, &Form::parse("bestand=een.mp3"));
+        assert_eq!(
+            page.selection_summary(),
+            "1 van 3 bestanden geselecteerd · 2 schijven"
+        );
+    }
+
+    /// Zonder discnummers zwijgt de kop over schijven.
+    #[test]
+    fn a_directory_without_disc_numbers_says_nothing_about_discs() {
+        let listing = listing_of(vec![
+            track("een.mp3", Some("Album"), None),
+            track("twee.mp3", Some("Album"), None),
+        ]);
+
+        let page = album(&listing, &Form::select_all());
+        assert_eq!(page.discs, 0);
+        assert_eq!(page.selection_summary(), "2 van 2 bestanden geselecteerd");
+    }
+
+    /// Een lege map heeft niets te tellen en zegt waarom.
+    #[test]
+    fn an_empty_directory_says_there_is_nothing_to_edit() {
+        let page = album(&listing_of(Vec::new()), &Form::select_all());
+
+        assert_eq!(page.total, 0);
+        assert_eq!(
+            page.selection_summary(),
+            "Deze map bevat geen bewerkbare bestanden."
+        );
+        // De velden bestaan wel, maar er is niets om ze op toe te passen; de
+        // template laat het paneel dan ook weg.
+        assert!(!page.has_selection());
+        assert!(!page.changes_anything());
     }
 }

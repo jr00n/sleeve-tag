@@ -296,7 +296,7 @@ podman build --platform linux/amd64 -t sleeve-tag:dev .
 | `atomic` | De schrijfstrategie: de inhoud van een bestand vervangen zonder het kwijt te raken, en als enige uitzondering een nieuw bestand neerzetten (`cover.jpg`) |
 | `browse` | Weergavemodel van één map: paden en tags samengebracht tot wat de templates tonen |
 | `edit` | Het bewerkformulier: vertaling tussen het tagmodel en de tekst in een formulier |
-| `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand, de hulpacties en het hoespaneel ernaast |
+| `batch` | De albumweergave: een selectie bestanden, de gedeelde velden, de overrides per bestand, de hulpacties en de hoes — samen het bewerkpaneel naast de lijst |
 | `casing` | Hoofdlettergebruik van een tagwaarde normaliseren; kent geen tags en geen bestanden |
 | `naming` | De titel lezen die in een bestandsnaam staat; kent geen tags en geen bestanden |
 | `cover` | De hoespagina van één bestand: formaat, afmetingen en grootte als leesbare tekst, en wat een upload opleverde |
@@ -381,6 +381,11 @@ Twee dingen die daaruit volgen en er anders uitzien dan gewoonlijk: een knop is
 een omlijning en geen gevuld vlak — ook de primaire, die zich onderscheidt door
 de accentkleur en niet doordat hij is ingekleurd — en een scheidingsregel vloeit
 aan beide uiteinden uit in plaats van er droog af te breken.
+
+In de kopbalk staat naast de naam wat over de hele lijst gaat en niet over één
+bestand: het zoekveld en de knop voor wat aandacht vraagt, met de
+licht/donker-schakelaar rechts. Op een smal scherm vallen die onderdelen onder
+elkaar in plaats van te krimpen tot ze onleesbaar zijn.
 
 Sleeve heeft een donkere en een lichte weergave. De kopbalk biedt de keuze en
 onthoudt hem in de browser (`localStorage`); zolang er geen keuze is gemaakt,
@@ -530,12 +535,54 @@ relatief aan `MUSIC_ROOT` — het absolute pad van de NAS komt niet in de
 interface of in een link terecht. Boven de wortel navigeren kan niet: `fs::`
 weigert zo'n pad met een 403.
 
-Per map worden de submappen getoond en de bestanden waarvan de tags te lezen
-zijn, met tracknummer, titel, artiest, album, duur en formaat. Bestanden worden
-gesorteerd op het tracknummer uit de tags, met de bestandsnaam als terugval
-wanneer een tracknummer ontbreekt; bestanden zonder nummer staan achteraan. Dat
-beantwoordt het open punt over sortering uit PRD §12. Het discnummer gaat daar
-nog vóór, zodat de schijven van een set niet door elkaar staan.
+Per map worden de submappen getoond als kaarten, en de bestanden waarvan de tags
+te lezen zijn als tabel. Bestanden worden gesorteerd op het tracknummer uit de
+tags, met de bestandsnaam als terugval wanneer een tracknummer ontbreekt;
+bestanden zonder nummer staan achteraan. Dat beantwoordt het open punt over
+sortering uit PRD §12. Het discnummer gaat daar nog vóór, zodat de schijven van
+een set niet door elkaar staan.
+
+### De bestanden als tabel
+
+Naast de mapnaam staat wat er in de lijst staat: hoeveel bestanden, en hoeveel
+schijven wanneer de map discnummers kent. Daaronder de tabel, met tien kolommen
+in deze volgorde:
+
+| Kolom | Wat er staat |
+|---|---|
+| `#` | het tracknummer; leeg wanneer het ontbreekt |
+| `Disc` | het discnummer; leeg wanneer het ontbreekt |
+| `Hoes` | de embedded art als thumbnail van veertig pixels, of een placeholder |
+| `Titel` | de titel, met daaronder de bestandsnaam en de signaleringen |
+| `Artiest` | de artiest |
+| `Album` | het album |
+| `Jaar` | het jaar zoals het in het bestand staat — tekst, dus een volledige datum blijft staan |
+| `Genre` | het genre |
+| `Lengte` | de speelduur |
+| `Formaat` | `MP3` of `FLAC` |
+
+Het ontwerp kent die laatste kolom niet; FR-2 noemt het formaat wél als een van
+de belangrijkste velden, dus staat hij erbij — achteraan, waar hij de volgorde
+van het ontwerp niet doorbreekt. Een ontbrekend veld krijgt een streepje,
+behalve in de twee getalkolommen: daar zou een streepje per regel meer ruis dan
+informatie zijn.
+
+De titel is de link naar het bewerkformulier van dat ene bestand. Alle waarden
+komen uit dezelfde leesronde die de lijst toch al doet — er gaat geen bestand
+extra open om de tabel te kunnen tonen.
+
+Alleen deze pagina neemt de volle breedte van het scherm; een tabel van tien
+kolommen in een leeskolom van 960 pixels zou het vergelijken per kolom juist
+onmogelijk maken. De tekstblokken op die pagina — de signalering en de uitleg
+bij een lege lijst — houden wél hun leesbreedte. Past de tabel niet, dan scrolt
+hij horizontaal binnen zijn eigen omhulsel en niet met de pagina mee; de
+titelkolom blijft daarbij staan, zodat altijd te zien is over welk bestand een
+rij het heeft.
+
+Er staat geen vinkje voor de regels. Het ontwerp zet die kolom er wel, maar
+selecteren hoort bij de albumweergave, en die blijft een eigen scherm: kijken en
+bewerken zijn in Sleeve twee pagina's, waar het ontwerp er één van maakt. Een
+vinkje dat nergens heen post zou een knop zijn die niets doet.
 
 ### Groepen per schijf
 
@@ -543,7 +590,8 @@ Een dubbel-cd is één map, en in één doorlopende lijst is niet te zien waar d
 ene schijf ophoudt en de volgende begint. De bestandslijst valt daarom uiteen in
 groepen op discnummer, met een kop per groep: "Schijf 1", "Schijf 2", en
 achteraan "Zonder discnummer" voor wat daarbuiten valt — die bestanden krijgen
-geen verzonnen nummer, want bij welke schijf ze horen valt niet te zeggen.
+geen verzonnen nummer, want bij welke schijf ze horen valt niet te zeggen. De
+kop is een eigen rij in de tabel, in beide weergaven dezelfde.
 
 De kop noemt hoeveel bestanden de groep telt en hoeveel daarvan aandacht vragen.
 Dat laatste is hetzelfde oordeel als de labels bij de regels zelf; vraagt er
@@ -564,13 +612,22 @@ renderen; de templates tellen en sorteren niets. Discnummers zelf **invullen**
 is iets anders en gebeurt met de hulpacties in de albumweergave — deze weergave
 toont alleen wat er staat.
 
-Het zoekveld filtert binnen de huidige map op bestandsnaam of titel, en op de
-naam van submappen. Met JavaScript ververst HTMX tijdens het typen alleen de
-lijst (de server geeft dan het fragment `templates/listing.html` terug, herkend
-aan de `HX-Request`-header); zonder JavaScript is het een gewone GET naar
-dezelfde URL met `?q=`, met hetzelfde resultaat als hele pagina. Naast het
-zoekveld staat het filter op wat aandacht vraagt; die twee werken samen en zijn
+Het zoekveld staat in de kopbalk en filtert binnen de huidige map op
+bestandsnaam of titel, en op de naam van submappen. Het draagt het vergrootglas
+in het veld en geen zichtbaar label ernaast — voorlezen doet het wel — en het
+groeit mee met de kopbalk tot 380px. Met JavaScript ververst HTMX tijdens het
+typen alleen de lijst (de server geeft dan het fragment `templates/listing.html`
+terug, herkend aan de `HX-Request`-header); zonder JavaScript is het een gewone
+GET naar dezelfde URL met `?q=`, met hetzelfde resultaat als hele pagina. Er
+staat geen zoekknop naast: één tekstveld betekent dat Enter het formulier
+verstuurt, ook zonder script. Naast het zoekveld staat het filter op wat
+aandacht vraagt; die twee werken samen en zijn
 [hieronder](#filteren-op-wat-aandacht-vraagt) beschreven.
+
+Beide staan in de kopbalk en nergens anders: `templates/directory.html` is de
+enige template die het blok `kopbalk` van `base.html` vult. Een pagina zonder
+maplijst — bewerken, de hoes, de voorbeeldweergave — houdt daarom een kopbalk
+met alleen de naam en de licht/donker-schakelaar.
 
 Er is bewust geen bibliotheek-index: de tags worden per map gelezen op het moment
 dat de pagina wordt opgevraagd. Dat lezen is blokkerende I/O en gebeurt daarom in
@@ -644,8 +701,9 @@ De lijst wijst zelf aan waar iets mis is, zodat je niet elk bestand hoeft te
 openen om dat te ontdekken. Dit is **puur informatief**: Sleeve past nooit
 ongevraagd iets aan.
 
-Per bestand verschijnt een label bij een ontbrekende titel, artiest, album of
-hoes, en bij een ontbrekend of dubbel tracknummer. Boven de lijst staat wat er
+Onder de titel van een bestand verschijnt een label bij een ontbrekende titel,
+artiest, album of hoes, en bij een ontbrekend of dubbel tracknummer — in
+dezelfde cel als de bestandsnaam. Boven de tabel staat wat er
 tussen de bestanden onderling niet klopt: meer dan één albumtitel, albumartiest
 of jaartal in dezelfde map, hoeveel bestanden geen tracknummer hebben, en welke
 tracknummers meer dan eens voorkomen.
@@ -660,12 +718,13 @@ aan de map verandert niets doordat je zoekt.
 
 #### Filteren op wat aandacht vraagt
 
-Boven de lijst staat hoeveel bestanden in deze map ten minste één signalering
+In de kopbalk staat hoeveel bestanden in deze map ten minste één signalering
 hebben. Die knop zet het filter aan: dan blijven alleen die bestanden over. Nog
-een klik zet de lijst terug; de knop laat met een vulling en met tekst zien
-welke van de twee standen geldt. Staat er niets te melden, dan staat er geen
-knop maar het bericht dat er niets aandacht vraagt — een knop naar een lege
-lijst is een doodlopend spoor.
+een klik zet de lijst terug; de knop laat met een vulling, met een teken —
+een stip als het filter uit staat, een vinkje als het aan staat — en met
+voorleesbare tekst zien welke van de twee standen geldt. Staat er niets te
+melden, dan staat er geen knop maar het bericht dat er niets aandacht vraagt —
+een knop naar een lege lijst is een doodlopend spoor.
 
 De stand staat in de URL als `?aandacht=1`, naast een eventuele `?q=`:
 
@@ -719,6 +778,39 @@ Bij het openen is alles geselecteerd; met "Alles selecteren" en "Niets
 selecteren" is dat in één klik terug te zetten. De selectie, de ingevulde velden
 en de wissen-vinkjes zitten in één formulier en gaan samen mee met elk verzoek.
 Het aanpassen van de selectie laat de invoer dus staan, en andersom.
+
+#### Kijken en bewerken naast elkaar
+
+De pagina bestaat uit twee kolommen. Links een **bewerkpaneel** van hoogstens
+420 pixels met drie onderdelen onder elkaar: de hoes van de selectie, de
+gedeelde velden, en daaronder de hulpacties met een eigen kopje. Rechts, met de
+rest van de breedte, de bestandslijst, met daarboven de mapnaam, hoeveel van de
+map er geselecteerd staat en uit hoeveel schijven ze bestaat — met "Alles
+selecteren" en "Niets selecteren" ernaast. Onderaan loopt de balk over beide
+kolommen heen.
+
+Dat is de indeling die het ontwerp aanhoudt, en ze lost op wat er eerder mis
+mee was: de gedeelde velden stonden als blok ónder de tabel, en de acht
+hulpactieknoppen erbóven. Op een scherm van 1440 bij 900 begon de tabel daardoor
+pas op tweederde van de hoogte, en waren de velden waarmee je hem vult niet in
+beeld. Nu staan de invoer en het resultaat naast elkaar: je ziet wat je intikt
+en wat het met de lijst doet, zonder te scrollen.
+
+De **lijst staat eerst in de HTML** en het paneel erna. Op een smal scherm — en
+zonder stylesheet — is dat ook de volgorde waarin ze onder elkaar komen: eerst
+de lijst, dan het paneel eronder. Dat het paneel op een breed scherm links komt
+te staan, doet het grid met `grid-column`; de HTML zegt daar niets over. Zo kan
+het paneel de lijst nooit wegduwen: de paneelkolom is aan een maximum gebonden
+en groeit niet mee, en de lijstkolom krijgt wat er overblijft.
+
+Wat er per veld bij het opslaan zou gebeuren, staat onderaan hetzelfde paneel —
+bij de velden waar het over gaat.
+
+Eén afwijking van het ontwerp: dat zet tracknummer, disc, discs én jaar naast
+elkaar in het paneel. Sleeve kent geen gedeeld tracknummer, want dat verschilt
+per bestand en wordt in de tabel zelf ingetikt; een gedeeld tracknummer zou elk
+geselecteerd bestand hetzelfde nummer geven, en daar is "Hernummeren" al voor.
+Naast elkaar staan daarom jaar, discnummer en aantal discs.
 
 Het invoerveld wordt **nooit voorgevuld** met de huidige waarde. Daardoor
 betekent leeg altijd hetzelfde: dit veld blijft in elk bestand zoals het is.
@@ -823,7 +915,7 @@ geen afkorting maar geschreeuw, en wordt wél omgezet.
 
 #### De hoes naast de lijst
 
-Terwijl je de tabel invult, staat rechts ernaast **welke hoes er in de
+Terwijl je de tabel invult, staat bovenin het bewerkpaneel **welke hoes er in de
 aangevinkte bestanden zit**: de afbeelding, met formaat, afmetingen en omvang
 eronder — "JPEG · 300 × 300 pixels · 1,3 kB". Op een smal scherm valt het paneel
 onder de tabel; de tabel houdt zijn eigen scrollcontainer en wordt er nergens

@@ -2,36 +2,36 @@
 
 {% block title %}{{ listing.name }} — Sleeve{% endblock %}
 
-{% block inhoud %}
-<nav class="kruimels" aria-label="Broodkruimelpad">
-  {% for crumb in listing.crumbs %}
-    {%- if loop.last -%}
-      <span class="kruimels__huidig" aria-current="page">{{ crumb.name }}</span>
-    {%- else -%}
-      <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
-      <span class="kruimels__scheiding" aria-hidden="true">/</span>
-    {%- endif -%}
-  {% endfor %}
-</nav>
-
-<h1 class="maptitel">{{ listing.name }}</h1>
+{% block kopbalk %}
+{# Zoeken en filteren staan in de kopbalk en niet in de pagina: het zijn de twee
+   dingen die over de hele lijst gaan, en ze horen dus boven die lijst te staan
+   in plaats van hem naar beneden te duwen. Ze staan alleen hier — een pagina
+   zonder maplijst vult dit blok niet en houdt een kopbalk zonder zoekveld. #}
 
 {# Zonder JavaScript is dit een gewone GET naar dezelfde URL en komt dezelfde
-   lijst terug, alleen als hele pagina. Met HTMX wordt tijdens het typen
-   uitsluitend de lijst ververst. #}
-<form class="zoek" method="get" action="{{ listing.url }}"
+   lijst terug, alleen als hele pagina. Er staat geen knop naast: één tekstveld
+   betekent dat Enter het formulier verstuurt, ook zonder script. Met HTMX wordt
+   tijdens het typen uitsluitend de lijst ververst — `#maplijst` staat in de
+   pagina en niet in dit blok, maar een id geldt over het hele document. #}
+<form class="kop__zoek" method="get" action="{{ listing.url }}" role="search"
       hx-get="{{ listing.url }}"
       hx-target="#maplijst"
       hx-swap="innerHTML"
       hx-trigger="input changed delay:250ms, submit"
       hx-push-url="true">
-  <label class="zoek__label" for="q">Zoeken in deze map</label>
-  <span class="zoek__regel">
-    <input class="zoek__veld" id="q" name="q" type="search"
+  {# Het label staat er wel, maar niet in beeld: het pictogram en de
+     placeholder zeggen het al, en een voorleesbaar veld hoort een naam te
+     hebben. #}
+  <label class="kop__zoeklabel" for="q">Zoeken in deze map</label>
+  <span class="kop__zoekregel">
+    <svg class="kop__zoekicoon" viewBox="0 0 16 16" aria-hidden="true" focusable="false">
+      <circle cx="7" cy="7" r="4.5" fill="none" stroke="currentColor" stroke-width="1.6" />
+      <path d="M10.4 10.4 14 14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" />
+    </svg>
+    <input class="kop__zoekveld" id="q" name="q" type="search"
            value="{{ listing.query }}"
-           placeholder="Bestandsnaam of titel"
+           placeholder="Zoeken in deze map"
            autocomplete="off" />
-    <button class="zoek__knop" type="submit">Zoek</button>
   </span>
   {# Het aandachtsfilter reist mee met het zoeken. Zonder dit veld zou een
      zoekopdracht het filter stilzwijgend uitzetten; de twee versmallen samen. #}
@@ -45,28 +45,56 @@
    JavaScript een werkende schakelaar, en de stand staat in de URL zodat een
    gefilterde lijst te delen en te bookmarken is. #}
 {% if listing.has_flagged() || listing.only_flagged %}
-<p class="mapfilter">
-  <a class="filterknop{% if listing.only_flagged %} filterknop--aan{% endif %}"
-     href="{{ listing.attention_url() }}">
-    {%- if listing.only_flagged %}<span class="filterknop__vink" aria-hidden="true">✓</span>{% endif -%}
-    <span class="filterknop__naam">Vraagt aandacht</span>
-    <span class="filterknop__telling">{{ listing.flagged_count }}</span>
-    {# De stand staat er ook in woorden bij: een kleur alleen is geen boodschap
-       voor wie de pagina laat voorlezen. #}
-    <span class="filterknop__stand">
-      {%- if listing.only_flagged -%}
-        filter staat aan — toon weer alles
-      {%- else -%}
-        filter staat uit — toon alleen deze
-      {%- endif -%}
-    </span>
-  </a>
-</p>
+<a class="filterknop{% if listing.only_flagged %} filterknop--aan{% endif %}"
+   href="{{ listing.attention_url() }}">
+  {# Dezelfde plek in beide standen: een stip wanneer het filter uit staat, een
+     vinkje wanneer het aan staat. Zo verschuift er niets bij het schakelen, en
+     is de stand ook zonder kleurverschil te zien. #}
+  <span class="filterknop__stip" aria-hidden="true">
+    {%- if listing.only_flagged %}✓{% else %}●{% endif -%}
+  </span>
+  <span class="filterknop__naam">Vraagt aandacht</span>
+  <span class="filterknop__telling">{{ listing.flagged_count }}</span>
+  {# De stand staat er ook in woorden bij: een kleur alleen is geen boodschap
+     voor wie de pagina laat voorlezen. #}
+  <span class="filterknop__stand">
+    {%- if listing.only_flagged -%}
+      filter staat aan — toon weer alles
+    {%- else -%}
+      filter staat uit — toon alleen deze
+    {%- endif -%}
+  </span>
+</a>
 {% else if !listing.tracks.is_empty() %}
-<p class="mapfilter">
-  <span class="mapfilter__schoon">Niets in deze map vraagt aandacht.</span>
-</p>
+<span class="kop__schoon">Niets in deze map vraagt aandacht.</span>
 {% endif %}
+{% endblock %}
+
+{# De tabel met tien kolommen krijgt de breedte van het scherm; de tekstblokken
+   erin houden hun eigen leesbreedte. #}
+{% block inhoudbreedte %} inhoud--breed{% endblock %}
+
+{% block inhoud %}
+<nav class="kruimels" aria-label="Broodkruimelpad">
+  {% for crumb in listing.crumbs %}
+    {%- if loop.last -%}
+      <span class="kruimels__huidig" aria-current="page">{{ crumb.name }}</span>
+    {%- else -%}
+      <a class="kruimels__stap" href="{{ crumb.url }}">{{ crumb.name }}</a>
+      <span class="kruimels__scheiding" aria-hidden="true">/</span>
+    {%- endif -%}
+  {% endfor %}
+</nav>
+
+<div class="mapkop">
+  <h1 class="maptitel">{{ listing.name }}</h1>
+  {# Wat er in de lijst staat, naast de naam: hoeveel bestanden, en hoeveel
+     schijven wanneer de map er kent. Het telt de lijst zoals hij op het scherm
+     staat; wat aandacht vraagt gaat over de hele map en staat in de kopbalk. #}
+  {% if let Some(summary) = listing.summary_label() %}
+  <p class="mapkop__telling">{{ summary }}</p>
+  {% endif %}
+</div>
 
 {# De ingang naar de albumweergave (FR-8). Alleen wanneer er iets te bewerken
    valt: op een map met louter submappen is de knop een doodlopend spoor. #}

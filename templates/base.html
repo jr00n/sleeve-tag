@@ -48,6 +48,8 @@
       </div>
     </header>
 
-    <main class="inhoud">{% block inhoud %}{% endblock %}</main>
+    {# De breedte van de inhoud hoort bij de pagina: een tabel wil de volle
+       breedte, een formulier of een lap tekst juist een leeskolom. #}
+    <main class="inhoud{% block inhoudbreedte %}{% endblock %}">{% block inhoud %}{% endblock %}</main>
   </body>
 </html>

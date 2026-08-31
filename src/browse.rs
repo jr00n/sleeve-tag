@@ -267,6 +267,31 @@ impl TrackSummary {
     pub fn album_label(&self) -> &str {
         self.tags.album.as_deref().unwrap_or(MISSING)
     }
+
+    /// Het discnummer, of een lege tekst wanneer het ontbreekt.
+    ///
+    /// Leeg en niet `—`, om dezelfde reden als bij het tracknummer: in een
+    /// smalle getalkolom is een streepje per regel meer ruis dan informatie.
+    /// Een map zonder discnummers houdt zo een lege kolom in plaats van een
+    /// kolom vol streepjes.
+    pub fn disc_label(&self) -> String {
+        self.tags
+            .disc
+            .map(|number| number.to_string())
+            .unwrap_or_default()
+    }
+
+    /// Het jaar zoals het in het bestand staat, of een streepje.
+    ///
+    /// Niet als getal: in het tagmodel is dit tekst, omdat ID3v2.4 en Vorbis er
+    /// een volledige datum in kunnen zetten. Wat er staat, staat er.
+    pub fn year_label(&self) -> &str {
+        self.tags.year.as_deref().unwrap_or(MISSING)
+    }
+
+    pub fn genre_label(&self) -> &str {
+        self.tags.genre.as_deref().unwrap_or(MISSING)
+    }
 }
 
 /// Eén schijf uit de bestandslijst.
@@ -452,6 +477,47 @@ impl Listing {
         } else {
             format!("{}?{}", self.url, params.join("&"))
         }
+    }
+
+    /// Wat er in deze lijst staat, in één regel naast de mapnaam.
+    ///
+    /// Hoeveel bestanden er te zien zijn, en — alleen wanneer er discnummers
+    /// in de map staan — hoeveel schijven dat zijn. Het gaat over de lijst
+    /// zoals hij op het scherm komt, dus over wat er na het filteren overblijft;
+    /// dat is wat je eronder telt. De telling van wat aandacht vraagt is iets
+    /// anders: die hoort bij de map en staat in de kopbalk.
+    ///
+    /// `None` wanneer er geen bestanden zijn: dan staat er al een uitleg
+    /// waarom de lijst leeg is, en "0 bestanden" naast de mapnaam voegt daar
+    /// niets aan toe.
+    pub fn summary_label(&self) -> Option<String> {
+        if self.tracks.is_empty() {
+            return None;
+        }
+
+        let files = match self.tracks.len() {
+            1 => "1 bestand".to_string(),
+            count => format!("{count} bestanden"),
+        };
+
+        if !self.is_grouped() {
+            return Some(files);
+        }
+
+        // De groep bestanden zónder discnummer telt niet als schijf: van die
+        // bestanden is juist niet te zeggen bij welke schijf ze horen.
+        let numbered = self
+            .groups
+            .iter()
+            .filter(|group| group.disc.is_some())
+            .count();
+
+        let discs = match numbered {
+            1 => "1 schijf".to_string(),
+            count => format!("{count} schijven"),
+        };
+
+        Some(format!("{files} · {discs}"))
     }
 }
 
@@ -1665,6 +1731,66 @@ mod tests {
             Some(NO_DISC.to_string())
         );
         assert!(listing.group_starting_at(2).is_none());
+    }
+
+    #[test]
+    fn the_table_labels_show_what_is_there_and_mark_what_is_not() {
+        // De tabel toont jaar, genre en disc in eigen kolommen. Wat ontbreekt
+        // wordt gemarkeerd — behalve in de getalkolom, want een streepje per
+        // regel is daar meer ruis dan informatie.
+        let leeg = summary("kaal.mp3", None, None, Vec::new());
+
+        assert_eq!(leeg.disc_label(), "");
+        assert_eq!(leeg.year_label(), MISSING);
+        assert_eq!(leeg.genre_label(), MISSING);
+
+        let mut gevuld = summary("vol.mp3", Some(2), Some(1), Vec::new());
+        gevuld.tags.year = Some("1998-04-13".to_string());
+        gevuld.tags.genre = Some("Jazz".to_string());
+
+        assert_eq!(gevuld.disc_label(), "2");
+        assert_eq!(
+            gevuld.year_label(),
+            "1998-04-13",
+            "het jaar is tekst en geen getal: een volledige datum blijft staan"
+        );
+        assert_eq!(gevuld.genre_label(), "Jazz");
+    }
+
+    #[test]
+    fn the_summary_beside_the_name_counts_files_and_discs() {
+        // Zonder discnummers staat er alleen een bestandstelling: het aantal
+        // schijven melden in een map die er geen kent, is ruis.
+        let (_tempdir, library) = library_with_album();
+        place(&library, "een.mp3", testfixtures::MP3_WITHOUT_TAGS);
+        place(&library, "twee.flac", testfixtures::FLAC_WITHOUT_TAGS);
+
+        let listing = album_listing(&library, "");
+        assert!(!listing.is_grouped());
+        assert_eq!(listing.summary_label().as_deref(), Some("2 bestanden"));
+
+        // Met een discnummer erbij komt het aantal schijven ernaast te staan.
+        // De groep zonder discnummer telt daar niet in mee: van die bestanden
+        // is juist niet te zeggen bij welke schijf ze horen.
+        place(&library, "getagd.mp3", testfixtures::MP3_WITH_TAGS);
+
+        let listing = album_listing(&library, "");
+        assert!(listing.is_grouped());
+        assert_eq!(
+            listing.groups.len(),
+            2,
+            "de kale bestanden vormen een groep"
+        );
+        assert_eq!(
+            listing.summary_label().as_deref(),
+            Some("3 bestanden · 1 schijf")
+        );
+
+        // Een lege lijst zegt niets: daar staat al een uitleg waarom hij leeg
+        // is, en "0 bestanden" voegt daar niets aan toe.
+        let leeg = album_listing(&library, "bestaatniet");
+        assert!(leeg.tracks.is_empty());
+        assert_eq!(leeg.summary_label(), None);
     }
 
     #[test]

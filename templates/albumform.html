@@ -1,8 +1,16 @@
 {# De albumweergave: een selectie bestanden en de velden die ze delen (FR-8).
 
+   Kijken en bewerken staan hier naast elkaar. Links het bewerkpaneel — de hoes,
+   de gedeelde velden en de hulpacties, in die volgorde — en rechts de lijst met
+   daarboven de mapnaam en de stand van de selectie. De lijst krijgt de breedte;
+   het paneel is gebonden aan een vaste maximumbreedte. Op een smal scherm valt
+   het paneel onder de lijst: de tabel staat daarom eerst in de DOM en wordt op
+   een breed scherm door het grid naar rechts gezet.
+
    Dit is één formulier, en dat is met opzet: de selectie, de gedeelde velden en
    de wissen-vinkjes gaan samen mee met elke POST, dus het bijwerken van het een
-   laat het ander staan.
+   laat het ander staan. Dat de twee kolommen één formulier delen, is precies
+   waarom ze naast elkaar kúnnen staan.
 
    Zonder JavaScript zijn de knoppen gewone submitknoppen en komt de hele pagina
    terug. Met HTMX post een vinkje hetzelfde formulier en wordt alleen dit blok
@@ -28,58 +36,43 @@
   </ul>
   {% endif %}
 
-  <div class="batch__selectie">
-    <p class="batch__telling" role="status">
-      {% if page.total == 0 %}
-      Deze map bevat geen bewerkbare bestanden.
-      {% else %}
-      {{ page.selected }} van {{ page.total }} bestanden geselecteerd.
-      {% endif %}
-    </p>
+  {% if page.total == 0 %}
+  <h1 class="maptitel">{{ page.name }}</h1>
+  <p class="batch__telling" role="status">{{ page.selection_summary() }}</p>
+  {% else %}
 
-    {% if page.total > 0 %}
-    <span class="batch__knoppen">
-      <button class="knop" type="submit" name="actie" value="alles">Alles selecteren</button>
-      <button class="knop" type="submit" name="actie" value="niets">Niets selecteren</button>
-    </span>
+  {# Wat er aan de invoer mankeert, staat boven de twee kolommen: het gaat over
+     het formulier als geheel, en een melding in één kolom zou in de andere
+     buiten beeld kunnen vallen. Wat er aan één rij of één veld mankeert, staat
+     nog steeds bij die rij of dat veld zelf. #}
+  {% if !page.problems.is_empty() || page.has_row_problems() %}
+  <div class="melding melding--fout" role="status">
+    {% for problem in page.problems %}
+    <p class="melding__regel">{{ problem }}</p>
+    {% endfor %}
+    {% if page.has_row_problems() %}
+    <p class="melding__regel">Eén of meer rijen in de tabel zijn zo niet op te slaan; de melding staat bij de rij zelf.</p>
     {% endif %}
   </div>
-
-  {% if page.total > 0 %}
-  {# Hulpacties (FR-10). Ze vullen uitsluitend de invoervelden hieronder; er
-     wordt niets geschreven, en "Invoer leegmaken" draait ze in één klik terug. #}
-  <div class="hulpacties">
-    <span class="hulpacties__kop">Hulpacties</span>
-    <span class="batch__knoppen">
-      <button class="knop" type="submit" name="actie" value="hernummer">Hernummeren</button>
-      <button class="knop" type="submit" name="actie" value="hernummer-disc">Hernummeren per schijf</button>
-      {# Het nummer staat in het opschrift: wat er gaat gebeuren hoort te lezen
-         te zijn voordat er geklikt wordt. #}
-      <button class="knop" type="submit" name="actie" value="disc">Deze schijf nummer {{ page.disc_suggestion }} geven</button>
-      <button class="knop" type="submit" name="actie" value="disctotaal">Disctotalen invullen</button>
-      <button class="knop" type="submit" name="actie" value="titelnaam">Titel uit bestandsnaam</button>
-      <button class="knop" type="submit" name="actie" value="artiest">Artiest → albumartiest</button>
-      <button class="knop" type="submit" name="actie" value="hoofdletters">Hoofdletters normaliseren</button>
-      <button class="knop" type="submit" name="actie" value="herstel">Invoer leegmaken</button>
-    </span>
-  </div>
-
-  {% if let Some(notice) = page.helper_notice %}
-  <div class="melding melding--goed" role="status">
-    <p class="melding__regel">{{ notice }}</p>
-    <p class="melding__regel">
-      Een hulpactie vult alleen de velden hieronder. Er is niets opgeslagen; pas
-      ze gerust met de hand aan, of maak de invoer weer leeg.
-    </p>
-  </div>
-  {% endif %}
   {% endif %}
 
-  {% if page.total > 0 %}
-  {# De lijst en de hoes die in die bestanden zit, naast elkaar. Op een smal
-     scherm valt het paneel onder de tabel; de tabel houdt zijn eigen breedte en
-     wordt er nergens door weggedrukt. #}
   <div class="albumlayout">
+
+  {# ── Rechts: de bestandslijst ─────────────────────────────────────────── #}
+  <div class="albumlayout__lijst">
+
+    {# De kop boven de lijst: waar je bent, hoeveel er van de map geselecteerd
+       staat en uit hoeveel schijven die bestaat. De twee knoppen die de hele
+       selectie zetten, staan ernaast — ze gaan over deze lijst en niet over
+       één bestand. #}
+    <div class="lijstkop">
+      <h1 class="lijstkop__naam">{{ page.name }}</h1>
+      <p class="lijstkop__telling" role="status">{{ page.selection_summary() }}</p>
+      <span class="batch__knoppen">
+        <button class="knop" type="submit" name="actie" value="alles">Alles selecteren</button>
+        <button class="knop" type="submit" name="actie" value="niets">Niets selecteren</button>
+      </span>
+    </div>
 
   {# De tabel is breder dan een telefoon; hij scrollt binnen dit omhulsel en
      niet met de hele pagina mee. #}
@@ -166,7 +159,16 @@
     </table>
   </div>
 
-  {# De hoes van de selectie, naast de lijst (FR-12).
+  </div>
+
+  {# ── Links: het bewerkpaneel ──────────────────────────────────────────────
+     De hoes, de gedeelde velden en de hulpacties onder elkaar, in de volgorde
+     van het ontwerp. Alle drie stellen ze alleen voor: er wordt in dit paneel
+     niets geschreven, en de weg naar het schrijven loopt onderaan langs de
+     voorbeeldweergave. #}
+  <aside class="editor" aria-label="De selectie bewerken">
+
+  {# De hoes van de selectie (FR-12).
 
      Het paneel toont en kiest; het schrijft niets. De afbeelding zelf reist
      niet met dit formulier mee: de albumweergave post zichzelf bij elk vinkje
@@ -176,8 +178,8 @@
      de knop naar de voorbeeldweergave, waar het bestandsveld wél hoort. In
      beide gevallen gaat de afbeelding precies één keer over de lijn, in de stap
      die werkelijk schrijft. #}
-  <aside class="hoespaneel" aria-label="Hoes van de selectie"
-         data-neerzetvak data-max-mb="{{ page.max_upload_mb }}">
+  <section class="hoespaneel" aria-label="Hoes van de selectie"
+           data-neerzetvak data-max-mb="{{ page.max_upload_mb }}">
     <h2 class="hoespaneel__kop">Hoes</h2>
 
     {% if let Some(shown) = page.cover.shown %}
@@ -241,52 +243,93 @@
       voorbeeldweergave, en dat is de enige stap die de bestanden aanraakt.
     </p>
     {% endif %}
-  </aside>
+  </section>
 
-  </div>
-
-  {% if !page.problems.is_empty() || page.has_row_problems() %}
-  <div class="melding melding--fout" role="status">
-    {% for problem in page.problems %}
-    <p class="melding__regel">{{ problem }}</p>
-    {% endfor %}
-    {% if page.has_row_problems() %}
-    <p class="melding__regel">Eén of meer rijen in de tabel zijn zo niet op te slaan; de melding staat bij de rij zelf.</p>
-    {% endif %}
-  </div>
-  {% endif %}
-
+  {# De gedeelde velden (FR-8). De korte velden staan per regel bij elkaar; de
+     groepering komt uit `page.field_rows()` en niet uit deze template, zodat er
+     een test op te schrijven is. #}
   <fieldset class="gedeeld">
     <legend class="gedeeld__kop">Gedeelde velden</legend>
 
-    {% for field in page.fields %}
-    <div class="veld gedeeld__veld{% if field.current.is_different() %} gedeeld__veld--verschillend{% endif %}">
-      <label class="veld__label" for="gedeeld-{{ field.name }}">{{ field.label }}</label>
+    {# Het enige gedrag dat een gebruiker hier kan verrassen: leeg is niet weg.
+       Dat staat er vóór de velden, niet in een voetnoot eronder. #}
+    <p class="uitleg gedeeld__uitleg">
+      Een veld dat leeg blijft, laat elk bestand houden wat het heeft; wissen doe
+      je met het vinkje eronder. Titel, artiest en tracknummer verschillen per
+      bestand en tik je in de tabel zelf in.
+    </p>
 
-      <input class="veld__invoer" id="gedeeld-{{ field.name }}" name="{{ field.name }}"
-             type="text" value="{{ field.value }}" autocomplete="off"
-             placeholder="{{ field.current.placeholder() }}"
-             aria-describedby="nu-{{ field.name }}"
-             {% if field.numeric %}inputmode="numeric"{% endif %}
-             {# `readonly` en niet `disabled`: een uitgeschakeld veld wordt niet
-                meegestuurd, en dan zou het uitzetten van het wissen-vinkje de
-                ingetikte waarde alsnog wegnemen. #}
-             {% if field.cleared %}readonly{% endif %} />
+    {% for rij in page.field_rows() %}
+    <div class="gedeeld__rij">
+      {% for field in rij %}
+      <div class="veld gedeeld__veld{% if field.compact %} gedeeld__veld--kort{% endif %}{% if field.current.is_different() %} gedeeld__veld--verschillend{% endif %}">
+        <label class="veld__label" for="gedeeld-{{ field.name }}">{{ field.label }}</label>
 
-      {# Wat er nu in de selectie staat. Niet als voorgevulde waarde, want dan
-         zou leeg soms "ongemoeid" en soms "overschrijven met hetzelfde"
-         betekenen; als tekst ernaast blijft leeg altijd leeg. #}
-      <p class="veld__hulp" id="nu-{{ field.name }}">{{ field.current.describe() }}</p>
+        <input class="veld__invoer" id="gedeeld-{{ field.name }}" name="{{ field.name }}"
+               type="text" value="{{ field.value }}" autocomplete="off"
+               placeholder="{{ field.current.placeholder() }}"
+               aria-describedby="nu-{{ field.name }}"
+               {% if field.numeric %}inputmode="numeric"{% endif %}
+               {# `readonly` en niet `disabled`: een uitgeschakeld veld wordt niet
+                  meegestuurd, en dan zou het uitzetten van het wissen-vinkje de
+                  ingetikte waarde alsnog wegnemen. #}
+               {% if field.cleared %}readonly{% endif %} />
 
-      <label class="vinkje veld__wissen">
-        <input class="vinkje__vakje" type="checkbox" name="{{ field.clear_name }}" value="aan"
-               {% if field.cleared %}checked{% endif %}
-               hx-post="{{ page.url }}" hx-include="closest form" />
-        <span class="vinkje__tekst">{{ field.label }} uit de selectie wissen</span>
-      </label>
+        {# Wat er nu in de selectie staat. Niet als voorgevulde waarde, want dan
+           zou leeg soms "ongemoeid" en soms "overschrijven met hetzelfde"
+           betekenen; als tekst ernaast blijft leeg altijd leeg. #}
+        <p class="veld__hulp" id="nu-{{ field.name }}">{{ field.current.describe() }}</p>
+
+        {# In een kolom van een derde paneel past "Discnummer uit de selectie
+           wissen" niet: dat breekt in drie regels en duwt de buurvelden scheef.
+           Het opschrift staat een paar pixels hoger, dus "Wissen" zegt daar
+           hetzelfde. Wie de pagina laat voorlezen krijgt de hele zin: die staat
+           als `aria-label` op het vinkje zelf. #}
+        <label class="vinkje veld__wissen">
+          <input class="vinkje__vakje" type="checkbox" name="{{ field.clear_name }}" value="aan"
+                 {% if field.cleared %}checked{% endif %}
+                 aria-label="{{ field.label }} uit de selectie wissen"
+                 hx-post="{{ page.url }}" hx-include="closest form" />
+          <span class="vinkje__tekst">
+            {%- if field.compact -%}Wissen{%- else -%}{{ field.label }} uit de selectie wissen{%- endif -%}
+          </span>
+        </label>
+      </div>
+      {% endfor %}
     </div>
     {% endfor %}
   </fieldset>
+
+  {# Hulpacties (FR-10). Ze vullen uitsluitend de invoervelden hierboven; er
+     wordt niets geschreven, en "Invoer leegmaken" draait ze in één klik terug.
+     Ze staan onder de velden waar ze over gaan, met een eigen kopje: een blok
+     van acht knoppen boven de lijst zou de lijst wegduwen. #}
+  <div class="hulpacties">
+    <h2 class="hulpacties__kop">Hulpacties</h2>
+    <span class="batch__knoppen">
+      <button class="knop" type="submit" name="actie" value="hernummer">Hernummeren</button>
+      <button class="knop" type="submit" name="actie" value="hernummer-disc">Hernummeren per schijf</button>
+      {# Het nummer staat in het opschrift: wat er gaat gebeuren hoort te lezen
+         te zijn voordat er geklikt wordt. #}
+      <button class="knop" type="submit" name="actie" value="disc">Deze schijf nummer {{ page.disc_suggestion }} geven</button>
+      <button class="knop" type="submit" name="actie" value="disctotaal">Disctotalen invullen</button>
+      <button class="knop" type="submit" name="actie" value="titelnaam">Titel uit bestandsnaam</button>
+      <button class="knop" type="submit" name="actie" value="artiest">Artiest → albumartiest</button>
+      <button class="knop" type="submit" name="actie" value="hoofdletters">Hoofdletters normaliseren</button>
+      <button class="knop" type="submit" name="actie" value="herstel">Invoer leegmaken</button>
+    </span>
+
+    {% if let Some(notice) = page.helper_notice %}
+    <div class="melding melding--goed" role="status">
+      <p class="melding__regel">{{ notice }}</p>
+      <p class="melding__regel">
+        Een hulpactie vult alleen invoervelden — hier in het paneel of in de
+        tabel. Er is niets opgeslagen; pas ze gerust met de hand aan, of maak de
+        invoer weer leeg.
+      </p>
+    </div>
+    {% endif %}
+  </div>
 
   {# Wat er zou gebeuren, per veld. Zolang er nog niet geschreven wordt is dit
      de enige plek waar het verschil tussen leeg laten en wissen te zien is; met
@@ -313,18 +356,23 @@
       wordt weggeschreven.
     </p>
   </div>
-  {% endif %}
+
+  </aside>
+
+  </div>
 
   {# De balk: hoeveel bestanden er een wijziging krijgen, en waar je vandaan
      opslaat. Het getal komt van dezelfde berekening als de voorbeeldweergave,
      dus wat hier staat is wat je daar te zien krijgt — nul inbegrepen, als je
      hebt ingevuld wat er al stond.
 
+     Hij loopt over beide kolommen: het gaat over de selectie én over wat er is
+     ingevuld, en dat zijn samen de twee panelen erboven.
+
      De balk schrijft zelf niets: "Voorbeeld en opslaan" gaat naar de
      voorbeeldweergave, en dat blijft de enige stap die naar het schrijven
      leidt. Zonder JavaScript zijn dit gewone submitknoppen en komt de telling
      mee met de pagina die de server teruggeeft. #}
-  {% if page.total > 0 %}
   <div class="balk">
     <p class="balk__telling" role="status">{{ page.pending_summary() }}</p>
 

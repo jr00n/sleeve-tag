@@ -18,68 +18,94 @@
 
 {% include "folders.html" %}
 
+{# De bestanden als tabel: zo staan dezelfde velden onder elkaar en is in één
+   blik te zien welk bestand uit de pas loopt. Wat er in staat komt uit de
+   tags die voor deze lijst al gelezen zijn; er gaat geen bestand extra open.
+
+   De tabel is breder dan een telefoonscherm en scrollt binnen dit omhulsel,
+   niet met de pagina mee — hetzelfde omhulsel als in de albumweergave. #}
 {% if !listing.tracks.is_empty() %}
-<ul class="tracks">
-  {% for track in listing.tracks %}
-  {# De lijst valt uiteen in schijven zodra er ergens een discnummer staat.
-     De kop staat tússen de bestanden en niet eromheen: zo blijft het één
-     opsomming. Staat er nergens een discnummer, dan komt er geen kop —
-     `group_starting_at` geeft dan niets terug. #}
-  {% if let Some(group) = listing.group_starting_at(*loop.index0) %}
-  <li class="schijf">
-    <h2 class="schijf__naam">{{ group.label() }}</h2>
-    <p class="schijf__telling">
-      <span>{{ group.count_label() }}</span>
-      {% if let Some(attention) = group.attention_label() %}
-      <span class="schijf__aandacht">{{ attention }}</span>
+<div class="tabelrand" tabindex="0" role="region" aria-label="Bestanden in deze map">
+  <table class="maptabel">
+    <thead>
+      <tr>
+        <th scope="col" class="maptabel__nummer">#</th>
+        <th scope="col" class="maptabel__nummer">Disc</th>
+        <th scope="col" class="maptabel__hoeskop">Hoes</th>
+        <th scope="col" class="maptabel__titelkop">Titel</th>
+        <th scope="col">Artiest</th>
+        <th scope="col">Album</th>
+        <th scope="col" class="maptabel__nummer">Jaar</th>
+        <th scope="col">Genre</th>
+        <th scope="col" class="maptabel__nummer">Lengte</th>
+        {# Het ontwerp kent deze kolom niet, FR-2 wel: het formaat hoort bij de
+           belangrijkste velden van een bestand. Vandaar achteraan, waar hij de
+           volgorde van het ontwerp niet doorbreekt. #}
+        <th scope="col">Formaat</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for track in listing.tracks %}
+      {# De lijst valt uiteen in schijven zodra er ergens een discnummer staat.
+         De kop staat als eigen rij tússen de bestanden en niet als kader
+         eromheen: zo blijft het één tabel. Staat er nergens een discnummer, dan
+         komt er geen kop — `group_starting_at` geeft dan niets terug.
+
+         De colspan is ruim genomen; een browser kapt hem af op het werkelijke
+         aantal kolommen. #}
+      {% if let Some(group) = listing.group_starting_at(*loop.index0) %}
+      <tr class="maptabel__groep">
+        <th class="maptabel__groepkop" colspan="99" scope="colgroup">
+          <span class="groep__naam">{{ group.label() }}</span>
+          <span class="groep__telling">{{ group.count_label() }}</span>
+          {% if let Some(attention) = group.attention_label() %}
+          <span class="groep__aandacht">{{ attention }}</span>
+          {% endif %}
+        </th>
+      </tr>
       {% endif %}
-    </p>
-  </li>
-  {% endif %}
-  <li class="track">
-    {# `loading="lazy"` plus vaste afmetingen: de lijst is gerenderd voordat er
-       ook maar één hoes binnen is, en er verschuift niets na wanneer ze
-       aankomen. Bestanden zonder hoes doen geen verzoek dat toch een 404 zou
-       opleveren; die krijgen de placeholder. #}
-    {% if track.has_art() %}
-    <img class="track__hoes" src="{{ track.art_url }}" alt=""
-         width="40" height="40" loading="lazy" decoding="async" />
-    {% else %}
-    <span class="track__hoes track__hoes--leeg"
-          title="Geen album art in dit bestand"
-          role="img" aria-label="Geen album art"></span>
-    {% endif %}
-
-    <span class="track__nummer">{{ track.track_label() }}</span>
-
-    <span class="track__tekst">
-      {# De titel is de ingang naar het bewerkformulier; het hele blok is
-         aanklikbaar zodat er op een telefoon een ruim doel overblijft. #}
-      <a class="track__titel" href="{{ track.edit_url }}">{{ track.title_label() }}</a>
-      <span class="track__meta">
-        <span class="track__artiest">{{ track.artist_label() }}</span>
-        <span class="track__scheiding" aria-hidden="true">·</span>
-        <span class="track__album">{{ track.album_label() }}</span>
-      </span>
-      <span class="track__bestand">{{ track.name }}</span>
-      {% if !track.issues.is_empty() %}
-      {# Zichtbare labels en niet alleen een tooltip: op een telefoon is er
-         geen hover, en dan zou er niets te zien zijn. #}
-      <span class="track__signalen">
-        {% for issue in track.issues %}
-        <span class="signaal">{{ issue.label() }}</span>
-        {% endfor %}
-      </span>
-      {% endif %}
-    </span>
-
-    <span class="track__rechts">
-      <span class="track__formaat">{{ track.format }}</span>
-      <span class="track__duur">{{ track.duration }}</span>
-    </span>
-  </li>
-  {% endfor %}
-</ul>
+      <tr class="maptabel__rij">
+        <td class="maptabel__nummer">{{ track.track_label() }}</td>
+        <td class="maptabel__nummer">{{ track.disc_label() }}</td>
+        <td class="maptabel__hoes">
+          {# `loading="lazy"` plus vaste afmetingen: de tabel is gerenderd
+             voordat er ook maar één hoes binnen is, en er verschuift niets na
+             wanneer ze aankomen. Bestanden zonder hoes doen geen verzoek dat
+             toch een 404 zou opleveren; die krijgen de placeholder. #}
+          {% if track.has_art() %}
+          <img class="maptabel__hoesje" src="{{ track.art_url }}" alt=""
+               width="40" height="40" loading="lazy" decoding="async" />
+          {% else %}
+          <span class="maptabel__hoesje maptabel__hoesje--leeg"
+                title="Geen album art in dit bestand"
+                role="img" aria-label="Geen album art"></span>
+          {% endif %}
+        </td>
+        <td class="maptabel__titel">
+          {# De titel is de ingang naar het bewerkformulier van dít bestand. #}
+          <a class="maptabel__link" href="{{ track.edit_url }}">{{ track.title_label() }}</a>
+          <span class="maptabel__bestand">{{ track.name }}</span>
+          {% if !track.issues.is_empty() %}
+          {# Zichtbare labels en niet alleen een tooltip: op een telefoon is er
+             geen hover, en dan zou er niets te zien zijn. #}
+          <span class="maptabel__signalen">
+            {% for issue in track.issues %}
+            <span class="signaal">{{ issue.label() }}</span>
+            {% endfor %}
+          </span>
+          {% endif %}
+        </td>
+        <td>{{ track.artist_label() }}</td>
+        <td>{{ track.album_label() }}</td>
+        <td class="maptabel__nummer">{{ track.year_label() }}</td>
+        <td>{{ track.genre_label() }}</td>
+        <td class="maptabel__nummer">{{ track.duration }}</td>
+        <td class="maptabel__formaat">{{ track.format }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
 {% endif %}
 
 {# Met het aandachtsfilter aan is een lege lijst een uitkomst en geen
