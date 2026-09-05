@@ -108,8 +108,9 @@ fn the_files_stand_in_a_table_with_the_columns_from_the_design() {
     let server = Server::start_in(library_with_album(), &[]);
     let html = body(&server.get("/map/Artiest/Het%20Album"));
 
-    // De kolommen in de volgorde van het ontwerp. Het formaat staat erachter:
-    // het ontwerp kent die kolom niet, FR-2 eist hem wel.
+    // Disc staat vóór het tracknummer, zodat de tabel dezelfde natuurlijke
+    // volgorde gebruikt als de sortering. Het formaat staat erachter: het
+    // ontwerp kent die kolom niet, FR-2 eist hem wel.
     //
     // Alleen binnen de kop van de tabel: "Artiest" is ook een mapnaam in het
     // broodkruimelpad, en die staat er eerder op de pagina.
@@ -121,7 +122,7 @@ fn the_files_stand_in_a_table_with_the_columns_from_the_design() {
 
     let mut vorige = 0;
     for kolom in [
-        "#", "Disc", "Hoes", "Titel", "Artiest", "Album", "Jaar", "Genre", "Lengte", "Formaat",
+        "Disc", "#", "Hoes", "Titel", "Artiest", "Album", "Jaar", "Genre", "Lengte", "Formaat",
     ] {
         let hier = position(kop, &format!(">{kolom}<"));
         assert!(

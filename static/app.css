@@ -20,6 +20,25 @@
 }
 
 /*
+ * Tekst die er wel is, maar niet in beeld.
+ *
+ * Voor een opschrift dat een schermlezer nodig heeft en een ziend oog niet:
+ * het vinkje in de albumtabel draagt zo de bestandsnaam, terwijl die naam in
+ * beeld onder de titel staat. `display: none` zou hem ook voor een schermlezer
+ * wegnemen; dit haalt hem alleen uit het beeld.
+ */
+.alleen-voorlezen {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/*
  * Ontwerptokens — het design system "Nocturne".
  *
  * De kleuren, tonenreeksen, ruimtematen, hoeken en schaduwen hieronder komen
@@ -285,7 +304,7 @@ h6 {
 .inhoud {
   max-width: 60rem;
   margin: 0 auto;
-  padding: 1rem;
+  padding: var(--space-4) var(--space-6);
 }
 
 /*
@@ -309,7 +328,10 @@ h1 {
   margin: 0 0 0.5rem;
 }
 
+/* Kleine letter: een toelichting bij wat erboven staat, en niet zelf een
+   mededeling die om de aandacht vraagt. De maat komt uit het ontwerp. */
 .uitleg {
+  font-size: 12px;
   color: var(--tekst-zacht);
 }
 
@@ -345,9 +367,9 @@ a {
   flex-wrap: wrap;
   align-items: baseline;
   gap: 0.35rem;
-  font-size: 0.9rem;
+  font-size: 13px;
   color: var(--tekst-zacht);
-  margin-bottom: 0.25rem;
+  margin-bottom: var(--space-1);
 }
 
 .kruimels__scheiding {
@@ -360,6 +382,9 @@ a {
 }
 
 .maptitel {
+  /* De maat uit het ontwerp: hij staat boven een lijst en hoeft niet zo groot
+     te zijn als een paginatitel op zichzelf. */
+  font-size: 20px;
   /* Lange album- of artiestnamen mogen afbreken in plaats van de pagina te
      verbreden; op een telefoon is dat het verschil tussen lezen en scrollen. */
   overflow-wrap: anywhere;
@@ -522,19 +547,14 @@ a {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.2rem 0.8rem;
-  margin-bottom: 0.5rem;
+  gap: var(--space-1) var(--space-4);
+  margin-bottom: var(--space-3);
 }
 
 .mapkop .maptitel {
   margin: 0;
 }
 
-.mapkop__telling {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--tekst-zacht);
-}
 
 /*
  * De scheiding tussen twee regels is de uitvloeiende regel van het ontwerp en
@@ -568,13 +588,13 @@ a {
 .maptabel {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 14px;
   white-space: nowrap;
 }
 
 .maptabel th,
 .maptabel td {
-  padding: 0.5rem 0.7rem;
+  padding: var(--space-2) var(--space-3);
   text-align: left;
   vertical-align: top;
   border-bottom: 1px solid var(--rand);
@@ -585,14 +605,16 @@ a {
 }
 
 .maptabel thead th {
-  font-size: 0.8rem;
+  font-size: 11px;
   font-weight: var(--font-heading-weight);
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--tekst-zacht);
 }
 
-.maptabel__nummer {
+/* Met de tabel ervoor: `.maptabel th, .maptabel td` hierboven is specifieker
+   dan een losse klasse, en zou de uitlijning anders terugzetten naar links. */
+.maptabel .maptabel__nummer {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--tekst-zacht);
@@ -624,21 +646,23 @@ a {
 
 .maptabel__bestand {
   display: block;
-  font-size: 0.85rem;
+  font-size: 11px;
   color: var(--tekst-zacht);
   overflow-wrap: anywhere;
 }
 
-/* De hoes is een plaatje van veertig pixels; breder hoeft de kolom niet. */
+/* De hoes is een plaatje van achtentwintig pixels; breder hoeft de kolom
+   niet. Het bestand dat erachter zit is groter — een duimnagel van honderdzestig
+   — zodat hij op een scherm met een hoge pixeldichtheid scherp blijft. */
 .maptabel__hoes,
 .maptabel__hoeskop {
-  width: 2.5rem;
+  width: 28px;
 }
 
 .maptabel__hoesje {
   display: block;
-  width: 2.5rem;
-  height: 2.5rem;
+  width: 28px;
+  height: 28px;
   border-radius: var(--radius-sm);
   background: var(--rand);
   /* De hoes is vrijwel altijd vierkant, maar niet gegarandeerd; bijsnijden is
@@ -658,6 +682,7 @@ a {
 }
 
 .leeg {
+  font-size: 13px;
   color: var(--tekst-zacht);
 }
 
@@ -668,16 +693,18 @@ a {
  * nooit ongevraagd iets aan; de gebruiker beslist of er iets moet gebeuren.
  */
 .signalering {
-  margin: 0 0 1rem;
-  padding: 0.75rem 0.9rem;
+  margin: 0 0 var(--space-4);
+  padding: var(--space-3) var(--space-4);
   background: color-mix(in srgb, var(--accent) 10%, transparent);
   border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
   border-radius: var(--radius-md);
 }
 
 .signalering__kop {
-  margin: 0 0 0.35rem;
-  font-size: 0.95rem;
+  margin: 0 0 var(--space-1);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
   color: var(--accent);
 }
 
@@ -685,7 +712,7 @@ a {
   margin: 0;
   padding-left: 1.1rem;
   color: var(--tekst-zacht);
-  font-size: 0.9rem;
+  font-size: 13px;
 }
 
 .maptabel__signalen {
@@ -695,19 +722,38 @@ a {
   margin-top: 0.2rem;
 }
 
-/* Een label uit het ontwerp: omlijnd in de accentkleur, niet gevuld. Het is een
-   constatering en hoort niet harder te roepen dan de regel waar het bij staat. */
+/* De labels uit het ontwerp. Eén vorm, twee soorten: gevuld voor een telling
+   die er gewoon staat, omlijnd voor iets wat opvalt. Een signalering is een
+   omlijnd label in het klein — het is een constatering en hoort niet harder te
+   roepen dan de regel waar het bij staat. */
+.label,
 .signaal {
   display: inline-flex;
   align-items: center;
-  padding: 1px 7px;
-  border: 1px solid var(--accent);
   border-radius: calc(var(--radius-md) * 0.75);
-  color: var(--accent);
-  font-size: 0.75rem;
+  padding: 3px 10px;
+  font-size: 11px;
   letter-spacing: 0.02em;
   line-height: 1.5;
   white-space: nowrap;
+}
+
+.label--gevuld {
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-100);
+}
+
+.label--omlijnd,
+.signaal {
+  border: 1px solid var(--accent);
+  color: var(--accent);
+}
+
+/* Naast een regel in een tabel, en dus kleiner en krapper dan een label naast
+   een kop. */
+.signaal {
+  padding: 1px 7px;
+  font-size: 10px;
 }
 
 /* ── Geavanceerde weergave: alle ruwe tags ─────────────────────────────── */
@@ -774,7 +820,7 @@ a {
 }
 
 .uitleg--klein {
-  font-size: 0.85rem;
+  font-size: 11px;
 }
 
 /* ── Bestandspagina en bewerkformulier ─────────────────────────────────── */
@@ -911,27 +957,27 @@ a.bestandskop__hoes {
 .formulier {
   display: flex;
   flex-direction: column;
-  gap: 0.9rem;
-  margin-bottom: 2rem;
+  gap: var(--space-4);
+  margin-bottom: var(--space-8);
 }
 
 .veld {
   display: flex;
   flex-direction: column;
-  gap: 0.25rem;
+  gap: 5px;
   min-width: 0;
 }
 
 .veld__label {
-  font-size: 0.85rem;
+  font-size: 12px;
   color: var(--tekst-zacht);
 }
 
 .veld__invoer {
   width: 100%;
-  padding: 0.6rem 0.7rem;
-  /* 16px voorkomt dat Safari op iOS bij het focussen inzoomt. */
-  font-size: 1rem;
+  min-height: 36px;
+  padding: 6px 10px;
+  font-size: 14px;
   font-family: inherit;
   color: var(--tekst);
   caret-color: var(--accent);
@@ -956,7 +1002,7 @@ a.bestandskop__hoes {
 .veldenpaar {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.9rem;
+  gap: var(--space-4);
 }
 
 .veldenpaar .veld {
@@ -966,8 +1012,8 @@ a.bestandskop__hoes {
 .knoppen {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
-  margin-top: 0.4rem;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
 }
 
 /*
@@ -981,10 +1027,10 @@ a.bestandskop__hoes {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 0.6rem 1.1rem;
+  padding: var(--space-2) calc(var(--space-3) * 1.2);
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
-  font-size: 1rem;
+  font-size: 14px;
   line-height: 1.2;
   color: var(--tekst);
   background: transparent;
@@ -1086,7 +1132,7 @@ a.bestandskop__hoes {
 .neerzetvak__hint {
   margin: 0;
   color: var(--tekst-zacht);
-  font-size: 0.9rem;
+  font-size: 12px;
 }
 
 .neerzetvak__melding {
@@ -1241,13 +1287,13 @@ a.bestandskop__hoes {
 /* ── Albumweergave: selectie en gedeelde velden (FR-8) ─────────────────── */
 
 .mapacties {
-  margin: 0 0 1rem;
+  margin: 0 0 var(--space-4);
 }
 
 .batch {
   display: flex;
   flex-direction: column;
-  gap: 1.2rem;
+  gap: var(--space-6);
   margin-bottom: 2rem;
 }
 
@@ -1259,7 +1305,7 @@ a.bestandskop__hoes {
 .batch__knoppen {
   display: flex;
   flex-wrap: wrap;
-  gap: 0.6rem;
+  gap: var(--space-2);
 }
 
 /* De tabel is breder dan een telefoonscherm. Hij scrollt binnen deze rand en
@@ -1280,7 +1326,7 @@ a.bestandskop__hoes {
 .batchtabel {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 14px;
   white-space: nowrap;
 }
 
@@ -1289,8 +1335,11 @@ a.bestandskop__hoes {
    de tabel uitvloeit zou dan halverwege het scherm ophouden. */
 .batchtabel th,
 .batchtabel td {
-  padding: 0.55rem 0.7rem;
+  padding: var(--space-2) var(--space-3);
   text-align: left;
+  /* Onder de titel staan de bestandsnaam en de signalering; zonder deze regel
+     zouden de invoervelden ernaast midden in die hogere cel komen te hangen. */
+  vertical-align: top;
   border-bottom: 1px solid var(--rand);
 }
 
@@ -1299,7 +1348,7 @@ a.bestandskop__hoes {
 }
 
 .batchtabel th {
-  font-size: 0.8rem;
+  font-size: 11px;
   font-weight: var(--font-heading-weight);
   letter-spacing: 0.08em;
   text-transform: uppercase;
@@ -1310,17 +1359,24 @@ a.bestandskop__hoes {
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
-.batchtabel__nummer {
+/* Zie de opmerking bij `.maptabel__nummer`: de tabel hoort ervoor te staan,
+   anders wint de algemene regel hierboven. */
+.batchtabel .batchtabel__nummer {
   text-align: right;
   font-variant-numeric: tabular-nums;
   color: var(--tekst-zacht);
 }
 
 .batchtabel__kies {
-  /* De kolom staat stil terwijl de rest horizontaal scrollt: zonder de
-     bestandsnaam in beeld is niet te zien wat je aanvinkt. */
+  /* De kolom staat stil terwijl de rest horizontaal scrollt: het vinkje hoort
+     bereikbaar te blijven, ook als je naar het genre bent doorgeschoven. */
   position: sticky;
   left: 0;
+  z-index: 1;
+  /* Niet breder dan het vinkje plus de kop erboven: de bestandsnaam staat nu
+     onder de titel, en die maakte deze kolom eerder zo breed dat de rest van
+     de tabel buiten beeld begon. */
+  width: 3.5rem;
   background: var(--vlak);
 }
 
@@ -1353,8 +1409,50 @@ a.bestandskop__hoes {
   background: color-mix(in srgb, var(--accent) 15%, var(--vlak));
 }
 
-.batchtabel__titel {
-  color: var(--tekst);
+/* De kolom waar de identiteit van het bestand onder hangt. Als enige mag hier
+   iets afbreken: de bestandsnaam is lang en hoort niet de hele tabel op te
+   rekken. Welke kolom dit is, bepaalt `RowField::is_primary`. */
+.batchtabel__titelcel {
+  min-width: 16rem;
+}
+
+/* De titel is de kolom waar de bestandsnaam onder past, en de enige kolom die
+   nog breedte vraagt: alles wat het album deelt, staat in het paneel ernaast. */
+.batchtabel__titelcel .rijveld--tekst {
+  min-width: 17rem;
+}
+
+/* Op één regel en met een beletselteken, zoals in het ontwerp: een naam die
+   afbreekt maakt van elke rij een blok van drie regels, en juist doordat hij
+   niet afbreekt kan hij deze kolom ook niet smal knijpen. De volledige naam
+   staat in het `title`-attribuut en in het opschrift van het vinkje. */
+.batchtabel__bestand {
+  display: block;
+  max-width: 22rem;
+  padding: 2px 6px 0;
+  font-size: 11px;
+  color: var(--tekst-zacht);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Dat er een link onder zit, laat hij zien zodra de muis erboven staat; in rust
+   blijft het de zachte regel onder de titel die het ontwerp er zet. */
+.batchtabel__bestand:hover,
+.batchtabel__bestand:focus-visible {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.batchtabel__signalen {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  max-width: 24rem;
+  margin-top: 3px;
+  padding-left: 6px;
+  white-space: normal;
 }
 
 .batchtabel__rij--fout {
@@ -1366,31 +1464,43 @@ a.bestandskop__hoes {
 }
 
 /* De hulpacties (FR-10) vullen alleen invoervelden en staan daarom in het
-   paneel onder die velden, en niet bij het opslaan. Ze hebben een eigen kopje:
-   acht knoppen zonder opschrift lezen als een werkbalk, en dit is er geen. */
+   paneel onder die velden, en niet bij het opslaan.
+
+   Ze staan ingeklapt: ze raden, en raden is niet wat je hier meestal komt doen.
+   Een `<details>` doet dat zonder JavaScript; het driehoekje ervoor is de enige
+   affordance die nodig is. De gap geldt pas wanneer hij openstaat, want een
+   dichte `<details>` heeft niets om ruimte tussen te laten. */
 .hulpacties {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  padding: 1rem;
+  padding: var(--space-4);
   border: 1px solid var(--rand);
   border-radius: var(--radius-md);
 }
 
-.hulpacties__kop {
-  margin: 0;
-  font-size: 0.95rem;
+.hulpacties[open] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
 }
 
-/* Wat per bestand verschilt, wordt in de tabel zelf ingetikt (FR-9). Het veld
-   is even hoog als een knop, zodat het op een telefoon met een duim te raken
-   is, en 16px groot omdat Safari op iOS anders inzoomt bij het focussen. */
-/* In de tabel valt een veld pas op zodra de muis erboven staat of erin wordt
-   getikt: tien velden met elk een eigen kadertje maken van een lijst een
-   formulier, en de lijst is waar deze pagina over gaat. */
+.hulpacties__kop {
+  margin: 0;
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  cursor: pointer;
+}
+
+/* Wat per bestand verschilt, wordt in de tabel zelf ingetikt (FR-9).
+   In de tabel valt een veld pas op zodra de muis erboven staat of erin wordt
+   getikt: een veld met een eigen kadertje op elke regel maakt van een lijst een
+   formulier, en de lijst is waar deze pagina over gaat.
+
+   De maten komen uit het ontwerp: een veld van 28 pixels hoog met 13px tekst,
+   zodat een rij niet twee keer zo hoog wordt als de regel die erin staat. Op
+   een aanraakscherm gelden andere maten; zie het blok onderaan dit bestand. */
 .rijveld {
-  padding: 0.5rem 0.6rem;
-  font-size: 1rem;
+  min-height: 28px;
+  padding: 2px 6px;
+  font-size: 13px;
   font-family: inherit;
   color: var(--tekst);
   caret-color: var(--accent);
@@ -1422,9 +1532,10 @@ a.bestandskop__hoes {
    van de tabel. */
 .rijveld__fout,
 .rijveld__hulp {
-  margin: 0.3rem 0 0;
+  margin: 0.25rem 0 0;
   max-width: 20rem;
-  font-size: 0.8rem;
+  padding-left: 6px;
+  font-size: 11px;
   white-space: normal;
 }
 
@@ -1452,7 +1563,7 @@ a.bestandskop__hoes {
 }
 
 .vinkje__tekst {
-  font-size: 0.85rem;
+  font-size: 12px;
 }
 
 /* De gedeelde velden staan in het paneel, dus onder elkaar en niet naast
@@ -1464,7 +1575,7 @@ a.bestandskop__hoes {
   flex-direction: column;
   gap: var(--space-4);
   margin: 0;
-  padding: 1rem;
+  padding: var(--space-4);
   border: 0;
   border-radius: var(--radius-md);
   background: var(--vlak);
@@ -1473,12 +1584,11 @@ a.bestandskop__hoes {
 
 .gedeeld__kop {
   padding: 0 0.4rem;
-  font-weight: 600;
 }
 
 .gedeeld__uitleg {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: 12px;
 }
 
 /* Een invoerveld is standaard zo breed als zijn plek; in een kolom van een
@@ -1522,7 +1632,7 @@ a.bestandskop__hoes {
 
 .veld__hulp {
   margin: 0;
-  font-size: 0.8rem;
+  font-size: 11px;
   color: var(--tekst-zacht);
 }
 
@@ -1538,7 +1648,7 @@ a.bestandskop__hoes {
 }
 
 .gevolg {
-  padding: 0.9rem 1rem;
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--rand);
   border-left: 3px solid var(--accent);
   border-radius: var(--radius-md);
@@ -1547,7 +1657,6 @@ a.bestandskop__hoes {
 
 .gevolg__kop {
   margin: 0 0 0.5rem;
-  font-size: 0.95rem;
 }
 
 .gevolg__lijst {
@@ -1557,6 +1666,7 @@ a.bestandskop__hoes {
 
 .gevolg__regel {
   margin: 0;
+  font-size: 13px;
 }
 
 .gevolg .uitleg {
@@ -1593,6 +1703,7 @@ a.bestandskop__hoes {
   margin: 0;
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
+  font-size: 14px;
 }
 
 .balk__knoppen {
@@ -1854,22 +1965,12 @@ html {
  * tracknummer en albumartiest. Zeven invoervelden naast elkaar passen alleen
  * als ze niet allemaal even breed zijn: een jaartal heeft aan vier tekens
  * genoeg, een titel niet. De breedteklasse komt uit `RowField::size`, zodat de
- * kolom niet in twee bestanden apart bepaald wordt.
+ * kolom niet in twee bestanden apart bepaald wordt. Er zijn er nog twee: wat
+ * een heel album deelt, staat in het paneel naast de tabel.
  */
 .rijveld--tekst {
   width: 100%;
   min-width: 11rem;
-}
-
-.rijveld--middel {
-  width: 100%;
-  min-width: 8rem;
-}
-
-.rijveld--kort {
-  /* Een jaartal is vier tekens, maar het tagmodel laat een volledige datum toe
-     (`2024-05-01`); daar past dit veld nog net op. */
-  width: 6.5rem;
 }
 
 /*
@@ -1886,7 +1987,7 @@ html {
 
 /* De melding staat in de cel van het veld waar hij over gaat. In een
    getalkolom staat de tekst rechts uitgelijnd, en dat leest niet. */
-.batchtabel__nummer .rijveld__fout {
+.batchtabel .batchtabel__nummer .rijveld__fout {
   text-align: left;
 }
 
@@ -1910,7 +2011,7 @@ html {
 .maptabel__groepkop {
   text-transform: none;
   letter-spacing: normal;
-  font-size: 0.85rem;
+  font-size: 11px;
   white-space: normal;
 }
 
@@ -1926,7 +2027,7 @@ html {
   margin: 0;
   font-family: var(--font-heading);
   font-weight: var(--font-heading-weight);
-  font-size: 0.8rem;
+  font-size: 12px;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: var(--accent);
@@ -1947,21 +2048,14 @@ html {
   color: var(--accent);
 }
 
-/* Een knop binnen een tabelrij: dezelfde vorm, maar niet zo groot dat de rij
-   er twee keer zo hoog van wordt. */
-.knop--klein {
-  padding: 0.3rem 0.7rem;
-  font-size: 0.85rem;
-}
-
 /* ── Kijken en bewerken naast elkaar ───────────────────────────────────── */
 
-/* Links het bewerkpaneel, rechts de bestandslijst.
+/* Links de bestandslijst, rechts het bewerkpaneel.
 
    Op een telefoon staat alles onder elkaar: de lijst eerst, het paneel eronder.
    Dat is ook de volgorde in de HTML, en met opzet — de lijst is waar deze
    pagina over gaat, en het paneel mag hem nooit wegduwen. Pas wanneer er
-   werkelijk een kolom naast past, schuift het paneel ernaast; dat het dan links
+   werkelijk een kolom naast past, komt het paneel ernaast; dat het dan rechts
    staat, doet het grid met `grid-column` en niet de HTML.
 
    De lijstkolom krijgt `minmax(0, 1fr)`: zonder die nul rekt een brede tabel
@@ -1989,18 +2083,12 @@ html {
 }
 
 @media (min-width: 66rem) {
+  /* De lijst krijgt wat er over is, het paneel een vaste maat. Ze staan in
+     deze volgorde in de HTML, dus het grid hoeft ze niet te verplaatsen: het
+     paneel komt rechts te staan, zoals in het ontwerp, en valt op een smal
+     scherm vanzelf onder de lijst. */
   .albumlayout {
-    grid-template-columns: 26rem minmax(0, 1fr);
-  }
-
-  .albumlayout__lijst {
-    grid-column: 2;
-    grid-row: 1;
-  }
-
-  .editor {
-    grid-column: 1;
-    grid-row: 1;
+    grid-template-columns: minmax(0, 1fr) 26rem;
   }
 }
 
@@ -2027,12 +2115,8 @@ html {
 
 .lijstkop__naam {
   margin: 0;
-}
-
-.lijstkop__telling {
-  margin: 0;
-  font-size: 0.9rem;
-  color: var(--tekst-zacht);
+  font-size: 20px;
+  overflow-wrap: anywhere;
 }
 
 .lijstkop .batch__knoppen {
@@ -2042,8 +2126,8 @@ html {
 .hoespaneel {
   display: flex;
   flex-direction: column;
-  gap: 0.6rem;
-  padding: 0.9rem;
+  gap: var(--space-3);
+  padding: var(--space-4);
   border: 1px solid var(--rand);
   border-radius: var(--radius-md);
   background: var(--vlak);
@@ -2055,51 +2139,88 @@ html {
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
+/* De opschriften in het bewerkpaneel staan zoals het ontwerp ze zet: klein,
+   in kapitalen en gedempt. Ze wijzen een blok aan en horen niet te wedijveren
+   met de mapnaam ernaast. */
+.hoespaneel__kop,
+.gedeeld__kop,
+.hulpacties__kop,
+.gevolg__kop {
+  font-family: var(--font-heading);
+  font-weight: var(--font-heading-weight);
+  font-size: 0.8rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tekst-zacht);
+}
+
 .hoespaneel__kop {
   margin: 0;
-  font-size: 1rem;
 }
 
-/* De afbeelding komt uit het thumbnail-eindpunt en is hoogstens 160 pixels
-   breed; groter tonen dan dat maakt hem wazig. Wie hem op ware grootte wil
-   zien, heeft de hoespagina van het bestand zelf. */
-.hoespaneel__afbeelding {
-  width: 100%;
-  max-width: 10rem;
-  height: auto;
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-sm);
-}
-
-/* Het lege vak houdt dezelfde plek bezet als een hoes, zodat het paneel niet
-   van hoogte verspringt zodra de selectie verandert. */
-.hoespaneel__leeg {
-  width: 100%;
-  max-width: 10rem;
-  aspect-ratio: 1 / 1;
-  border: 1px dashed var(--rand);
-  border-radius: var(--radius-sm);
+/* Het opschrift links, de feiten over de hoes rechts op dezelfde regel. */
+.hoespaneel__kopregel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
 }
 
 .hoespaneel__feiten {
   margin: 0;
+  font-size: 0.7rem;
+  color: var(--tekst-zacht);
+  text-align: right;
   overflow-wrap: anywhere;
 }
 
+/* Het vierkant waar de hoes in staat. Het houdt zijn plek bezet ook wanneer er
+   geen hoes te tonen is, zodat het paneel niet van hoogte verspringt zodra de
+   selectie verandert. */
+.hoespaneel__vlak {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--achtergrond);
+  box-shadow: var(--shadow-sm);
+}
+
+.hoespaneel__vlak--leeg {
+  border: 1px dashed var(--rand);
+  box-shadow: none;
+}
+
+/* De hoes is vrijwel altijd vierkant, maar niet gegarandeerd; `contain` toont
+   hem dan heel, in plaats van de randen weg te snijden. */
+.hoespaneel__afbeelding {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+/* Wat er over de hoes van de selectie te zeggen valt, als strook onderin het
+   vak — met een verloop eronder, want de tekst ligt over de afbeelding heen en
+   moet leesbaar blijven op een lichte hoes. */
 .hoespaneel__samenvatting {
+  position: absolute;
+  inset: auto 0 0 0;
   margin: 0;
-  color: var(--tekst-zacht);
-  font-size: 0.85rem;
+  padding: var(--space-3) var(--space-4);
+  font-size: 0.75rem;
+  color: #e9e9ed;
+  background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
 }
 
 .hoespaneel__kanttekening {
   margin: 0;
   color: var(--waarschuwing);
-  font-size: 0.85rem;
+  font-size: 12px;
 }
 
 .hoespaneel__vinkje {
-  font-size: 0.9rem;
+  font-size: 12px;
 }
 
 .hoespaneel__uitleg {
@@ -2110,4 +2231,43 @@ html {
    bestandskiezer van de browser het paneel breder dan het grid toestaat. */
 .hoespaneel__bestand {
   max-width: 100%;
+}
+
+/* ── Bediening met een duim ────────────────────────────────────────────────
+ *
+ * De maten hierboven komen uit het ontwerp, en dat ontwerp is er een voor een
+ * muis: een veld van 28 pixels raak je met een aanwijzer feilloos en met een
+ * duim niet. Waar de browser zegt dat er geen fijne aanwijzer is, worden de
+ * raakvlakken daarom weer zo groot als ze waren.
+ *
+ * De tekstgrootte gaat mee terug naar 16px, en niet alleen om te kunnen lezen:
+ * Safari op iOS zoomt de hele pagina in zodra je een veld met kleinere tekst
+ * focust, en springt daarna niet terug.
+ */
+@media (pointer: coarse) {
+  .knop {
+    padding: 0.6rem 1.1rem;
+    font-size: 1rem;
+  }
+
+  .veld__invoer,
+  .rijveld {
+    min-height: 2.75rem;
+    padding: 0.6rem 0.7rem;
+    font-size: 1rem;
+  }
+
+  .veld__label {
+    font-size: 0.85rem;
+  }
+
+  /* Een vinkje van een paar pixels is met een duim geen doel. */
+  .vinkje__vakje {
+    width: 1.35rem;
+    height: 1.35rem;
+  }
+
+  .vinkje__tekst {
+    font-size: 0.85rem;
+  }
 }

@@ -89,10 +89,14 @@
 <div class="mapkop">
   <h1 class="maptitel">{{ listing.name }}</h1>
   {# Wat er in de lijst staat, naast de naam: hoeveel bestanden, en hoeveel
-     schijven wanneer de map er kent. Het telt de lijst zoals hij op het scherm
+     schijven wanneer de map er kent. Twee labels naast de kop, zoals het
+     ontwerp ze zet. Het telt de lijst zoals hij op het scherm
      staat; wat aandacht vraagt gaat over de hele map en staat in de kopbalk. #}
-  {% if let Some(summary) = listing.summary_label() %}
-  <p class="mapkop__telling">{{ summary }}</p>
+  {% if let Some(count) = listing.count_label() %}
+  <span class="label label--gevuld">{{ count }}</span>
+  {% endif %}
+  {% if let Some(discs) = listing.disc_label() %}
+  <span class="label label--omlijnd">{{ discs }}</span>
   {% endif %}
 </div>
 

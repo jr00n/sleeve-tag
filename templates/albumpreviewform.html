@@ -29,7 +29,7 @@
       {% endif %}
     </p>
     <p class="uitleg">
-      Er is nog niets geschreven. Pas als je hieronder op “Definitief opslaan”
+      Er is nog niets geschreven. Pas als je op “Definitief opslaan”
       drukt, worden de bestanden een voor een bijgewerkt.
     </p>
   </div>
@@ -45,12 +45,25 @@
   </div>
   {% endif %}
 
+  <div class="knoppen">
+    {# Ook zonder tagwijziging kan er iets te doen zijn: een hoes voor de
+       selectie. Vandaar dat de knop er staat zodra er iets is aangevinkt. #}
+    {% if preview.problems.is_empty() && (preview.changes_anything() || preview.selected() > 0) %}
+    {# Alleen deze knop schrijft; "Annuleren" brengt het formulier terug en is
+       meteen klaar, dus die krijgt geen bezig-weergave. #}
+    <button class="knop knop--primair" type="submit" name="actie" value="opslaan"
+            data-bezig="Bezig met opslaan…">Definitief opslaan</button>
+    {% endif %}
+    <button class="knop" type="submit" name="actie" value="terug">Annuleren</button>
+    <a class="knop" href="{{ preview.back_url }}">Terug naar de map</a>
+  </div>
+
   <ul class="voorbeeld">
     {% for file in preview.files %}
-    <li class="voorbeeld__bestand{% if !file.changes_anything() %} voorbeeld__bestand--ongewijzigd{% endif %}">
+    {% if file.changes_anything() %}
+    <li class="voorbeeld__bestand">
       <p class="voorbeeld__naam">{{ file.name }}</p>
 
-      {% if file.changes_anything() %}
       <ul class="voorbeeld__velden">
         {% for change in file.changes %}
         <li class="voorbeeld__veld{% if change.removed %} voorbeeld__veld--verwijderd{% endif %}">
@@ -67,17 +80,6 @@
         </li>
         {% endfor %}
       </ul>
-      {% else %}
-      {# "Wordt niet aangeraakt" mag alleen staan als dat ook waar is. Bij een
-         aangevinkt bestand hangt dat af van de hoes hieronder. #}
-      <p class="voorbeeld__geen">
-        {%- if file.selected -%}
-          Blijft ongewijzigd op de tags; wordt alleen aangeraakt als je hieronder een hoes kiest.
-        {%- else -%}
-          Blijft ongewijzigd; dit bestand wordt niet aangeraakt.
-        {%- endif -%}
-      </p>
-      {% endif %}
 
       {# Wat een hoes hieronder met dit bestand zou doen. Alleen voor de
          aangevinkte bestanden, en alleen als je er een kiest. #}
@@ -85,6 +87,7 @@
       <p class="voorbeeld__hoes">Kies je hieronder een hoes: {{ effect }}.</p>
       {% endif %}
     </li>
+    {% endif %}
     {% endfor %}
   </ul>
 
@@ -96,7 +99,7 @@
 
     <p class="veld__hulp">
       Optioneel. Kies je er een, dan komt dezelfde hoes in elk aangevinkt
-      bestand; per bestand staat hierboven of dat toevoegen of vervangen is.
+      bestand, ook als de tags daarvan niet veranderen. Een bestaande hoes wordt vervangen.
       Het bestand mag hoogstens {{ preview.max_upload_mb }} MB zijn.
     </p>
 
@@ -133,16 +136,5 @@
   </fieldset>
   {% endif %}
 
-  <div class="knoppen">
-    {# Ook zonder tagwijziging kan er iets te doen zijn: een hoes voor de
-       selectie. Vandaar dat de knop er staat zodra er iets is aangevinkt. #}
-    {% if preview.problems.is_empty() && (preview.changes_anything() || preview.selected() > 0) %}
-    {# Alleen deze knop schrijft; "Annuleren" brengt het formulier terug en is
-       meteen klaar, dus die krijgt geen bezig-weergave. #}
-    <button class="knop knop--primair" type="submit" name="actie" value="opslaan"
-            data-bezig="Bezig met opslaan…">Definitief opslaan</button>
-    {% endif %}
-    <button class="knop" type="submit" name="actie" value="terug">Annuleren</button>
-    <a class="knop" href="{{ preview.back_url }}">Terug naar de map</a>
-  </div>
+
 </form>

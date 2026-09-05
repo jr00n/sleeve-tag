@@ -44,7 +44,7 @@ pub enum TrackIssue {
     MissingArt,
     MissingTrackNumber,
 
-    /// Het tracknummer van dit bestand komt in deze map vaker voor.
+    /// Het tracknummer van dit bestand komt op dezelfde disc vaker voor.
     DuplicateTrackNumber,
 
     /// Er zit een tagblok in dat niet bij dit bestandsformaat hoort.
@@ -206,7 +206,10 @@ pub fn review(entries: &[Entry<'_>]) -> Review {
     }
 
     if !duplicates.is_empty() {
-        folder.push(FolderIssue::DuplicateTrackNumbers(duplicates));
+        let mut numbers: Vec<u32> = duplicates.iter().map(|(_, number)| *number).collect();
+        numbers.sort_unstable();
+        numbers.dedup();
+        folder.push(FolderIssue::DuplicateTrackNumbers(numbers));
     }
 
     let covers = distinct_covers(entries);
@@ -238,7 +241,7 @@ fn distinct_covers(entries: &[Entry<'_>]) -> usize {
 }
 
 /// Wat er aan één bestand mankeert.
-fn track_issues(entry: &Entry<'_>, duplicates: &[u32]) -> Vec<TrackIssue> {
+fn track_issues(entry: &Entry<'_>, duplicates: &[(Option<u32>, u32)]) -> Vec<TrackIssue> {
     let mut issues = Vec::new();
     let tags = entry.tags;
 
@@ -257,7 +260,7 @@ fn track_issues(entry: &Entry<'_>, duplicates: &[u32]) -> Vec<TrackIssue> {
 
     match tags.track {
         None => issues.push(TrackIssue::MissingTrackNumber),
-        Some(number) if duplicates.contains(&number) => {
+        Some(number) if duplicates.contains(&(tags.disc, number)) => {
             issues.push(TrackIssue::DuplicateTrackNumber);
         }
         Some(_) => {}
@@ -293,19 +296,23 @@ fn distinct_values(entries: &[Entry<'_>], field: SharedField) -> Vec<String> {
     values
 }
 
-/// De tracknummers die in deze map vaker dan één keer voorkomen, oplopend.
-fn duplicate_track_numbers(entries: &[Entry<'_>]) -> Vec<u32> {
-    let mut counts: HashMap<u32, usize> = HashMap::new();
+/// De combinaties van disc- en tracknummer die vaker dan één keer voorkomen.
+///
+/// Track 1 op disc 1 en track 1 op disc 2 zijn twee verschillende tracks. Als
+/// een discnummer ontbreekt, worden die bestanden wel onderling als één groep
+/// gecontroleerd; zo blijft een gewone map zonder disc-tags werken als voorheen.
+fn duplicate_track_numbers(entries: &[Entry<'_>]) -> Vec<(Option<u32>, u32)> {
+    let mut counts: HashMap<(Option<u32>, u32), usize> = HashMap::new();
     for entry in entries {
         if let Some(number) = entry.tags.track {
-            *counts.entry(number).or_default() += 1;
+            *counts.entry((entry.tags.disc, number)).or_default() += 1;
         }
     }
 
-    let mut duplicates: Vec<u32> = counts
+    let mut duplicates: Vec<(Option<u32>, u32)> = counts
         .into_iter()
         .filter(|(_, count)| *count > 1)
-        .map(|(number, _)| number)
+        .map(|(key, _)| key)
         .collect();
 
     duplicates.sort_unstable();
@@ -591,6 +598,46 @@ mod tests {
                 FolderIssue::MissingTrackNumbers(1),
                 FolderIssue::DuplicateTrackNumbers(vec![1]),
             ]
+        );
+    }
+
+    #[test]
+    fn the_same_track_number_on_different_discs_is_not_a_duplicate() {
+        let mut disc_one_track_one = complete(1);
+        disc_one_track_one.disc = Some(1);
+        let mut disc_two_track_one = complete(1);
+        disc_two_track_one.disc = Some(2);
+        let files = [disc_one_track_one, disc_two_track_one];
+
+        let review = review(&entries(&files, Some(&cover())));
+
+        assert!(review.folder.is_empty(), "gevonden: {:?}", review.folder);
+        assert!(
+            review.tracks.iter().all(Vec::is_empty),
+            "gevonden: {:?}",
+            review.tracks
+        );
+    }
+
+    #[test]
+    fn the_same_track_number_twice_on_one_disc_is_a_duplicate() {
+        let mut first = complete(1);
+        first.disc = Some(2);
+        let mut second = complete(1);
+        second.disc = Some(2);
+        let files = [first, second];
+
+        let review = review(&entries(&files, Some(&cover())));
+
+        assert_eq!(
+            review.folder,
+            vec![FolderIssue::DuplicateTrackNumbers(vec![1])]
+        );
+        assert!(
+            review
+                .tracks
+                .iter()
+                .all(|issues| issues == &[TrackIssue::DuplicateTrackNumber])
         );
     }
 

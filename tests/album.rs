@@ -316,36 +316,69 @@ fn preview_html<'a>(page: &'a str, name: &str) -> &'a str {
 }
 
 #[test]
-fn every_row_offers_the_columns_that_can_differ_per_file() {
-    // AC #1: artiest, album, jaar en genre zijn per bestand in de tabel zelf in
-    // te tikken, net als titel en tracknummer al waren.
+fn a_row_shows_the_file_the_way_the_design_shows_it() {
+    // De tabel houdt over wat per bestand verschilt: het tracknummer, de titel
+    // en de speelduur. Onder de titel staat de bestandsnaam met wat er aan het
+    // bestand mankeert. Dat komt uit dezelfde listing als de maplijst; er gaat
+    // geen bestand extra open.
+    let server = Server::start_in(library_with_covers(), &[]);
+    let page = server.get("/album/Album");
+
+    assert_ok(&page);
+    for column in ["#", "Titel", "Lengte"] {
+        assert!(page.contains(&format!(">{column}</th>")), "{page}");
+    }
+
+    // Wat voor de hele selectie geldt, staat in het paneel ernaast en niet als
+    // kolom die het per rij herhaalt.
+    for column in ["Disc", "Hoes", "Bewerken", "Albumartiest", "Genre"] {
+        assert!(
+            !page.contains(&format!(">{column}</th>")),
+            "kolom '{column}' hoort er niet meer te staan:\n{page}"
+        );
+    }
+    assert!(!page.contains("batchtabel__hoesje"), "{page}");
+
+    // De bestandsnaam staat onder de titel en is meteen de weg naar het
+    // bewerkformulier van dit ene bestand; het vinkje houdt hem als opschrift,
+    // maar buiten beeld.
+    let met = row_html(&page, "een.mp3");
+    assert!(met.contains("batchtabel__bestand"), "{met}");
+    assert!(met.contains("/bewerk/Album/een.mp3"), "{met}");
+    assert!(met.contains("vinkje__tekst alleen-voorlezen"), "{met}");
+}
+
+#[test]
+fn every_row_offers_the_two_fields_that_differ_per_file() {
+    // FR-9: tracknummer en titel zijn per bestand in de tabel in te tikken, en
+    // dat zijn de enige twee. Albumartiest, album, jaar en genre stonden hier
+    // ooit ook, náást hun gedeelde veld; dan staat hetzelfde veld twee keer op
+    // één scherm en moet de tabel uitleggen welke van de twee wint.
     let server = server();
     let page = server.get("/album/Album");
 
     assert_ok(&page);
     for name in ["een.mp3", "twee.mp3"] {
-        for field in [
-            "nummer",
-            "titel",
-            "artiest",
-            "albumartiest",
-            "albumtitel",
-            "jaar",
-            "genre",
-        ] {
+        for field in ["nummer", "titel"] {
             assert!(page.contains(&format!("name=\"{field}:{name}\"")), "{page}");
+        }
+        for field in ["artiest", "albumartiest", "albumtitel", "jaar", "genre"] {
+            assert!(
+                !page.contains(&format!("name=\"{field}:{name}\"")),
+                "'{field}' hoort alleen nog als gedeeld veld te bestaan:\n{page}"
+            );
         }
     }
 
     // AC #3: wat er nu in het bestand staat, staat als grijze tekst in het veld
     // en niet als waarde — leeg laten verandert er dus niets aan.
     let first = row_html(&page, "een.mp3");
-    for current in ["De Testartiest", ALBUM_IN_FIXTURE, "2024", "Ambient"] {
-        assert!(
-            first.contains(&format!("placeholder=\"{current}\"")),
-            "{first}"
-        );
-        assert!(!first.contains(&format!("value=\"{current}\"")), "{first}");
+    assert!(first.contains("placeholder="), "{first}");
+
+    // En wat het album deelt, staat één keer, in het paneel ernaast — met wat
+    // er nú in de selectie staat als tekst naast het veld.
+    for current in ["De Albumartiest", ALBUM_IN_FIXTURE, "2024", "Ambient"] {
+        assert!(page.contains(&format!("“{current}”")), "{page}");
     }
 
     // AC #5: de tabel scrollt binnen zijn eigen rand en niet met de pagina mee.
@@ -353,19 +386,16 @@ fn every_row_offers_the_columns_that_can_differ_per_file() {
 }
 
 #[test]
-fn a_value_in_the_row_beats_the_shared_field_for_that_one_file() {
-    // AC #2, #6 en #7: het gedeelde veld geldt voor de selectie, de rij voor
-    // dat ene bestand. Dat hoort in de voorbeeldweergave te staan en daarna
-    // werkelijk in het bestand te belanden.
+fn a_shared_field_reaches_every_selected_file() {
+    // FR-8: één waarde voor de hele selectie, en die hoort in de
+    // voorbeeldweergave te staan en daarna werkelijk in elk bestand te belanden.
     let server = server();
     let batch: Vec<(&str, &str)> = vec![
         ("bestand", "een.mp3"),
         ("bestand", "twee.mp3"),
         ("album", "Gedeeld album"),
         ("genre", "Klassiek"),
-        ("albumtitel:een.mp3", "Eigen album"),
-        ("artiest:een.mp3", "Een Ander"),
-        ("jaar:een.mp3", "1999"),
+        ("titel:een.mp3", "Eigen titel"),
     ];
 
     let mut fields = batch.clone();
@@ -374,15 +404,14 @@ fn a_value_in_the_row_beats_the_shared_field_for_that_one_file() {
 
     assert_ok(&page);
     let first = preview_html(&page, "een.mp3");
-    assert!(first.contains("Eigen album"), "{first}");
-    assert!(first.contains("Een Ander"), "{first}");
-    assert!(first.contains("1999"), "{first}");
-    // Waar de rij niets zegt, geldt het gedeelde veld gewoon.
+    assert!(first.contains("Gedeeld album"), "{first}");
     assert!(first.contains("Klassiek"), "{first}");
-    assert!(!first.contains("Gedeeld album"), "{first}");
+    // En wat er per rij is ingetikt, geldt alleen daar.
+    assert!(first.contains("Eigen titel"), "{first}");
 
     let second = preview_html(&page, "twee.mp3");
     assert!(second.contains("Gedeeld album"), "{second}");
+    assert!(!second.contains("Eigen titel"), "{second}");
 
     let mut fields = batch.clone();
     fields.push(("actie", "opslaan"));
@@ -393,16 +422,14 @@ fn a_value_in_the_row_beats_the_shared_field_for_that_one_file() {
 
     // Een verse leesronde: elk bestand heeft gekregen wat het voorbeeld beloofde.
     let fresh = server.get("/album/Album");
-    let first = row_html(&fresh, "een.mp3");
-    for current in ["Eigen album", "Een Ander", "1999", "Klassiek"] {
-        assert!(
-            first.contains(&format!("placeholder=\"{current}\"")),
-            "{first}"
-        );
-    }
-
-    let second = row_html(&fresh, "twee.mp3");
-    assert!(second.contains("placeholder=\"Gedeeld album\""), "{second}");
+    assert!(
+        fresh.contains("“Gedeeld album” in de hele selectie"),
+        "{fresh}"
+    );
+    assert!(
+        row_html(&fresh, "een.mp3").contains("placeholder=\"Eigen titel\""),
+        "{fresh}"
+    );
 }
 
 #[test]
@@ -416,8 +443,8 @@ fn an_empty_column_leaves_the_file_as_it_is() {
         &[
             ("actie", "voorbeeld"),
             ("bestand", "een.mp3"),
-            ("genre:een.mp3", "   "),
-            ("jaar:een.mp3", ""),
+            ("titel:een.mp3", "   "),
+            ("nummer:een.mp3", ""),
         ],
     );
 
@@ -429,15 +456,15 @@ fn an_empty_column_leaves_the_file_as_it_is() {
 #[test]
 fn a_mistake_in_one_row_leaves_the_other_columns_and_rows_alone() {
     // AC #4: de melding staat bij het veld waarin hij is ingetikt, en houdt
-    // alleen die rij tegen — ook nu er zes invulbare kolommen naast staan.
+    // alleen die rij tegen.
     let server = server();
     let page = server.post_form(
         "/album/Album",
         &[
             ("actie", "alles"),
             ("nummer:een.mp3", "drie"),
-            ("genre:een.mp3", "Jazz"),
-            ("artiest:twee.mp3", "Een Ander"),
+            ("titel:een.mp3", "Wel een titel"),
+            ("titel:twee.mp3", "Een Ander"),
         ],
     );
 
@@ -447,7 +474,7 @@ fn a_mistake_in_one_row_leaves_the_other_columns_and_rows_alone() {
     assert!(broken.contains("rijveld__fout"), "{broken}");
     // Eén veld van deze rij is als onbruikbaar gemarkeerd, niet de hele rij.
     assert_eq!(broken.matches("aria-invalid").count(), 1, "{broken}");
-    assert!(broken.contains("value=\"Jazz\""), "{broken}");
+    assert!(broken.contains("value=\"Wel een titel\""), "{broken}");
 
     let fine = row_html(&page, "twee.mp3");
     assert!(!fine.contains("aria-invalid"), "{fine}");
@@ -476,9 +503,6 @@ fn the_helper_actions_are_offered_on_the_page() {
     assert_ok(&page);
     for action in [
         "hernummer",
-        "hernummer-disc",
-        "disc",
-        "disctotaal",
         "titelnaam",
         "artiest",
         "hoofdletters",
@@ -489,6 +513,44 @@ fn the_helper_actions_are_offered_on_the_page() {
             "hulpactie '{action}' ontbreekt:\n{page}"
         );
     }
+
+    // De schijf-acties zijn weg: wat ze deden gold voor een set op twee
+    // schijven in één map, en die staat in de praktijk in CD1/CD2-submappen.
+    for action in ["hernummer-disc", "disc", "disctotaal"] {
+        assert!(
+            !page.contains(&format!("name=\"actie\" value=\"{action}\"")),
+            "hulpactie '{action}' hoort er niet meer te zijn:\n{page}"
+        );
+    }
+
+    // Ze staan ingeklapt; wie ze nodig heeft, klapt ze open. Zonder JavaScript
+    // werkt dat ook.
+    assert!(
+        page.contains("<summary class=\"hulpacties__kop\">"),
+        "{page}"
+    );
+    assert!(
+        !page.contains("<details class=\"hulpacties\" open>"),
+        "{page}"
+    );
+}
+
+#[test]
+fn the_helper_actions_stay_open_once_one_has_run() {
+    // De melding van de actie staat binnen de `<details>`. Dicht terugkomen zou
+    // verzwijgen wat er zojuist gebeurd is.
+    let server = server();
+    let page = server.post_form(
+        "/album/Album",
+        &[("actie", "hernummer"), ("bestand", "een.mp3")],
+    );
+
+    assert_ok(&page);
+    assert!(
+        page.contains("<details class=\"hulpacties\" open>"),
+        "{page}"
+    );
+    assert!(page.contains("Er is niets opgeslagen"), "{page}");
 }
 
 #[test]
@@ -511,8 +573,11 @@ fn renumbering_fills_the_track_column() {
 }
 
 #[test]
-fn copying_the_artist_fills_the_album_artist_column() {
-    // AC #2: per bestand, en alleen waar er een artiest te kopiëren valt.
+fn copying_the_artist_fills_the_shared_album_artist() {
+    // FR-10: de artiest van de selectie komt als voorstel bij Albumartiest, in
+    // het gedeelde veld. Per bestand kopiëren zou een verzamelalbum uit elkaar
+    // trekken: elk bestand een eigen albumartiest is precies wat een album niet
+    // is.
     let server = server();
     let page = server.post_form(
         "/album/Album",
@@ -524,11 +589,8 @@ fn copying_the_artist_fills_the_album_artist_column() {
     );
 
     assert_ok(&page);
-    assert!(
-        is_proposed(&page, "albumartiest:een.mp3", "De Testartiest"),
-        "{page}"
-    );
-    assert!(is_proposed(&page, "albumartiest:twee.mp3", ""), "{page}");
+    assert!(page.contains("value=\"De Testartiest\""), "{page}");
+    // Het kale bestand heeft geen artiest, en telt dus niet mee.
     assert!(page.contains("1 zonder artiest"), "{page}");
 }
 
@@ -599,9 +661,6 @@ fn only_the_preview_route_writes() {
     // AC #4: ook een hulpactie vult alleen de invoervelden.
     for action in [
         "hernummer",
-        "hernummer-disc",
-        "disc",
-        "disctotaal",
         "titelnaam",
         "artiest",
         "hoofdletters",
@@ -626,9 +685,8 @@ fn only_the_preview_route_writes() {
 
 /// Een map met bestanden zonder tags, maar met sprekende namen.
 ///
-/// Daarmee is te zien wat de vier hulpacties rond schijven en bestandsnamen
-/// doen: er staat nog nergens een discnummer, en de titel staat alleen nog in
-/// de naam.
+/// Daarmee is te zien wat "titel uit bestandsnaam" doet: de titel staat alleen
+/// nog in de naam.
 fn library_with_untagged_names() -> tempfile::TempDir {
     let root = tempfile::tempdir().expect("tempdir moet aan te maken zijn");
     let album = root.path().join("Album");
@@ -663,47 +721,6 @@ fn a_title_can_be_read_from_the_file_name() {
         "{page}"
     );
     assert!(page.contains("Er is niets opgeslagen"), "{page}");
-}
-
-#[test]
-fn a_disc_number_and_a_disc_total_are_one_click_away() {
-    // AC #2 en #3: het nummer staat vooraf op de knop, en het totaal geldt voor
-    // de hele map.
-    let server = Server::start_in(library_with_untagged_names(), &[]);
-
-    let page = server.get("/album/Album");
-    assert_ok(&page);
-    // Er is nog geen schijf in gebruik, dus de eerstvolgende vrije is 1.
-    assert!(page.contains("Deze schijf nummer 1 geven"), "{page}");
-
-    let numbered = server.post_form(
-        "/album/Album",
-        &[("actie", "disc"), ("bestand", "01-Eerste_stuk.mp3")],
-    );
-    assert_ok(&numbered);
-    assert!(
-        numbered.contains("Schijf 1 staat als voorstel"),
-        "{numbered}"
-    );
-    assert!(
-        numbered.contains("Discnummer wordt “1” in 1 bestand."),
-        "{numbered}"
-    );
-
-    let totals = server.post_form(
-        "/album/Album",
-        &[("actie", "disctotaal"), ("bestand", "01-Eerste_stuk.mp3")],
-    );
-    assert_ok(&totals);
-    assert!(
-        totals.contains("Aantal discs wordt “1” in 2 bestanden."),
-        "{totals}"
-    );
-    // De actie geldt voor de hele map, dus alles staat aangevinkt.
-    assert!(
-        totals.contains("2 van 2 bestanden geselecteerd"),
-        "{totals}"
-    );
 }
 
 /// De velden die samen een batch beschrijven, klaar om te posten.
@@ -741,12 +758,18 @@ fn the_preview_shows_per_file_what_changes() {
 
     // En de knop om het te doen staat er pas hier.
     assert!(page.contains("value=\"opslaan\""), "{page}");
+    let list = page.find("<ul class=\"voorbeeld\">").unwrap();
+    for label in ["Definitief opslaan", "Annuleren", "Terug naar de map"] {
+        assert!(
+            page.find(label).unwrap() < list,
+            "{label} hoort boven de lijst"
+        );
+    }
 }
 
 #[test]
-fn a_file_without_changes_is_shown_as_such() {
-    // AC #3: dat er níéts met een bestand gebeurt, is de helft van wat een
-    // voorbeeld moet vertellen.
+fn a_file_without_changes_is_omitted_from_the_preview() {
+    // De lijst toont alleen wijzigingen; de samenvatting telt de overige bestanden.
     let server = server();
     let page = server.post_form(
         "/album/Album",
@@ -760,7 +783,15 @@ fn a_file_without_changes_is_shown_as_such() {
 
     assert_ok(&page);
     // een.mp3 heeft dit album al.
-    assert!(page.contains("Blijft ongewijzigd"), "{page}");
+    assert!(
+        !page.contains("<p class=\"voorbeeld__naam\">een.mp3</p>"),
+        "{page}"
+    );
+    assert!(
+        page.contains("<p class=\"voorbeeld__naam\">twee.mp3</p>"),
+        "{page}"
+    );
+    assert!(page.contains("De overige 1 blijven ongemoeid."), "{page}");
     assert!(page.contains("1 bestand wordt gewijzigd."), "{page}");
 }
 
@@ -970,13 +1001,9 @@ fn the_preview_offers_a_cover_for_the_selection() {
     // hoort dus ook geen hoesregel te krijgen.
     assert!(page.contains("hoes wordt toegevoegd"), "{page}");
 
-    let na_twee = page
-        .find("twee.mp3")
-        .map(|positie| page[positie..].to_string())
-        .expect("twee.mp3 hoort in het voorbeeld te staan");
     assert!(
-        !na_twee.contains("hoes wordt"),
-        "een niet-aangevinkt bestand hoort geen hoesregel te krijgen:\n{na_twee}"
+        !page.contains("<p class=\"voorbeeld__naam\">twee.mp3</p>"),
+        "een niet-aangevinkt bestand hoort niet in de lijst: {page}"
     );
 
     // De multipart-vorm is nodig om de afbeelding mee te kunnen sturen.
@@ -1123,8 +1150,8 @@ fn is_enabled(page: &str, action: &str) -> bool {
 
 #[test]
 fn the_bar_says_what_is_pending_and_offers_no_way_to_write() {
-    // AC #2, #3 en #5: zonder invoer staat er niets open en is er niets aan te
-    // klikken; de weg naar het schrijven loopt ook hier langs het voorbeeld.
+    // Het voorbeeld moet al bereikbaar zijn vóór de eerste invoer: typen en
+    // Tab versturen het formulier niet. Schrijven kan alleen via het voorbeeld.
     let server = server();
     let page = server.get("/album/Album");
 
@@ -1133,7 +1160,21 @@ fn the_bar_says_what_is_pending_and_offers_no_way_to_write() {
         page.contains("Er is nog niets ingevuld, dus er staat niets open."),
         "{page}"
     );
-    assert!(!is_enabled(&page, "voorbeeld"), "{page}");
+    assert!(is_enabled(&page, "voorbeeld"), "{page}");
+    let first_button = page
+        .split("id=\"album\"")
+        .nth(1)
+        .unwrap()
+        .split("<button")
+        .nth(1)
+        .unwrap()
+        .split('>')
+        .next()
+        .unwrap();
+    assert!(
+        first_button.contains("value=\"voorbeeld\""),
+        "{first_button}"
+    );
 
     // De balk kent geen opslaan; die knop verschijnt pas in het voorbeeld.
     assert!(!page.contains("value=\"opslaan\""), "{page}");
@@ -1244,40 +1285,9 @@ fn the_table_groups_the_files_per_disc() {
     assert!(page.contains("1 bestand"), "{page}");
     assert!(page.contains("1 vraagt aandacht"), "{page}");
 
-    // AC #4: een knop per groep, die zegt om welke groep het gaat.
-    assert!(page.contains("value=\"schijf:1\""), "{page}");
-    assert!(page.contains("value=\"schijf:\""), "{page}");
-}
-
-#[test]
-fn a_whole_disc_is_ticked_and_unticked_in_one_click() {
-    // AC #4: de knop gaat over deze schijf en laat de rest van de selectie
-    // staan — in beide richtingen.
-    let server = server();
-
-    let ticked = server.post_form("/album/Album", &[("actie", "schijf:1")]);
-    assert_ok(&ticked);
-    assert!(
-        ticked.contains("1 van 2 bestanden geselecteerd"),
-        "{ticked}"
-    );
-    assert!(is_ticked(&ticked, "een.mp3"), "{ticked}");
-    assert!(!is_ticked(&ticked, "twee.mp3"), "{ticked}");
-
-    let unticked = server.post_form(
-        "/album/Album",
-        &[
-            ("actie", "schijf:1"),
-            ("bestand", "een.mp3"),
-            ("bestand", "twee.mp3"),
-        ],
-    );
-    assert_ok(&unticked);
-    assert!(!is_ticked(&unticked, "een.mp3"), "{unticked}");
-    assert!(
-        is_ticked(&unticked, "twee.mp3"),
-        "wat buiten de groep viel, hoort te blijven staan:\n{unticked}"
-    );
+    // De kop wijst aan waar een schijf begint en verder niets: selecteren doen
+    // de vinkjes en de twee knoppen boven de lijst.
+    assert!(!page.contains("value=\"schijf:"), "{page}");
 }
 
 #[test]
@@ -1296,7 +1306,6 @@ fn a_set_of_two_discs_gets_a_heading_per_disc() {
     assert_ok(&page);
     assert!(page.contains("Schijf 1"), "{page}");
     assert!(page.contains("Schijf 2"), "{page}");
-    assert!(page.contains("value=\"schijf:2\""), "{page}");
     assert!(
         !page.contains("Zonder discnummer"),
         "elk bestand heeft nu een schijf:\n{page}"
@@ -1344,7 +1353,7 @@ fn the_album_view_shows_the_cover_of_the_selection() {
         "formaat, afmetingen en omvang horen erbij:\n{page}"
     );
     assert!(
-        page.contains("/art/Album/een.mp3?size=thumb"),
+        page.contains("/art/Album/een.mp3?size=paneel"),
         "de hoes zelf hoort in het paneel te staan:\n{page}"
     );
 
@@ -1572,10 +1581,10 @@ fn the_list_carries_its_own_heading_with_the_count() {
     );
     assert_ok(&opgeslagen);
 
+    // Twee labels naast de naam, zoals het ontwerp ze zet: de telling en de
+    // schijven staan naast elkaar en niet als één zin achter de kop.
     let page = server.get("/album/Album");
     assert_ok(&page);
-    assert!(
-        page.contains("2 van 2 bestanden geselecteerd · 2 schijven"),
-        "{page}"
-    );
+    assert!(page.contains("2 van 2 bestanden geselecteerd"), "{page}");
+    assert!(page.contains(">2 schijven<"), "{page}");
 }

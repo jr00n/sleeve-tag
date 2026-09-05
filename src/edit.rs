@@ -154,6 +154,12 @@ pub struct EditPage {
     pub format: String,
     pub duration: String,
 
+    /// Tagblokken die niet bij dit bestandsformaat horen, bij naam.
+    pub foreign_tags: Vec<String>,
+
+    /// Aparte POST-actie die alleen de ongewenste tagblokken opruimt.
+    pub cleanup_url: String,
+
     /// Wat er in de invoervelden staat.
     pub fields: Form,
 
@@ -175,6 +181,12 @@ pub struct EditPage {
     /// wordt door de server afgekapt terwijl de browser nog verstuurt, en dan
     /// komt de uitleg die hij meestuurt nooit aan.
     pub max_upload_mb: u32,
+}
+
+impl EditPage {
+    pub fn foreign_tags_label(&self) -> String {
+        self.foreign_tags.join(", ")
+    }
 }
 
 /// Een tekstveld uit het model, of lege tekst.

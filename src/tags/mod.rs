@@ -406,6 +406,42 @@ pub fn write(path: &Path, wanted: &Tags, options: atomic::Options) -> Result<Wri
     })
 }
 
+/// Verwijdert uitsluitend tagblokken die niet bij het bestandsformaat horen.
+///
+/// De primaire tag wordt met exact dezelfde waarden opnieuw geschreven. Zo
+/// blijven de geldige tags en de audio behouden, terwijl `remove_stale_tags`
+/// het vreemde blok opruimt. Net als alle andere schrijfacties gebeurt dit via
+/// een tijdelijk bestand met hervalidatie vóór het origineel wordt vervangen.
+pub fn remove_foreign(path: &Path, options: atomic::Options) -> Result<Written, WriteError> {
+    let current = read(path).map_err(atomic::WriteError::Prepare)?;
+    if current.foreign_tags.is_empty() {
+        return Ok(Written::untouched());
+    }
+
+    let wanted = current.tags.clone();
+    let removed_foreign = current.foreign_tags;
+
+    atomic::replace(
+        path,
+        options,
+        "ongewenst tagblok verwijderd",
+        |temp| apply(temp, &wanted),
+        |temp| {
+            let after = read(temp)?;
+            if after.tags == wanted && after.foreign_tags.is_empty() {
+                Ok(())
+            } else {
+                Err(TagError::Mismatch)
+            }
+        },
+    )?;
+
+    Ok(Written {
+        changed: true,
+        removed_foreign,
+    })
+}
+
 /// Wat een schrijfactie heeft opgeleverd, buiten de gewijzigde velden om.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Written {
@@ -1789,6 +1825,23 @@ mod tests {
         assert!(!written.changed);
         assert!(written.removed_foreign.is_empty());
         assert_eq!(std::fs::read(&path).expect("lezen"), before);
+    }
+
+    #[test]
+    fn an_unwanted_block_can_be_removed_without_changing_the_valid_tags() {
+        let (_tempdir, path) = writable_copy(testfixtures::FLAC_WITH_ID3);
+        let before = read(&path).expect("lezen");
+
+        let written = remove_foreign(&path, atomic::Options::default())
+            .expect("het vreemde blok moet verwijderd kunnen worden");
+        let after = read(&path).expect("teruglezen");
+
+        assert!(written.changed);
+        assert_eq!(written.removed_foreign, vec!["ID3v2".to_string()]);
+        assert_eq!(after.tags, before.tags);
+        assert_eq!(after.art, before.art);
+        assert!(after.foreign_tags.is_empty());
+        assert_eq!(leading_marker(&path), "fLaC");
     }
 
     #[test]

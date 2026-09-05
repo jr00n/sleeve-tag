@@ -146,15 +146,20 @@ fn saving_removes_the_block_and_says_so() {
 fn saving_nothing_leaves_the_block_alone() {
     // Een bestand van gigabytes herschrijven om iets op te ruimen wat de
     // gebruiker niet heeft aangeraakt, is de ongevraagde wijziging die het PRD
-    // verbiedt. Het blok verdwijnt bij de eerste échte bewerking, niet eerder.
+    // verbiedt. Het blok verdwijnt alleen bij een echte bewerking of wanneer de
+    // gebruiker de aparte opruimactie kiest, niet door deze lege save.
     let server = server();
 
     let page = server.post_form("/bewerk/Album/met-id3.flac", &fields("Stilte in D"));
     assert_ok(&page);
 
     assert!(
-        !page.contains("ID3v2-blok"),
-        "er is niets gewijzigd, dus er valt niets te melden:\n{page}"
+        page.contains("ID3v2-blok verwijderen"),
+        "het gebleven blok en de aparte opruimactie moeten zichtbaar zijn:\n{page}"
+    );
+    assert!(
+        !page.contains("het is bij het opslaan verwijderd"),
+        "de pagina mag niet beweren dat het blok al verwijderd is:\n{page}"
     );
 
     let raw = server.get("/tags/Album/met-id3.flac");

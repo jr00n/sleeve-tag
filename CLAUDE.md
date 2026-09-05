@@ -62,13 +62,18 @@ de conventies vast waar code zich aan houdt.
   fout in de invoer zelf houdt de hele batch tegen, want half uitvoeren van een
   plan dat niet klopt is erger dan niets doen. In een gedeeld veld betekent
   leeg daar "ongemoeid laten" en niet "verwijderen" — het veld wordt nooit
-  voorgevuld, en wissen is een aparte, expliciete keuze. Tracknummer, titel,
-  artiest, albumartiest, album, jaar en genre zijn daarnaast per bestand in de
-  tabel zelf in te tikken; zo'n override wint van wat de gedeelde velden voor
-  datzelfde bestand zouden doen — ook van een wissen-vinkje — en een fout in
-  één rij wordt bij het veld gemeld en houdt alleen die rij tegen. Het jaar
-  wordt niet als getal gelezen: in het tagmodel is het tekst, omdat ID3v2.4 en
-  Vorbis er een volledige datum in kunnen zetten.
+  voorgevuld, en wissen is een aparte, expliciete keuze. Een fout in één rij
+  wordt bij het veld gemeld en houdt alleen die rij tegen. Het jaar wordt niet
+  als getal gelezen: in het tagmodel is het tekst, omdat ID3v2.4 en Vorbis er
+  een volledige datum in kunnen zetten.
+- **Elk veld staat op precies één plek.** Tracknummer en titel verschillen per
+  bestand en staan in de tabel (`RowField`, FR-9); albumartiest, album, jaar,
+  genre, discnummer en aantal discs gelden voor de selectie en staan in het
+  paneel (`SharedField`, FR-8). De twee lijstjes overlappen niet, en dat is de
+  regel: stond een veld op allebei de plekken, dan moest de tabel uitleggen
+  welke van de twee wint, en zag de gebruiker hetzelfde veld twee keer op één
+  scherm. Wie één bestand echt apart wil zetten, doet dat in `/bewerk` van dat
+  bestand — dat is waar een uitzondering hoort, niet in de albumweergave.
 - **Een hoes reist alleen mee in de laatste stap.** De albumweergave post
   zichzelf bij elk vinkje opnieuw; een bestandsveld daar zou de afbeelding bij
   iedere klik opnieuw over de lijn sturen, en de server kan zo'n veld daarna
@@ -83,9 +88,10 @@ de conventies vast waar code zich aan houdt.
   vinkjeskolom. Binnen de albumweergave staat alles wat voorstelt bij elkaar in
   één paneel naast de lijst: de hoes, de gedeelde velden en de hulpacties, in
   die volgorde. De lijst staat eerst in de HTML en het paneel erna — dat is de
-  volgorde zonder stylesheet en op een smal scherm, en zo kan het paneel de
-  lijst niet wegduwen; dat het op een breed scherm links komt te staan, doet het
-  grid en niet de template. Welke gedeelde velden hun regel delen, bepaalt
+  volgorde van het ontwerp, waar het paneel rechts staat, en tegelijk de
+  volgorde zonder stylesheet en op een smal scherm, waar het paneel onder de
+  lijst valt en haar dus niet kan wegduwen. Het grid verplaatst niets; het
+  verdeelt alleen de breedte. Welke gedeelde velden hun regel delen, bepaalt
   `SharedField::is_compact` en niet de stylesheet.
 - **Het hoespaneel bovenin dat paneel toont en kiest; het schrijft niet.** Het
   beschrijft de hoes van de selectie uit de `ArtInfo` die al in de listing zit,
@@ -96,17 +102,20 @@ de conventies vast waar code zich aan houdt.
   wél meegaat; zonder JavaScript staat dat veld er niet en leidt de knop naar
   diezelfde voorbeeldweergave. Het vinkje voor de losse `cover.jpg` staat bij de
   actie waar het over gaat en reist als gewoon formulierveld mee.
-- **Een hulpactie vult alleen invoervelden.** Hernummeren (over de selectie of
-  per schijf), een schijf een nummer geven, de disctotalen invullen, de titel
-  uit de bestandsnaam lezen, artiest → albumartiest en hoofdletters
-  normaliseren zetten een voorstel in de gedeelde velden erboven en verder
-  niets: geen
-  bestand gaat open, geen tag wordt geschreven. Wat een actie voorstelt is met
-  de hand aan te passen en met "Invoer leegmaken" in één klik terug te draaien.
-  Een voorstel dat gelijk is aan wat er al staat, wordt niet ingevuld.
-  "Disctotalen invullen" is de enige hulpactie die ook de selectie aanraakt, en
-  dat is de actie zelf: het aantal schijven van een set hoort in élk bestand van
-  die set te staan en niet in het deel dat toevallig aangevinkt stond.
+- **Een hulpactie vult alleen invoervelden.** Het zijn er vier: hernummeren, de
+  titel uit de bestandsnaam lezen, artiest → albumartiest en hoofdletters
+  normaliseren. Ze zetten een voorstel in de velden erboven of in de tabel en
+  verder niets: geen bestand gaat open, geen tag wordt geschreven, en geen
+  enkele hulpactie raakt de selectie aan — wat er aanstaat blijft staan tot de
+  gebruiker het zelf verandert. Wat een actie voorstelt is met de hand aan te
+  passen en met "Invoer leegmaken" in één klik terug te draaien. Een voorstel
+  dat gelijk is aan wat er al staat, wordt niet ingevuld. Ze staan ingeklapt in
+  een `<details>`: ze raden, en raden is niet wat je hier meestal komt doen.
+  "Artiest → albumartiest" vult het gedeelde veld en niet elke rij apart —
+  per bestand kopiëren zou op precies het geval waar de actie voor bestaat, een
+  verzamelalbum, elk bestand een eigen albumartiest geven en het album in de
+  speler uit elkaar trekken. Lopen de artiesten uiteen, dan valt er geen
+  albumartiest te kopiëren en zegt de actie dat.
 - **Het selecteren met de muis zet alleen vinkjes.** Klikken op een regel,
   shift-klikken voor een reeks en ctrl- of cmd-klikken voor één erbij zijn een
   toevoeging in `static/app.js` en verder niets: ze zetten dezelfde vinkjes die

@@ -90,6 +90,71 @@
     });
   })();
 
+  // De telling en gevolgen komen van de server, maar tekstvelden versturen
+  // zichzelf niet. Ververs alleen de uitleg: het formulier vervangen zou de
+  // focus, een volgende toetsaanslag of een klik op Voorbeeld kunnen verliezen.
+  var berekeningen = new WeakMap();
+
+  function werkGevolgenBij(event) {
+    var veld = event.target;
+    if (!(veld instanceof HTMLInputElement) || veld.type !== "text") {
+      return;
+    }
+    var form = veld.closest("form#album");
+    if (!form || !form.querySelector(".balk__telling")) {
+      return;
+    }
+
+    var vorige = berekeningen.get(form);
+    if (vorige) {
+      window.clearTimeout(vorige.timer);
+      vorige.controller.abort();
+    }
+    var berekening = { controller: new AbortController(), timer: null };
+    berekeningen.set(form, berekening);
+    form.querySelector(".balk__telling").textContent = "Wijzigingen worden berekend…";
+
+    berekening.timer = window.setTimeout(function () {
+      // Geen submitknop meesturen: deze aanvraag berekent alleen de gevolgen.
+      var invoer = new URLSearchParams(new FormData(form));
+      fetch(form.action, {
+        method: "POST",
+        headers: { "HX-Request": "true" },
+        body: invoer,
+        signal: berekening.controller.signal
+      })
+        .then(function (antwoord) {
+          if (!antwoord.ok) {
+            throw new Error("De berekening is mislukt");
+          }
+          return antwoord.text();
+        })
+        .then(function (html) {
+          if (!form.isConnected || berekeningen.get(form) !== berekening) {
+            return;
+          }
+          var pagina = new DOMParser().parseFromString(html, "text/html");
+          [".gevolg", ".balk__telling"].forEach(function (selector) {
+            var nieuw = pagina.querySelector(selector);
+            var huidig = form.querySelector(selector);
+            if (nieuw && huidig) {
+              huidig.innerHTML = nieuw.innerHTML;
+            }
+          });
+        })
+        .catch(function (fout) {
+          if (fout.name !== "AbortError" && form.isConnected &&
+              berekeningen.get(form) === berekening) {
+            form.querySelector(".balk__telling").textContent =
+              "De telling kon niet worden bijgewerkt. Bekijk de wijzigingen via Voorbeeld en opslaan.";
+          }
+        });
+    }, event.type === "change" ? 0 : 200);
+  }
+
+  document.addEventListener("input", werkGevolgenBij);
+  document.addEventListener("change", werkGevolgenBij);
+
   // ── Bezig met schrijven ──────────────────────────────────────────────────
 
   // Alleen knoppen die werkelijk schrijven dragen dit attribuut; de waarde is

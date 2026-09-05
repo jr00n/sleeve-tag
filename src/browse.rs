@@ -39,6 +39,15 @@ const NO_DISC: &str = "Zonder discnummer";
 /// kunnen lopen.
 pub const THUMBNAIL_SIZE_PARAM: &str = "thumb";
 
+/// Waarde van de `size`-parameter waarmee het hoespaneel om zijn hoes vraagt.
+///
+/// Tussen de duimnagel en het origineel in. De duimnagel is gemaakt voor een
+/// vakje van veertig pixels en wordt wazig zodra hij het vierkant van het
+/// paneel moet vullen; het origineel is honderden kilobytes, en dat paneel komt
+/// bij elke klik in de albumweergave opnieuw langs. Het endpoint in
+/// [`crate::web`] leest dezelfde constante.
+pub const PANEL_SIZE_PARAM: &str = "paneel";
+
 /// Tekens die in een padsegment van een URL gecodeerd moeten worden.
 ///
 /// `/` blijft er bewust buiten: het scheidt de segmenten en hoort niet gecodeerd
@@ -241,6 +250,11 @@ impl TrackSummary {
         !self.issues.is_empty()
     }
 
+    /// Concrete namen van tagblokken die niet in dit formaat thuishoren.
+    pub fn foreign_tags_label(&self) -> String {
+        self.foreign_tags.join(", ")
+    }
+
     /// Het tracknummer, of een lege tekst wanneer het ontbreekt.
     ///
     /// Bewust leeg en niet `—`: in een smalle kolom vóór de titel is een streepje
@@ -326,14 +340,6 @@ impl DiscGroup {
             Some(number) => format!("Schijf {number}"),
             None => NO_DISC.to_string(),
         }
-    }
-
-    /// De sleutel van deze groep in een formulier; leeg voor "zonder
-    /// discnummer".
-    pub fn key(&self) -> String {
-        self.disc
-            .map(|number| number.to_string())
-            .unwrap_or_default()
     }
 
     /// Hoeveel bestanden er in deze groep zitten, als tekst.
@@ -479,45 +485,48 @@ impl Listing {
         }
     }
 
-    /// Wat er in deze lijst staat, in één regel naast de mapnaam.
+    /// Hoeveel bestanden er in de lijst staan; `None` wanneer er geen zijn.
     ///
-    /// Hoeveel bestanden er te zien zijn, en — alleen wanneer er discnummers
-    /// in de map staan — hoeveel schijven dat zijn. Het gaat over de lijst
-    /// zoals hij op het scherm komt, dus over wat er na het filteren overblijft;
-    /// dat is wat je eronder telt. De telling van wat aandacht vraagt is iets
-    /// anders: die hoort bij de map en staat in de kopbalk.
+    /// Staat als label naast de mapnaam, met [`Listing::disc_label`] ernaast.
+    /// Het gaat over de lijst zoals hij op het scherm komt, dus over wat er na
+    /// het filteren overblijft; dat is wat je eronder telt. De telling van wat
+    /// aandacht vraagt is iets anders: die hoort bij de map en staat in de
+    /// kopbalk.
     ///
-    /// `None` wanneer er geen bestanden zijn: dan staat er al een uitleg
-    /// waarom de lijst leeg is, en "0 bestanden" naast de mapnaam voegt daar
-    /// niets aan toe.
-    pub fn summary_label(&self) -> Option<String> {
-        if self.tracks.is_empty() {
+    /// `None` wanneer er geen bestanden zijn: dan staat er al een uitleg waarom
+    /// de lijst leeg is, en "0 bestanden" naast de mapnaam voegt daar niets aan
+    /// toe.
+    pub fn count_label(&self) -> Option<String> {
+        match self.tracks.len() {
+            0 => None,
+            1 => Some("1 bestand".to_string()),
+            count => Some(format!("{count} bestanden")),
+        }
+    }
+
+    /// Hoeveel schijven de map kent; `None` wanneer er geen schijfindeling is.
+    ///
+    /// Het label staat naast [`Listing::count_label`] en alleen wanneer er
+    /// discnummers in de map staan: het aantal schijven melden in een map die
+    /// er geen kent, is ruis.
+    ///
+    /// De groep bestanden zónder discnummer telt niet als schijf: van die
+    /// bestanden is juist niet te zeggen bij welke schijf ze horen.
+    pub fn disc_label(&self) -> Option<String> {
+        if !self.is_grouped() {
             return None;
         }
 
-        let files = match self.tracks.len() {
-            1 => "1 bestand".to_string(),
-            count => format!("{count} bestanden"),
-        };
-
-        if !self.is_grouped() {
-            return Some(files);
-        }
-
-        // De groep bestanden zónder discnummer telt niet als schijf: van die
-        // bestanden is juist niet te zeggen bij welke schijf ze horen.
         let numbered = self
             .groups
             .iter()
             .filter(|group| group.disc.is_some())
             .count();
 
-        let discs = match numbered {
+        Some(match numbered {
             1 => "1 schijf".to_string(),
             count => format!("{count} schijven"),
-        };
-
-        Some(format!("{files} · {discs}"))
+        })
     }
 }
 
@@ -794,6 +803,14 @@ fn thumbnail_url(path: &str) -> String {
     format!("/art/{}?size={THUMBNAIL_SIZE_PARAM}", encode(path))
 }
 
+/// De URL van de hoes zoals het hoespaneel hem toont.
+///
+/// Eén afbeelding per pagina en niet dertig, dus hier weegt scherpte zwaarder
+/// dan bytes; zie [`PANEL_SIZE_PARAM`].
+pub fn panel_art_url(path: &str) -> String {
+    format!("/art/{}?size={PANEL_SIZE_PARAM}", encode(path))
+}
+
 /// De URL van de geavanceerde weergave van één bestand.
 pub fn raw_tags_url(path: &str) -> String {
     format!("/tags/{}", encode(path))
@@ -802,6 +819,11 @@ pub fn raw_tags_url(path: &str) -> String {
 /// De URL van het bewerkformulier van één bestand.
 pub fn edit_url(path: &str) -> String {
     format!("/bewerk/{}", encode(path))
+}
+
+/// De POST-actie die alleen ongewenste tagblokken uit één bestand verwijdert.
+pub fn cleanup_url(path: &str) -> String {
+    format!("/opschonen/{}", encode(path))
 }
 
 /// Wie het bewerkformulier heeft geopend, zodat de weg terug erheen leidt.
@@ -1653,11 +1675,6 @@ mod tests {
         assert_eq!(groups[0].disc, Some(1));
         assert_eq!(groups[1].disc, None);
         assert_eq!(groups[1].label(), NO_DISC);
-        assert_eq!(
-            groups[1].key(),
-            "",
-            "de groep zonder schijf heeft geen nummer"
-        );
     }
 
     #[test]
@@ -1758,7 +1775,7 @@ mod tests {
     }
 
     #[test]
-    fn the_summary_beside_the_name_counts_files_and_discs() {
+    fn the_labels_beside_the_name_count_files_and_discs() {
         // Zonder discnummers staat er alleen een bestandstelling: het aantal
         // schijven melden in een map die er geen kent, is ruis.
         let (_tempdir, library) = library_with_album();
@@ -1767,7 +1784,8 @@ mod tests {
 
         let listing = album_listing(&library, "");
         assert!(!listing.is_grouped());
-        assert_eq!(listing.summary_label().as_deref(), Some("2 bestanden"));
+        assert_eq!(listing.count_label().as_deref(), Some("2 bestanden"));
+        assert_eq!(listing.disc_label(), None);
 
         // Met een discnummer erbij komt het aantal schijven ernaast te staan.
         // De groep zonder discnummer telt daar niet in mee: van die bestanden
@@ -1781,16 +1799,14 @@ mod tests {
             2,
             "de kale bestanden vormen een groep"
         );
-        assert_eq!(
-            listing.summary_label().as_deref(),
-            Some("3 bestanden · 1 schijf")
-        );
+        assert_eq!(listing.count_label().as_deref(), Some("3 bestanden"));
+        assert_eq!(listing.disc_label().as_deref(), Some("1 schijf"));
 
         // Een lege lijst zegt niets: daar staat al een uitleg waarom hij leeg
         // is, en "0 bestanden" voegt daar niets aan toe.
         let leeg = album_listing(&library, "bestaatniet");
         assert!(leeg.tracks.is_empty());
-        assert_eq!(leeg.summary_label(), None);
+        assert_eq!(leeg.count_label(), None);
     }
 
     #[test]

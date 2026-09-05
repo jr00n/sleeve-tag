@@ -29,8 +29,8 @@
   <table class="maptabel">
     <thead>
       <tr>
-        <th scope="col" class="maptabel__nummer">#</th>
         <th scope="col" class="maptabel__nummer">Disc</th>
+        <th scope="col" class="maptabel__nummer">#</th>
         <th scope="col" class="maptabel__hoeskop">Hoes</th>
         <th scope="col" class="maptabel__titelkop">Titel</th>
         <th scope="col">Artiest</th>
@@ -65,8 +65,8 @@
       </tr>
       {% endif %}
       <tr class="maptabel__rij">
-        <td class="maptabel__nummer">{{ track.track_label() }}</td>
         <td class="maptabel__nummer">{{ track.disc_label() }}</td>
+        <td class="maptabel__nummer">{{ track.track_label() }}</td>
         <td class="maptabel__hoes">
           {# `loading="lazy"` plus vaste afmetingen: de tabel is gerenderd
              voordat er ook maar één hoes binnen is, en er verschuift niets na
@@ -74,7 +74,7 @@
              toch een 404 zou opleveren; die krijgen de placeholder. #}
           {% if track.has_art() %}
           <img class="maptabel__hoesje" src="{{ track.art_url }}" alt=""
-               width="40" height="40" loading="lazy" decoding="async" />
+               width="28" height="28" loading="lazy" decoding="async" />
           {% else %}
           <span class="maptabel__hoesje maptabel__hoesje--leeg"
                 title="Geen album art in dit bestand"
@@ -92,6 +92,9 @@
             {% for issue in track.issues %}
             <span class="signaal">{{ issue.label() }}</span>
             {% endfor %}
+            {% if !track.foreign_tags.is_empty() %}
+            <span class="signaal">Ongewenst: {{ track.foreign_tags_label() }}</span>
+            {% endif %}
           </span>
           {% endif %}
         </td>

@@ -87,6 +87,24 @@
 </div>
 {% endif %}
 
+{% if !page.foreign_tags.is_empty() %}
+<aside class="signalering" role="note">
+  <h2 class="signalering__kop">Ongewenst tagblok: {{ page.foreign_tags_label() }}</h2>
+  <p>
+    Dit blok hoort niet bij {{ page.format }} en kan andere informatie bevatten
+    dan de tag die Sleeve gebruikt. Je kunt de inhoud eerst bekijken bij
+    <a href="{{ page.raw_url }}">ruwe tags</a>, of alleen dit ongewenste blok
+    verwijderen. De geldige tags en audio blijven behouden.
+  </p>
+  <form method="post" action="{{ page.cleanup_url }}">
+    <button class="knop" type="submit" data-bezig="Bezig met verwijderen…"
+            onclick="return confirm('Ongewenst tagblok verwijderen? De geldige tags en audio blijven behouden.')">
+      {{ page.foreign_tags_label() }}-blok verwijderen
+    </button>
+  </form>
+</aside>
+{% endif %}
+
 {# Het enige gedrag dat een gebruiker kan verrassen, dus het staat er vóór het
    formulier en niet in een voetnoot eronder. #}
 <p class="uitleg">

@@ -12,12 +12,12 @@ use axum::Router;
 use axum::extract::{Form, FromRequest, Multipart, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{Html, IntoResponse, Response};
-use axum::routing::get;
+use axum::routing::{get, post};
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 
 use crate::batch::AlbumPage;
-use crate::browse::{self, Crumb, Listing, THUMBNAIL_SIZE_PARAM};
+use crate::browse::{self, Crumb, Listing, PANEL_SIZE_PARAM, THUMBNAIL_SIZE_PARAM};
 use crate::config::Config;
 use crate::cover::{self, CoverDetails, CoverPage};
 use crate::edit::{EditPage, Notice};
@@ -77,6 +77,7 @@ pub fn router(config: Config, static_dir: &std::path::Path) -> Router {
         .route("/tags/{*path}", get(raw_tags_of_file))
         .route("/hoes/{*path}", get(cover_of_file).post(save_cover))
         .route("/bewerk/{*path}", get(edit_form).post(save_tags))
+        .route("/opschonen/{*path}", post(remove_foreign_tags))
         // De albumweergave hoort bij een map, dus ook de wortel heeft er een.
         .route("/album", get(album_root).post(album_root_selection))
         .route("/album/{*path}", get(album_page).post(album_selection))
@@ -1054,6 +1055,40 @@ async fn save_tags(
     Ok(Html(EditTemplate { page }.render()?))
 }
 
+/// Verwijdert alleen tagblokken die niet bij het bestandsformaat horen.
+async fn remove_foreign_tags(
+    State(state): State<AppState>,
+    Path(path): Path<String>,
+    Query(query): Query<EditQuery>,
+) -> Result<Html<String>, WebError> {
+    let library = Arc::clone(&state.library);
+    let options = state.write_options;
+    let target = path.clone();
+
+    let outcome = tokio::task::spawn_blocking(move || {
+        let absolute = library.resolve(&target)?;
+        Ok::<_, PathError>(tags::remove_foreign(&absolute, options))
+    })
+    .await??;
+
+    let notice = match outcome {
+        Ok(written) if written.changed => {
+            Notice::Saved(vec![written.removal_notice().unwrap_or_else(|| {
+                "Het ongewenste tagblok is verwijderd.".to_string()
+            })])
+        }
+        Ok(_) => Notice::Saved(vec![
+            "Er waren geen ongewenste tagblokken meer.".to_string(),
+        ]),
+        Err(error) => Notice::Failed(vec![format!(
+            "Het tagblok kon niet worden verwijderd: {error}. Het bestand is onveranderd gebleven."
+        )]),
+    };
+
+    let page = load_page(&state, path, &query.terug, None, Some(notice)).await?;
+    Ok(Html(EditTemplate { page }.render()?))
+}
+
 /// Bouwt de bewerkpagina van één bestand.
 ///
 /// `fields` overschrijft wat er in de invoervelden komt te staan; zonder die
@@ -1106,6 +1141,16 @@ async fn load_page(
         cover_url: browse::cover_url(&path),
         format: track.format.to_string(),
         duration: browse::format_duration(track.duration),
+        cleanup_url: if from_album {
+            format!(
+                "{}?terug={}",
+                browse::cleanup_url(&path),
+                browse::FROM_ALBUM
+            )
+        } else {
+            browse::cleanup_url(&path)
+        },
+        foreign_tags: track.foreign_tags,
         fields: fields.unwrap_or_else(|| edit::Form::from_tags(&track.tags)),
         notice,
         max_upload_mb: state.art_limits.max_upload_mb,
@@ -1126,26 +1171,44 @@ struct ArtQuery {
 /// marge op zonder dat de bytes noemenswaardig oplopen.
 const THUMBNAIL_MAX_PIXELS: u32 = 160;
 
+/// Maximale afmeting van de hoes in het hoespaneel, per as.
+///
+/// Het vierkant in het paneel is ruim driehonderd pixels breed; een duimnagel
+/// van honderdzestig opgeblazen tot die maat is zichtbaar zacht. Vijfhonderd
+/// geeft marge zonder dat er een hoes van een halve megabyte over de lijn gaat
+/// — en dat telt hier, want dit paneel komt bij elke klik in de albumweergave
+/// opnieuw langs.
+const PANEL_MAX_PIXELS: u32 = 500;
+
 /// De embedded front cover van één bestand.
 ///
-/// Zonder `?size=thumb` komt de hoes ongewijzigd terug, met het MIME-type zoals
-/// het in het bestand staat; dat is wat de detailweergave straks nodig heeft.
-/// Met `?size=thumb` komt er een verkleinde JPEG terug: de maplijst toont
-/// dertig van deze plaatjes naast elkaar in een vakje van veertig pixels, en
-/// daar dertig volledige hoezen voor over het netwerk sturen zou de pagina
-/// onbruikbaar maken op een telefoon.
+/// Zonder `size` komt de hoes ongewijzigd terug, met het MIME-type zoals het in
+/// het bestand staat; dat is wat de detailweergave nodig heeft. Met een `size`
+/// komt er een verkleinde JPEG terug: de maplijst toont dertig van deze
+/// plaatjes naast elkaar in een vakje van veertig pixels, en daar dertig
+/// volledige hoezen voor over het netwerk sturen zou de pagina onbruikbaar
+/// maken op een telefoon. Het hoespaneel toont er één, groot, en vraagt daarom
+/// om een ruimere maat.
 async fn art_of_file(
     State(state): State<AppState>,
     Path(path): Path<String>,
     Query(query): Query<ArtQuery>,
 ) -> Result<Response, WebError> {
     let library = Arc::clone(&state.library);
-    let thumbnail = query.size == THUMBNAIL_SIZE_PARAM;
+
+    // Een onbekende waarde levert het origineel op, net als geen waarde: een
+    // verzoek dat niet om een bekende maat vraagt, krijgt wat er in het bestand
+    // staat en geen foutmelding.
+    let max_pixels = match query.size.as_str() {
+        THUMBNAIL_SIZE_PARAM => Some(THUMBNAIL_MAX_PIXELS),
+        PANEL_SIZE_PARAM => Some(PANEL_MAX_PIXELS),
+        _ => None,
+    };
 
     // Uitlezen en verkleinen zijn allebei blokkerend: het eerste wacht op de
     // schijf, het tweede op de processor.
     let (mime, bytes) =
-        tokio::task::spawn_blocking(move || read_cover(&library, &path, thumbnail)).await??;
+        tokio::task::spawn_blocking(move || read_cover(&library, &path, max_pixels)).await??;
 
     Ok((
         [
@@ -1168,7 +1231,7 @@ async fn art_of_file(
 fn read_cover(
     library: &Library,
     path: &str,
-    thumbnail: bool,
+    max_pixels: Option<u32>,
 ) -> Result<(String, Vec<u8>), WebError> {
     let absolute = library.resolve(path)?;
 
@@ -1176,11 +1239,11 @@ fn read_cover(
         return Err(WebError::NoArt);
     };
 
-    if !thumbnail {
+    let Some(max_pixels) = max_pixels else {
         return Ok((mime, data));
-    }
+    };
 
-    match art::thumbnail(&data, THUMBNAIL_MAX_PIXELS) {
+    match art::thumbnail(&data, max_pixels) {
         Ok(small) => Ok(("image/jpeg".to_string(), small)),
 
         // Een hoes die niet te verkleinen is, is nog steeds een hoes. Het
@@ -1819,6 +1882,37 @@ mod tests {
             html.contains("leegmaken verwijdert"),
             "de pagina legt niet uit wat een leeg veld betekent: {html}"
         );
+    }
+
+    #[tokio::test]
+    async fn an_unwanted_tag_block_is_named_and_can_be_removed_separately() {
+        let root = tempfile::tempdir().expect("tempdir");
+        let album = root.path().join("Album");
+        std::fs::create_dir(&album).expect("albummap");
+        crate::testfixtures::copy_to(&album, crate::testfixtures::FLAC_WITH_ID3);
+
+        let edit = body_as_string(get(&root, "/bewerk/Album/id3-in-flac.flac").await).await;
+        assert!(
+            edit.contains("Ongewenst tagblok: ID3v2"),
+            "het concrete blok wordt niet genoemd: {edit}"
+        );
+        assert!(
+            edit.contains(r#"action="/opschonen/Album/id3-in-flac.flac""#),
+            "de aparte opruimactie ontbreekt: {edit}"
+        );
+
+        let response = post_form(&root, "/opschonen/Album/id3-in-flac.flac", &[]).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let result = body_as_string(response).await;
+        assert!(
+            result.contains("ID3v2-blok"),
+            "bevestiging ontbreekt: {result}"
+        );
+
+        let track = tags::read(&album.join(crate::testfixtures::FLAC_WITH_ID3))
+            .expect("bestand moet leesbaar blijven");
+        assert!(track.foreign_tags.is_empty());
+        assert_eq!(track.tags.title.as_deref(), Some("Stilte in D"));
     }
 
     #[tokio::test]

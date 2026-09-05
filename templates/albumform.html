@@ -17,6 +17,9 @@
    vervangen; vandaar dat het zijn eigen `id` draagt en `outerHTML` wisselt. #}
 <form class="batch" id="album" method="post" action="{{ page.url }}"
       hx-post="{{ page.url }}" hx-target="#album" hx-swap="outerHTML">
+  {# De eerste submitknop is ook de browserstandaard bij Enter in een tekstveld.
+     Een verborgen voorbeeldknop voorkomt dat Enter de selectie wijzigt. #}
+  <button type="submit" name="actie" value="voorbeeld" hidden tabindex="-1" aria-hidden="true"></button>
 
   {# Hoe de zojuist uitgevoerde batch is afgelopen (FR-11): bestand voor
      bestand, want een fout bij het ene zegt niets over het andere. De waarden
@@ -58,7 +61,7 @@
 
   <div class="albumlayout">
 
-  {# ── Rechts: de bestandslijst ─────────────────────────────────────────── #}
+  {# ── Links: de bestandslijst ──────────────────────────────────────────── #}
   <div class="albumlayout__lijst">
 
     {# De kop boven de lijst: waar je bent, hoeveel er van de map geselecteerd
@@ -67,7 +70,13 @@
        één bestand. #}
     <div class="lijstkop">
       <h1 class="lijstkop__naam">{{ page.name }}</h1>
-      <p class="lijstkop__telling" role="status">{{ page.selection_summary() }}</p>
+      {# De stand van de selectie en het aantal schijven als twee labels naast
+         de naam, zoals het ontwerp ze zet. De telling draagt `role="status"`:
+         ze verandert bij elk vinkje, en dat hoort ook voorgelezen te worden. #}
+      <span class="label label--gevuld" role="status">{{ page.count_label() }}</span>
+      {% if let Some(discs) = page.disc_label() %}
+      <span class="label label--omlijnd">{{ discs }}</span>
+      {% endif %}
       <span class="batch__knoppen">
         <button class="knop" type="submit" name="actie" value="alles">Alles selecteren</button>
         <button class="knop" type="submit" name="actie" value="niets">Niets selecteren</button>
@@ -82,30 +91,34 @@
         <tr>
           <th scope="col" class="batchtabel__kies">Kies</th>
           {# De koppen komen uit hetzelfde lijstje als de velden in elke rij, en
-             kunnen daar dus niet uit de pas mee gaan lopen. #}
+             kunnen daar dus niet uit de pas mee gaan lopen. Er zijn er twee: de
+             velden die per bestand verschillen. Al het andere over dit bestand
+             — het discnummer, de hoes, het album — geldt voor de hele selectie
+             en staat in het paneel ernaast; een kolom per rij zou hetzelfde
+             feit zoveel keer herhalen als er bestanden zijn.
+
+             De lengte is niet in te tikken en staat dus niet in dat lijstje;
+             ze sluit de tabel af. #}
           {% for column in page.columns %}
-          <th scope="col">{{ column }}</th>
+          <th scope="col"{% if column.numeric %} class="batchtabel__nummer"{% endif %}>{{ column.label }}</th>
           {% endfor %}
-          <th scope="col">Disc</th>
-          <th scope="col">Bewerken</th>
+          <th scope="col" class="batchtabel__nummer">Lengte</th>
         </tr>
       </thead>
       <tbody>
         {% for row in page.rows %}
-        {# De kop van een schijf, als eigen rij in dezelfde tabel. De knop
-           ernaast vinkt precies deze groep aan of uit en laat de rest van de
-           selectie staan; wat een klik doet, staat in het opschrift.
+        {# De kop van een schijf, als eigen rij in dezelfde tabel. Ze wijst aan
+           waar een schijf begint en verder niets: selecteren doen de vinkjes en
+           de twee knoppen boven de lijst.
 
-           De colspan is ruim genomen: de tabel krijgt er nog kolommen bij, en
-           de kop hoort altijd over de volle breedte te staan. Een browser kapt
-           hem af op het werkelijke aantal kolommen. #}
+           De colspan is ruim genomen: de kop hoort altijd over de volle breedte
+           te staan, en een browser kapt hem af op het werkelijke aantal
+           kolommen. #}
         {% if let Some(group) = row.group %}
         <tr class="batchtabel__groep">
           <th class="batchtabel__groepkop" colspan="99" scope="colgroup">
             <span class="groep__naam">{{ group.label }}</span>
             <span class="groep__telling">{{ group.summary }}</span>
-            <button class="knop knop--klein" type="submit"
-                    name="actie" value="{{ group.action }}">{{ group.button }}</button>
           </th>
         </tr>
         {% endif %}
@@ -116,27 +129,28 @@
         <tr class="batchtabel__rij{% if row.selected %} batchtabel__rij--gekozen{% endif %}{% if row.has_problems() %} batchtabel__rij--fout{% endif %}"
             data-bestand="{{ row.name }}">
           <td class="batchtabel__kies">
-            {# Het label is de bestandsnaam: op een telefoon is een vinkje van
-               een paar pixels geen doel, en zo is de hele cel aanklikbaar. #}
+            {# Het label is de bestandsnaam, maar niet in beeld: die staat onder
+               de titel, waar het ontwerp hem zet, en zou deze kolom anders zo
+               breed maken dat de tabel niet meer te overzien is. Wie de pagina
+               laat voorlezen hoort nog steeds waar dit vinkje over gaat.
+
+               De hele cel blijft aanklikbaar doordat het label eromheen staat,
+               en een klik op de regel zelf zet hetzelfde vinkje — dat doet
+               `app.js`. #}
             <label class="vinkje">
               <input class="vinkje__vakje" type="checkbox" name="bestand"
                      value="{{ row.name }}" {% if row.selected %}checked{% endif %}
                      hx-post="{{ page.url }}" hx-include="closest form" />
-              <span class="vinkje__tekst">{{ row.name }}</span>
+              <span class="vinkje__tekst alleen-voorlezen">{{ row.name }}</span>
             </label>
-
-            {# Hoort bij de selectie en niet bij één kolom: het gaat over alles
-               wat in deze rij is ingetikt. #}
-            {% if row.is_ignored() %}
-            <p class="rijveld__hulp">Niet geselecteerd; deze invoer wordt niet opgeslagen.</p>
-            {% endif %}
           </td>
-          {# Deze velden verschillen per bestand en zijn daarom hier in te
+          {# Deze twee velden verschillen per bestand en zijn daarom hier in te
              tikken (FR-9). Wat er nu in het bestand staat, staat als grijze
-             tekst in het veld: leeg laten verandert er niets aan, en wat er wél
-             staat wint van het gedeelde veld met dezelfde naam. #}
+             tekst in het veld: leeg laten verandert er niets aan. Wat een heel
+             album deelt, staat in het paneel ernaast — geen veld staat op
+             allebei de plekken, dus er valt niets te winnen van elkaar. #}
           {% for input in row.inputs %}
-          <td{% if input.numeric %} class="batchtabel__nummer"{% endif %}>
+          <td{% if input.numeric %} class="batchtabel__nummer"{% else if input.primary %} class="batchtabel__titelcel"{% endif %}>
             <input class="rijveld rijveld--{{ input.size }}" type="text"
                    name="{{ input.name }}" value="{{ input.value }}"
                    placeholder="{{ input.placeholder }}" autocomplete="off"
@@ -149,10 +163,37 @@
             {% if let Some(problem) = input.problem %}
             <p class="rijveld__fout" role="status">{{ problem }}</p>
             {% endif %}
+
+            {# Wat er over het bestand als geheel te zeggen valt, staat onder de
+               titel en niet in een eigen kolom: de bestandsnaam, wat er aan het
+               bestand mankeert, en of de invoer van deze rij wel ergens heen
+               gaat. Welke kolom dat is, bepaalt `RowField::is_primary`.
+
+               De bestandsnaam is meteen de weg naar het bewerkformulier van dit
+               ene bestand. Een eigen kolom "Bewerken" zei niets wat deze link
+               niet zegt, en kostte de tabel breedte die de titel beter kan
+               gebruiken. #}
+            {% if input.primary %}
+            <a class="batchtabel__bestand" href="{{ row.edit_url }}"
+               title="{{ row.name }} bewerken">{{ row.name }}</a>
+
+            {% if !row.signals.is_empty() %}
+            <span class="batchtabel__signalen">
+              {% for signal in row.signals %}
+              <span class="signaal">{{ signal }}</span>
+              {% endfor %}
+            </span>
+            {% endif %}
+
+            {# Hoort bij de selectie en niet bij één kolom: het gaat over alles
+               wat in deze rij is ingetikt. #}
+            {% if row.is_ignored() %}
+            <p class="rijveld__hulp">Niet geselecteerd; deze invoer wordt niet opgeslagen.</p>
+            {% endif %}
+            {% endif %}
           </td>
           {% endfor %}
-          <td class="batchtabel__nummer">{{ row.disc }}</td>
-          <td><a class="batchtabel__titel" href="{{ row.edit_url }}">Bewerken</a></td>
+          <td class="batchtabel__nummer">{{ row.duration }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -161,7 +202,7 @@
 
   </div>
 
-  {# ── Links: het bewerkpaneel ──────────────────────────────────────────────
+  {# ── Rechts: het bewerkpaneel ─────────────────────────────────────────────
      De hoes, de gedeelde velden en de hulpacties onder elkaar, in de volgorde
      van het ontwerp. Alle drie stellen ze alleen voor: er wordt in dit paneel
      niets geschreven, en de weg naar het schrijven loopt onderaan langs de
@@ -180,25 +221,35 @@
      die werkelijk schrijft. #}
   <section class="hoespaneel" aria-label="Hoes van de selectie"
            data-neerzetvak data-max-mb="{{ page.max_upload_mb }}">
-    <h2 class="hoespaneel__kop">Hoes</h2>
+    {# Het opschrift en de feiten over de hoes delen hun regel, zoals in het
+       ontwerp: wat het voor bestand is, hoort bij de kop en niet onder de
+       afbeelding. #}
+    <div class="hoespaneel__kopregel">
+      <h2 class="hoespaneel__kop">Hoes</h2>
+      {% if let Some(shown) = page.cover.shown %}
+      <p class="hoespaneel__feiten">{{ shown.facts }}</p>
+      {% endif %}
+    </div>
+
+    {# Het vierkant. Staat er geen hoes, dan blijft het vak leeg — met opzet
+       niet één uit de selectie gekozen, want dan zou het paneel de andere
+       verzwijgen. Wat er wél aan de hand is, staat als strook onderin het vak,
+       waar het ontwerp die zet. #}
+    <div class="hoespaneel__vlak{% if page.cover.shown.is_none() %} hoespaneel__vlak--leeg{% endif %}">
+      {% if let Some(shown) = page.cover.shown %}
+      <img class="hoespaneel__afbeelding" src="{{ shown.art_url }}"
+           alt="De hoes van de geselecteerde bestanden" width="500" height="500" />
+      {% endif %}
+      <p class="hoespaneel__samenvatting" role="status">{{ page.cover.summary() }}</p>
+    </div>
 
     {% if let Some(shown) = page.cover.shown %}
-    <img class="hoespaneel__afbeelding" src="{{ shown.art_url }}"
-         alt="De hoes van de geselecteerde bestanden" width="160" height="160" />
-    <p class="hoespaneel__feiten">{{ shown.facts }}</p>
     {% if !shown.square %}
     <p class="hoespaneel__kanttekening">
       Deze hoes is niet vierkant; de meeste spelers snijden hem bij.
     </p>
     {% endif %}
-    {% else %}
-    {# Geen afbeelding, en met opzet niet één uit de selectie gekozen: dan zou
-       het paneel de andere verzwijgen. Wat er wél aan de hand is, staat in de
-       regel hieronder. #}
-    <div class="hoespaneel__leeg" aria-hidden="true"></div>
     {% endif %}
-
-    <p class="hoespaneel__samenvatting" role="status">{{ page.cover.summary() }}</p>
 
     {% if page.cover.has_selection() %}
     <p class="neerzetvak__hint" data-neerzetvak-hint hidden>
@@ -255,8 +306,8 @@
        Dat staat er vóór de velden, niet in een voetnoot eronder. #}
     <p class="uitleg gedeeld__uitleg">
       Een veld dat leeg blijft, laat elk bestand houden wat het heeft; wissen doe
-      je met het vinkje eronder. Titel, artiest en tracknummer verschillen per
-      bestand en tik je in de tabel zelf in.
+      je met het vinkje eronder. Tracknummer en titel verschillen per bestand en
+      tik je in de tabel zelf in.
     </p>
 
     {% for rij in page.field_rows() %}
@@ -301,22 +352,27 @@
   </fieldset>
 
   {# Hulpacties (FR-10). Ze vullen uitsluitend de invoervelden hierboven; er
-     wordt niets geschreven, en "Invoer leegmaken" draait ze in één klik terug.
-     Ze staan onder de velden waar ze over gaan, met een eigen kopje: een blok
-     van acht knoppen boven de lijst zou de lijst wegduwen. #}
-  <div class="hulpacties">
-    <h2 class="hulpacties__kop">Hulpacties</h2>
+     wordt niets geschreven, en "Invoer leegmaken" in de balk draait ze in één
+     klik terug. Het zijn er precies de drie die het PRD noemt: nummeren,
+     artiest → albumartiest, en hoofdletters normaliseren; "Titel uit
+     bestandsnaam" hoort erbij omdat een map zonder titels anders bestand voor
+     bestand moet.
+
+     Ze staan ingeklapt. Ze raden, en raden is niet wat je hier meestal komt
+     doen; wie ze nodig heeft, klapt ze open. Zonder JavaScript werkt dat ook:
+     een `<details>` heeft er geen nodig.
+
+     Na een klik staan ze open. De melding van de actie staat hierbinnen, en
+     die pagina komt vers van de server: dicht laten zou verzwijgen wat de
+     actie zojuist gedaan heeft, en de knop ernaast onbereikbaar maken voor wie
+     er twee achter elkaar wil. #}
+  <details class="hulpacties"{% if page.helper_notice.is_some() %} open{% endif %}>
+    <summary class="hulpacties__kop">Hulpacties</summary>
     <span class="batch__knoppen">
       <button class="knop" type="submit" name="actie" value="hernummer">Hernummeren</button>
-      <button class="knop" type="submit" name="actie" value="hernummer-disc">Hernummeren per schijf</button>
-      {# Het nummer staat in het opschrift: wat er gaat gebeuren hoort te lezen
-         te zijn voordat er geklikt wordt. #}
-      <button class="knop" type="submit" name="actie" value="disc">Deze schijf nummer {{ page.disc_suggestion }} geven</button>
-      <button class="knop" type="submit" name="actie" value="disctotaal">Disctotalen invullen</button>
       <button class="knop" type="submit" name="actie" value="titelnaam">Titel uit bestandsnaam</button>
       <button class="knop" type="submit" name="actie" value="artiest">Artiest → albumartiest</button>
       <button class="knop" type="submit" name="actie" value="hoofdletters">Hoofdletters normaliseren</button>
-      <button class="knop" type="submit" name="actie" value="herstel">Invoer leegmaken</button>
     </span>
 
     {% if let Some(notice) = page.helper_notice %}
@@ -329,7 +385,7 @@
       </p>
     </div>
     {% endif %}
-  </div>
+  </details>
 
   {# Wat er zou gebeuren, per veld. Zolang er nog niet geschreven wordt is dit
      de enige plek waar het verschil tussen leeg laten en wissen te zien is; met
@@ -382,11 +438,10 @@
          klikken — leegmaken wat al leeg is, doet niets en kan niets breken. #}
       <button class="knop" type="submit" name="actie" value="herstel">Invoer leegmaken</button>
 
-      {# Staat er niets open, dan valt er niets voor te leggen. De waarde en het
-         `disabled` staan op dezelfde regel, net als bij het vinkje in de tabel:
-         zo kan een test er iets over zeggen. #}
+      {# Invoer wordt pas bij versturen beoordeeld. Houd deze knop bereikbaar:
+         de gebruiker kan sinds de laatste serverrespons iets hebben ingevuld. #}
       <button class="knop knop--primair" type="submit"
-              name="actie" value="voorbeeld" {% if !page.is_pending() %}disabled{% endif %}>Voorbeeld en opslaan</button>
+              name="actie" value="voorbeeld">Voorbeeld en opslaan</button>
     </span>
   </div>
   {% endif %}
